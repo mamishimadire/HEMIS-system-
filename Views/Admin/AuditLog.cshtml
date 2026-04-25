@@ -1,0 +1,64 @@
+@model List<HemisAudit.ViewModels.AuditLogRowViewModel>
+@{ ViewData["Title"] = "Audit Log"; Layout = "~/Views/Shared/_Layout.cshtml"; }
+
+<div class="page-header">
+    <div>
+        <h1>Audit Log</h1>
+        <p>Last @Model.Count entries (most recent first)</p>
+    </div>
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Entity</th>
+                <th>Hash</th>
+                <th>IP</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var log in Model)
+            {
+                <tr>
+                    <td style="white-space:nowrap">@log.Timestamp.ToString("dd MMM yyyy HH:mm:ss")</td>
+                    <td>@(string.IsNullOrWhiteSpace(log.UserName) ? "—" : log.UserName)</td>
+                    <td><span class="badge @GetActionBadge(log.Action)">@log.Action</span></td>
+                    <td style="max-width:420px;font-size:12px">
+                        <div>@(string.IsNullOrWhiteSpace(log.EntityType) ? "—" : log.EntityType)</div>
+                        <small>@(log.EntityId?.ToString() ?? "")</small>
+                        <div style="margin-top:6px;color:#666;word-break:break-word">
+                            @(string.IsNullOrWhiteSpace(log.NewValues) ? (log.OldValues ?? "—") : log.NewValues)
+                        </div>
+                    </td>
+                    <td style="font-size:11px;color:#999">
+                        <div>@(string.IsNullOrWhiteSpace(log.RecordHash) ? "—" : log.RecordHash[..Math.Min(12, log.RecordHash.Length)])</div>
+                        <small>@(string.IsNullOrWhiteSpace(log.PreviousHash) ? "" : log.PreviousHash[..Math.Min(12, log.PreviousHash.Length)])</small>
+                    </td>
+                    <td style="font-size:11px;color:#999">@(log.IpAddress ?? "—")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@functions {
+    string GetActionBadge(string action) => action switch
+    {
+        "login" => "badge--pass",
+        "logout" => "badge--neutral",
+        "run_validation" => "badge--info",
+        "VALIDATION_RUN" => "badge--info",
+        "create_client" => "badge--info",
+        "assign_user" => "badge--info",
+        "remove_user" => "badge--warning",
+        "deactivate_user" => "badge--fail",
+        "reset_password" => "badge--warning",
+        "USER_LOGIN" => "badge--pass",
+        "PASSWORD_RESET" => "badge--warning",
+        _ => "badge--neutral"
+    };
+}

@@ -1,0 +1,168 @@
+@using Microsoft.AspNetCore.Identity
+@using HemisAudit.Helpers
+@using HemisAudit.Models
+@using HemisAudit.Services
+@inject UserManager<ApplicationUser> UserMgr
+@inject ISystemDatabaseService SystemDb
+@{
+    var user = await UserMgr.GetUserAsync(User);
+    var roles = user != null ? await UserMgr.GetRolesAsync(user) : new List<string>();
+    var role = roles.FirstOrDefault() ?? "";
+    var unreadMessages = user != null ? await SystemDb.GetUnreadMessageCountAsync(user, role) : 0;
+    var initials = user != null
+        ? (user.FirstName.Length > 0 ? user.FirstName[0].ToString() : "") +
+          (user.LastName.Length > 0 ? user.LastName[0].ToString() : "")
+        : "?";
+    var avatarSrc = AvatarHelper.GetAvatarSource(user?.Id, user?.FirstName, user?.LastName, user?.ProfilePicturePath);
+    var currentPath = Context.Request.Path.ToString().ToLowerInvariant();
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - HEMIS Audit</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        (function () {
+            var theme = localStorage.getItem('hemis-theme') || 'dark';
+            if (theme === 'light') document.documentElement.classList.add('light');
+        })();
+    </script>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+<div class="layout app-shell">
+    <aside class="sidebar">
+        <div class="sidebar__brand">
+            <div class="sidebar__brand-icon" aria-hidden="true">H</div>
+            <div>
+                <div class="sidebar__brand-title">HEMIS Audit</div>
+                <div class="sidebar__brand-sub">Management System</div>
+            </div>
+        </div>
+
+        <nav class="sidebar__nav">
+            <a href="/Dashboard" class="sidebar__nav-item @(currentPath.StartsWith("/dashboard") ? "sidebar__nav-item--active" : "")">
+                <span class="nav-icon">DB</span> Dashboard
+            </a>
+            <a href="/Profile/Edit" class="sidebar__nav-item @(currentPath.StartsWith("/profile") ? "sidebar__nav-item--active" : "")">
+                <span class="nav-icon">PF</span> Profile
+            </a>
+            <a href="/Messages" class="sidebar__nav-item @(currentPath.StartsWith("/messages") ? "sidebar__nav-item--active" : "")">
+                <span class="nav-icon">MS</span> Messages
+                @if (unreadMessages > 0)
+                {
+                    <span class="nav-rule-num">@unreadMessages</span>
+                }
+            </a>
+
+            @if (role == "Admin" || role == "Director")
+            {
+                <div class="sidebar__nav-section">Administration</div>
+                <a href="/Admin/Clients" class="sidebar__nav-item @(currentPath.Contains("/admin/client") ? "sidebar__nav-item--active" : "")">
+                    <span class="nav-icon">EG</span> Engagements
+                </a>
+            }
+
+            @if (role == "Admin")
+            {
+                <a href="/Admin/Users" class="sidebar__nav-item @(currentPath.Contains("/admin/user") ? "sidebar__nav-item--active" : "")">
+                    <span class="nav-icon">US</span> Users
+                </a>
+                <a href="/Admin/AuditLog" class="sidebar__nav-item @(currentPath.Contains("/admin/audit") ? "sidebar__nav-item--active" : "")">
+                    <span class="nav-icon">AL</span> Audit Log
+                </a>
+            }
+
+        </nav>
+
+        <div class="sidebar__footer">
+            <div class="sidebar__user">
+                <img src="@avatarSrc" alt="@initials" class="sidebar__user-avatar-img" />
+                <div style="flex:1;min-width:0">
+                    <div class="sidebar__user-name">@(user?.FullName ?? "User")</div>
+                    <div class="sidebar__user-role">@role</div>
+                </div>
+                <form asp-controller="Account" asp-action="Logout" method="post" style="margin:0">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn-logout" title="Sign out">Out</button>
+                </form>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main-content main-area">
+        <div class="topnav">
+            @if (currentPath.StartsWith("/admin/clients"))
+            {
+                <form class="topnav-search" asp-controller="Admin" asp-action="Clients" method="get" role="search">
+                    <span class="topnav-search__icon" aria-hidden="true">&#128269;</span>
+                    <input type="search"
+                           name="q"
+                           value="@(Context.Request.Query["q"].ToString())"
+                           placeholder="Search engagements..."
+                           aria-label="Search engagements" />
+                </form>
+            }
+            <div class="topnav-right">
+                <a href="/Messages" class="topnav-pill" title="Messages">
+                    Messages
+                    @if (unreadMessages > 0)
+                    {
+                        <span class="topnav-pill__badge">@unreadMessages</span>
+                    }
+                </a>
+                <button type="button" class="theme-toggle" id="themeToggle" title="Switch theme" aria-label="Switch theme">
+                    <span id="iconMoon">Dark</span>
+                    <span id="iconSun" style="display:none">Light</span>
+                </button>
+                <a href="/Profile/Edit" class="topnav-user-btn" title="@((user?.FullName ?? "User"))">
+                    <img src="@avatarSrc" alt="@initials" class="topnav-av-sm" />
+                    <span class="topnav-uname">@(user?.FirstName ?? "User")</span>
+                </a>
+            </div>
+        </div>
+
+        <div class="page-content">
+            @if (TempData["PasswordWarnDays"] != null)
+            {
+                <div class="alert alert--warning" style="margin-bottom:16px; display:flex; justify-content:space-between; gap:12px; align-items:center;">
+                    <div>
+                        Your password expires in @TempData["PasswordWarnDays"] day(s). Change it now.
+                    </div>
+                    <a href="/Profile/Edit#password-panel" class="btn btn-sm btn-warning" style="text-decoration:none;">Change password</a>
+                </div>
+            }
+
+            @RenderBody()
+        </div>
+    </main>
+</div>
+
+<script>
+(function(){
+    var btn = document.getElementById('themeToggle');
+    var root = document.documentElement;
+    function syncIcons(isLight){
+        var moon = document.getElementById('iconMoon');
+        var sun = document.getElementById('iconSun');
+        if (moon) moon.style.display = isLight ? 'none' : 'inline';
+        if (sun) sun.style.display = isLight ? 'inline' : 'none';
+        if (btn) btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+    }
+    syncIcons(root.classList.contains('light'));
+    if (btn) {
+        btn.addEventListener('click', function(){
+            var isLight = root.classList.toggle('light');
+            localStorage.setItem('hemis-theme', isLight ? 'light' : 'dark');
+            syncIcons(isLight);
+        });
+    }
+
+})();
+</script>
+</body>
+</html>

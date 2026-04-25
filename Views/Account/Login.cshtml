@@ -1,0 +1,90 @@
+@model HemisAudit.ViewModels.LoginViewModel
+@{
+    ViewData["Title"] = "Login";
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HEMIS Audit - Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script>
+        (function () {
+            var theme = localStorage.getItem('hemis-theme') || 'dark';
+            if (theme === 'light') document.documentElement.classList.add('light');
+        })();
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body class="login-page">
+    <div class="login-wrap">
+        <div class="login-card">
+            <div class="login-brand">
+                <div class="login-brand__icon" aria-hidden="true">H</div>
+                <div>
+                    <div class="login-brand__title">HEMIS Audit</div>
+                    <div class="login-brand__sub">Management System</div>
+                </div>
+            </div>
+
+            <h2 class="login-heading">Sign in to your account</h2>
+
+            @if (!ViewData.ModelState.IsValid)
+            {
+                <div class="alert alert--error" style="margin-bottom:16px">
+                    @foreach (var err in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+                    {
+                        <div>@err.ErrorMessage</div>
+                    }
+                </div>
+            }
+
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert--success" style="margin-bottom:16px">
+                    @TempData["Success"]
+                </div>
+            }
+
+            <form asp-action="Login" method="post">
+                <input type="hidden" name="ReturnUrl" value="@ViewData["ReturnUrl"]" />
+                @Html.AntiForgeryToken()
+
+                <div class="field-group" style="margin-bottom:14px">
+                    <label asp-for="Email">Email address</label>
+                    <input asp-for="Email" type="email" placeholder="you@sng.gt.com" autocomplete="email" />
+                    <span asp-validation-for="Email" class="field-error"></span>
+                </div>
+
+                <div class="field-group" style="margin-bottom:20px">
+                    <label asp-for="Password">Password</label>
+                    <input asp-for="Password" type="password" placeholder="********" autocomplete="current-password" />
+                    <span asp-validation-for="Password" class="field-error"></span>
+                </div>
+
+                <label class="checkbox-label" style="margin-bottom:20px">
+                    <input asp-for="RememberMe" type="checkbox" /> Remember me for 8 hours
+                </label>
+
+                <div style="margin:-10px 0 18px; text-align:right">
+                    <a href="/Account/ForgotPassword" style="font-size:12px; text-decoration:none; font-weight:600;">
+                        Forgot password?
+                    </a>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:11px">
+                    Sign in ->
+                </button>
+            </form>
+        </div>
+
+        <p style="color:var(--text-muted);font-size:12px;text-align:center;margin-top:20px">
+            SNG Grant Thornton - HEMIS Validation Suite - v1.0
+        </p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,307 @@
+@model HemisAudit.ViewModels.ClientDetailViewModel
+@{
+    ViewData["Title"] = Model.EngagementName;
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var canOpenModule = ViewBag.CanOpenModule is bool allowed && allowed;
+    var canManageAssignments = ViewBag.CanManageAssignments is bool manageAssignments && manageAssignments;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isArchived = Model.IsArchived;
+    var canReviewUnsignedRuns =
+        string.Equals(currentSystemRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+<div class="page-header">
+    <div>
+        <h1>@Model.EngagementName</h1>
+        <p>
+            @Model.MaconomyNumber
+            <span style="padding:0 8px">|</span>
+            @Model.Industry
+            <span style="padding:0 8px">|</span>
+            <span class="badge @(Model.IsArchived ? "badge--warning" : Model.IsApproved ? "badge--pass" : "badge--neutral")">@Model.Status</span>
+            <span style="padding:0 8px">|</span>
+            Created @Model.CreatedAt.ToString("dd MMM yyyy")
+        </p>
+        <p style="margin-top:4px;color:#757575">
+            Director: @Model.DirectorName (@Model.DirectorEmail)
+            <span style="padding:0 8px">|</span>
+            Manager: @Model.ManagerName (@Model.ManagerEmail)
+        </p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+        @if (canOpenModule)
+        {
+            <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">
+                @(string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase) ? "Open Workspace" : "Open Rule 36")
+            </a>
+        }
+        else if (Model.IsArchived)
+        {
+            <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Archived</span>
+        }
+        else
+        {
+            <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Awaiting Approval</span>
+        }
+
+        @if (User.IsInRole("Admin") && !Model.IsApproved && !isArchived)
+        {
+            <form asp-action="ApproveClient" method="post" style="display:inline">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.Id" />
+                <input type="hidden" name="returnUrl" value="/Admin/ClientDetail/@Model.Id" />
+                <button type="submit" class="btn btn-primary">Approve</button>
+            </form>
+        }
+
+        @if (User.IsInRole("Admin") && !isArchived)
+        {
+            <form asp-action="DeleteClient" method="post" style="display:inline">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.Id" />
+                <button type="submit" class="btn btn-warning"
+                        onclick="return confirm('Delete this engagement and all related assignments and validation runs?')">
+                    Delete
+                </button>
+            </form>
+        }
+
+        @if (User.IsInRole("Director") && !isArchived)
+        {
+            if (Model.CanArchive)
+            {
+                <form asp-action="ArchiveClient" method="post" style="display:inline">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.Id" />
+                    <input type="hidden" name="returnUrl" value="/Admin/ClientDetail/@Model.Id" />
+                    <button type="submit" class="btn btn-warning"
+                            onclick="return confirm('Archive this engagement? The workspace will close and only saved results will remain available.')">
+                        Archive
+                    </button>
+                </form>
+            }
+            else
+            {
+                <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Archive Locked</span>
+            }
+        }
+
+        <a asp-action="Clients" class="btn btn-secondary">Back to Engagements</a>
+    </div>
+</div>
+
+@if (isArchived)
+{
+    <div class="alert alert--info" style="margin-bottom:24px">
+        This engagement is archived. The record is read-only for everyone, and only saved results remain available for review and download.
+    </div>
+
+    if (Model.CurrentRunId.HasValue)
+    {
+        <div class="card" style="margin-bottom:24px;padding:18px 20px">
+            <h3 class="section-title" style="margin-top:0">Archived Results</h3>
+            <p style="margin-bottom:12px;color:#757575">
+                Open the latest signed-off validation run or download it directly. No edits are allowed on archived engagements.
+            </p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <a asp-controller="Rule36" asp-action="Run" asp-route-id="@Model.CurrentRunId" class="btn btn-primary">
+                    Open Latest Results
+                </a>
+                <a asp-controller="Rule36" asp-action="DownloadSavedExcel" asp-route-runId="@Model.CurrentRunId" class="btn btn-success">
+                    Download Excel
+                </a>
+            </div>
+        </div>
+    }
+}
+
+@if (User.IsInRole("Director"))
+{
+    <div class="alert alert--info" style="margin-bottom:24px">@Model.ArchiveEligibilityMessage</div>
+}
+
+<h3 class="section-title">Assigned Users (@Model.AssignedUsers.Count)</h3>
+<div class="card" style="margin-bottom:24px">
+    @if (User.IsInRole("Admin") && Model.IsArchived)
+    {
+        <div style="padding:12px 16px;color:#757575;font-size:13px;border-bottom:1px solid #E0E0E0">
+            This engagement is archived. User assignments are now read-only.
+        </div>
+    }
+    @if (canManageAssignments && !isArchived)
+    {
+        if (Model.AvailableUsers.Any())
+        {
+            <form asp-controller="Admin" asp-action="AssignUser" method="post"
+                  style="display:flex;gap:10px;align-items:flex-end;padding:16px;border-bottom:1px solid #E0E0E0;flex-wrap:wrap">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ClientId" value="@Model.Id" />
+
+                <div class="field-group" style="flex:1;min-width:220px">
+                    <label>Add User</label>
+                    <select name="UserId">
+                        @foreach (var user in Model.AvailableUsers)
+                        {
+                            <option value="@user.Id">@user.FullName (@user.Email)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="field-group" style="min-width:180px">
+                    <label>Engagement Role</label>
+                    <select name="EngagementRole">
+                        <option value="DataAnalyst">DataAnalyst</option>
+                        <option value="Manager">Manager</option>
+                        <option value="Director">Director</option>
+                        <option value="Trainee">Trainee</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="margin-bottom:0">Assign</button>
+            </form>
+        }
+        else
+        {
+            <div style="padding:12px 16px;color:#757575;font-size:13px;border-bottom:1px solid #E0E0E0">
+                All active users are already assigned to this engagement.
+            </div>
+        }
+    }
+
+    @if (Model.AssignedUsers.Any())
+    {
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Assigned</th>
+                        @if (canManageAssignments && !isArchived)
+                        {
+                            <th>Action</th>
+                        }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var user in Model.AssignedUsers)
+                {
+                    <tr>
+                        <td><strong>@user.FullName</strong></td>
+                        <td>@user.Email</td>
+                        <td><span class="badge badge--role">@user.EngagementRole</span></td>
+                        <td>@user.AssignedAt.ToString("dd MMM yyyy")</td>
+                        @if (canManageAssignments && !isArchived)
+                        {
+                            <td>
+                                <form asp-controller="Admin" asp-action="RemoveUser" method="post" style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="clientUserId" value="@user.ClientUserId" />
+                                    <input type="hidden" name="clientId" value="@Model.Id" />
+                                    <button type="submit" class="btn btn-sm btn-warning"
+                                            onclick="return confirm('Remove @user.FullName from this engagement?')">
+                                        Remove
+                                    </button>
+                                </form>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <div style="padding:16px;color:#757575;text-align:center">No users assigned yet.</div>
+    }
+</div>
+
+<h3 class="section-title">Validation Runs (@Model.ValidationRuns.Count)</h3>
+@if (Model.ValidationRuns.Any())
+{
+    <div class="card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Rule</th>
+                    <th>Status</th>
+                    <th>Current</th>
+                    <th>Total</th>
+                    <th>Exceptions</th>
+                    <th>Rate</th>
+                    <th>Signoffs</th>
+                    <th>Run By</th>
+                    <th>Date</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var run in Model.ValidationRuns)
+                {
+                    var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
+                        ? "badge--pass"
+                        : run.Status == "Fail" || run.Status == "Needs Review"
+                            ? "badge--fail"
+                            : "badge--role";
+                    <tr>
+                        <td>@run.Id</td>
+                        <td>Rule @run.RuleNumber - @run.RuleName</td>
+                        <td><span class="badge @runBadge">@run.Status</span></td>
+                        <td><span class="badge @(run.IsCurrent ? "badge--pass" : "badge--neutral")">@(run.IsCurrent ? "Current" : "History")</span></td>
+                        <td>@run.TotalValidated.ToString("N0")</td>
+                        <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
+                        <td>@run.ExceptionRate.ToString("F2")%</td>
+                        <td>
+                            @run.SignoffCount
+                            @if (run.HasDataAnalystSignoff)
+                            {
+                                <br />
+                                <small style="color:#2e7d32">Data analyst signed</small>
+                            }
+                        </td>
+                        <td>@run.RunByUserName</td>
+                        <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                        <td>
+            @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
+            {
+                <a asp-controller="Rule36" asp-action="Run" asp-route-id="@run.Id" class="btn btn-sm btn-secondary">Review</a>
+            }
+                            else
+                            {
+                                <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="empty-card">
+        @if (canOpenModule)
+        {
+            <p>No validation runs yet. <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+        }
+        else if (Model.IsArchived)
+        {
+            <p>This engagement is archived. Saved validation results remain available for review and download.</p>
+        }
+        else
+        {
+            <p>This engagement must be approved before users can access modules.</p>
+        }
+    </div>
+}

@@ -1,0 +1,92 @@
+@using HemisAudit.Helpers
+@model HemisAudit.ViewModels.EditUserViewModel
+@{ ViewData["Title"] = "Edit User"; Layout = "~/Views/Shared/_Layout.cshtml"; }
+
+<div class="page-header">
+    <h1>Edit User</h1>
+    <a asp-action="Users" class="btn btn-secondary">← Back</a>
+</div>
+
+<div class="card" style="max-width:560px">
+    <form asp-action="EditUser" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Id" />
+
+        <div class="profile-photo-card profile-photo-card--compact">
+            <img src="@AvatarHelper.GetAvatarSource(Model.Id, Model.FirstName, Model.LastName, Model.CurrentProfilePicturePath)" alt="@Model.FirstName @Model.LastName" class="avatar avatar--xl" />
+        </div>
+
+        <div class="form-grid">
+            <div class="field-group">
+                <label>First Name *</label>
+                <input asp-for="FirstName" />
+                <span asp-validation-for="FirstName" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label>Last Name *</label>
+                <input asp-for="LastName" />
+                <span asp-validation-for="LastName" class="field-error"></span>
+            </div>
+        </div>
+
+        <div class="field-group" style="margin:14px 0">
+            <label>Email Address *</label>
+            <input asp-for="Email" type="email" readonly />
+            <span asp-validation-for="Email" class="field-error"></span>
+        </div>
+
+        <div class="form-grid">
+            <div class="field-group">
+                <label>Employee Code</label>
+                <input asp-for="EmployeeCode" />
+            </div>
+            <div class="field-group">
+                <label>System Role *</label>
+                <select asp-for="Role">
+                    @foreach (var r in (string[])ViewBag.Roles)
+                    {
+                        <option value="@r">@r</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field-group">
+                <label>Phone Number</label>
+                <input asp-for="PhoneNumber" />
+                <span asp-validation-for="PhoneNumber" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label>Gender</label>
+                <select asp-for="Gender">
+                    <option value="">Not specified</option>
+                    <option value="Female">Female</option>
+                    <option value="Male">Male</option>
+                    <option value="Other">Other</option>
+                    <option value="Prefer not to say">Prefer not to say</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field-group">
+                <label>Department</label>
+                <input asp-for="Department" />
+            </div>
+            <div class="field-group">
+                <label>Office Address</label>
+                <textarea asp-for="OfficeAddress" rows="3"></textarea>
+            </div>
+        </div>
+
+        <label class="checkbox-label" style="margin-top:16px">
+            <input asp-for="IsActive" type="checkbox" /> Account is active
+        </label>
+
+        <div class="action-bar" style="margin-top:20px">
+            <button type="submit" class="btn btn-success">💾 Save Changes</button>
+            <a asp-action="Users" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>

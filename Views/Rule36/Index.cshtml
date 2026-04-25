@@ -1,0 +1,1659 @@
+@using HemisAudit.Models
+@{
+    ViewData["Title"] = "Rule 36 - Deceased Students";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
+    var selectedClientId = (int)(ViewBag.ClientId ?? 0);
+}
+
+<div id="app" class="rule-page-shell">
+    <!-- Engagement selector -->
+    <div class="engagement-selector">
+        <label>Engagement</label>
+        <select id="clientIdSelect" onchange="handleClientChange(this.value)">
+            <option value="0">Select engagement (results saved here)</option>
+            @foreach (var c in clients)
+            {
+                <option value="@c.Id" selected="@(c.Id == selectedClientId ? "selected" : null)">@c.Name - @c.FiscalYear</option>
+            }
+        </select>
+        <small id="workspaceSavedHint">Saved runs reload the last analyst configuration for this engagement.</small>
+    </div>
+
+    <!-- 
+         HEADER
+    -->
+    <div class="rule-header">
+        <div class="rule-header__icon">R36</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 36: Deceased Students Validation</h1>
+            <p class="rule-header__sub">Cross-table validation | Dynamic column matching | 100% population test</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <!-- 
+         ACCORDION CONFIGURATION
+     -->
+    <div class="accordion-stack">
+
+        <!--  1. Database Connection  -->
+        <div class="accordion-item" id="acc-connection">
+            <button class="accordion-toggle" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Server Name</label>
+                        <input type="text" id="serverInput" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                    </div>
+                    <div class="field-group">
+                        <label>Driver</label>
+                        <select id="driverSelect">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group" id="dbFieldGroup" style="display:none">
+                        <label>Database</label>
+                        <select id="databaseSelect">
+                            <option value="">Select database</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="connectBtn" onclick="connectServer()">Connect</button>
+                <div class="status-output" id="connectionStatus"></div>
+            </div>
+        </div>
+
+        <!--  2. Table Configuration  -->
+        <div class="accordion-item" id="acc-tables">
+            <button class="accordion-toggle" onclick="toggleAccordion('tables')">
+                <span class="acc-icon">TB</span>
+                <span>Table Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-tables" style="display:none">
+                <div class="info-box info-box--red">
+                    <strong>Rule 36 Requirement:</strong> Match student records from the STUD table against a deceased students reference table.
+                    Any student whose ID appears in the deceased table is flagged as an exception.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>STUD Table <span class="auto-tag" id="studAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="studTableSelect">
+                            <option value="">Select table</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>Deceased Table <span class="auto-tag" id="decAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="deceasedTableSelect">
+                            <option value="">Select table</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="status-output" id="tableStatus"></div>
+            </div>
+        </div>
+
+        <!--  3. Column Mapping  -->
+        <div class="accordion-item" id="acc-columns">
+            <button class="accordion-toggle" onclick="toggleAccordion('columns')">
+                <span class="acc-icon">CL</span>
+                <span>Column Mapping</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-columns" style="display:none">
+                <div class="info-box info-box--dark">
+                    <strong>Column Selection:</strong> Choose one column from each table to match.
+                    STUD column is typically <code>_007</code> (Student ID).
+                    Any row where the values match is an <span class="badge badge--fail">EXCEPTION</span>
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>STUD Column <span class="auto-tag" id="studColAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="studColumnSelect">
+                            <option value="">Select column</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>Deceased Column <span class="auto-tag" id="decColAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="deceasedColumnSelect">
+                            <option value="">Select column</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="validationPreview" class="validation-preview" style="display:none"></div>
+            </div>
+        </div>
+
+        <!--  4. Download Formats  -->
+        <div class="accordion-item" id="acc-downloads">
+            <button class="accordion-toggle" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Download Formats</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel (3 sheets: Summary, Exceptions, Statistics)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV (Full results)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkExceptionsCsv" checked /> CSV (Exceptions only)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL Script</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 
+         ACTION BUTTONS
+    -->
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 36 connection, configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the last saved Rule 36 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div class="field-group">
+                <label id="workspaceSignoffLabel">Signoff Comment</label>
+                <textarea id="signoffComment" placeholder="Add the final review note that confirms this validation is complete."></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            <button class="btn btn-success" id="saveWorkspaceBtn" onclick="saveWorkspace()">Save Workspace</button>
+            <button class="btn btn-primary" id="signOffBtn" onclick="signOffWorkspace()">Sign Off</button>
+            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove My Signoff</button>
+        </div>
+    </div>
+    <div class="action-bar">
+        <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
+        <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
+        <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+        <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
+    </div>
+
+    <!-- 
+         RESULTS TABS
+     -->
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" onclick="switchTab('validation')">Validation Results</button>
+            <button class="tab-btn" onclick="switchTab('exceptions')">Exceptions List</button>
+            <button class="tab-btn" onclick="switchTab('charts')">Visualizations</button>
+            <button class="tab-btn" onclick="switchTab('sql')">SQL Code</button>
+            <button class="tab-btn" onclick="switchTab('downloads')">Downloads</button>
+        </div>
+
+        <!-- Validation Results -->
+        <div class="tab-pane active" id="tab-validation">
+            <div id="validationContent" class="empty-state">
+                <p>Run validation to see results here.</p>
+            </div>
+        </div>
+
+        <!-- Exceptions List -->
+        <div class="tab-pane" id="tab-exceptions">
+            <div id="exceptionsContent" class="empty-state">
+                <p>No exceptions data yet. Run validation first.</p>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="tab-pane" id="tab-charts">
+            <div id="chartsContent" class="empty-state">
+                <p>Charts will appear after running validation.</p>
+            </div>
+        </div>
+
+        <!-- SQL Code -->
+        <div class="tab-pane" id="tab-sql">
+            <div id="sqlContent" class="empty-state">
+                <p>Click "Generate SQL" or run validation to generate the SQL script.</p>
+            </div>
+        </div>
+
+        <!-- Downloads -->
+        <div class="tab-pane" id="tab-downloads">
+            <div id="downloadsContent" class="empty-state">
+                <p>Run validation first, then use "Download All" or individual download buttons.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spinner overlay -->
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<!-- 
+     JAVASCRIPT
+ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const currentSystemRole = '@(ViewBag.CurrentSystemRole ?? "")';
+const state = {
+    server: '',
+    database: '',
+    driver: 'ODBC Driver 17 for SQL Server',
+    studTable: '',
+    deceasedTable: '',
+    studColumn: '',
+    deceasedColumn: '',
+    clientId: parseInt(document.getElementById('clientIdSelect')?.value || '0') || 0,
+    currentRunId: null,
+    validationResult: null,
+    validationView: { filter: 'ALL', page: 1, pageSize: 100 },
+    currentUserEngagementRole: '',
+    currentStatus: '',
+    currentUserHasSignedOff: false,
+    hasDataAnalystSignoff: false,
+    resultsVisible: false,
+    editWarningAccepted: false,
+    isHydrating: false,
+    isDirty: false,
+    chartInstances: {}
+};
+
+function toggleAccordion(name) {
+    const body = document.getElementById(`body-${name}`);
+    const chevron = document.querySelector(`#acc-${name} .acc-chevron`);
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.textContent = open ? '^' : 'v';
+}
+
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelector(`[onclick="switchTab('${name}')"]`).classList.add('active');
+    document.getElementById(`tab-${name}`).classList.add('active');
+
+    if (name === 'charts' && state.validationResult) {
+        const chartsContent = document.getElementById('chartsContent');
+        if (chartsContent && chartsContent.classList.contains('empty-state')) {
+            renderCharts(state.validationResult);
+        }
+    }
+}
+
+function showSpinner(msg = 'Processing...') {
+    document.getElementById('spinnerMsg').textContent = msg;
+    document.getElementById('spinner').style.display = 'flex';
+}
+
+function hideSpinner() {
+    document.getElementById('spinner').style.display = 'none';
+}
+
+function setStatus(elId, msg, type = 'info') {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.innerHTML = `<div class="alert alert--${type}">${msg}</div>`;
+}
+
+function setWorkspaceInfo(msg, type = 'info') {
+    const el = document.getElementById('workspaceInfo');
+    if (!el) return;
+    el.className = `alert alert--${type}`;
+    el.innerHTML = msg;
+}
+
+function setWorkspaceRunState(text, type = 'neutral') {
+    const el = document.getElementById('workspaceRunState');
+    if (!el) return;
+    el.className = `badge badge--${type} badge--sm`;
+    el.textContent = text;
+}
+
+function isArchivedWorkspace() {
+    return String(state.currentStatus || '').toLowerCase() === 'archived';
+}
+
+function updateHeaderBadge(status) {
+    const badge = document.getElementById('statusBadge');
+    if (!badge) return;
+
+    if (!status) {
+        badge.style.display = 'none';
+        badge.textContent = '';
+        return;
+    }
+
+    badge.style.display = 'inline-block';
+    badge.className = `rule-header__badge ${String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail'}`;
+    badge.textContent = String(status).toUpperCase();
+}
+
+async function post(url, data) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+
+    return response.json();
+}
+
+async function getJson(url) {
+    const response = await fetch(url, { method: 'GET' });
+    return response.json();
+}
+
+async function downloadPost(url, data, filename) {
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    if (!r.ok) {
+        alert('Download failed');
+        return;
+    }
+
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+}
+
+async function markWorkspaceDirty() {
+    if (state.isHydrating) return;
+    if (currentSystemRole === 'Admin') return;
+    if (isArchivedWorkspace()) return;
+
+    if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+        const confirmEdit = window.confirm(
+            'Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.'
+        );
+
+        if (!confirmEdit) {
+            await loadWorkspaceState();
+            return;
+        }
+
+        showSpinner('Clearing signoffs for the edited workspace...');
+
+        try {
+            const result = await post('/Rule36/BeginWorkspaceEdit', buildRequest());
+            if (!result.success) {
+                setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
+                await loadWorkspaceState();
+                return;
+            }
+
+            state.editWarningAccepted = true;
+            state.currentUserHasSignedOff = false;
+            state.hasDataAnalystSignoff = false;
+
+            if (result.workspace) {
+                state.currentRunId = result.workspace.runId || state.currentRunId;
+                state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+                if (result.workspace.summary) {
+                    applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+                }
+            }
+
+            setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    state.isDirty = true;
+    renderWorkspaceState();
+}
+
+function resetWorkspaceState(clearClient = false) {
+    state.server = '';
+    state.database = '';
+    state.driver = 'ODBC Driver 17 for SQL Server';
+    state.studTable = '';
+    state.deceasedTable = '';
+    state.studColumn = '';
+    state.deceasedColumn = '';
+    state.currentRunId = null;
+    state.validationResult = null;
+    state.validationView = { filter: 'ALL', page: 1, pageSize: 100 };
+    state.currentUserEngagementRole = '';
+    state.currentStatus = '';
+    state.currentUserHasSignedOff = false;
+    state.hasDataAnalystSignoff = false;
+    state.resultsVisible = false;
+    state.editWarningAccepted = false;
+    state.isDirty = false;
+
+    if (clearClient) {
+        state.clientId = 0;
+    }
+
+    document.getElementById('serverInput').value = '';
+    document.getElementById('driverSelect').value = 'ODBC Driver 17 for SQL Server';
+    document.getElementById('databaseSelect').innerHTML = '<option value="">Select database</option>';
+    document.getElementById('studTableSelect').innerHTML = '<option value="">Select table</option>';
+    document.getElementById('deceasedTableSelect').innerHTML = '<option value="">Select table</option>';
+    document.getElementById('studColumnSelect').innerHTML = '<option value="">Select column</option>';
+    document.getElementById('deceasedColumnSelect').innerHTML = '<option value="">Select column</option>';
+    document.getElementById('dbFieldGroup').style.display = 'none';
+    document.getElementById('signoffComment').value = '';
+    document.getElementById('validationPreview').style.display = 'none';
+    document.getElementById('downloadAllBtn').disabled = true;
+    ['studAutoTag', 'decAutoTag', 'studColAutoTag', 'decColAutoTag'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    document.getElementById('connectionStatus').innerHTML = '';
+    document.getElementById('tableStatus').innerHTML = '';
+    document.getElementById('validationContent').className = 'empty-state';
+    document.getElementById('validationContent').innerHTML = '<p>Run validation to see results here.</p>';
+    document.getElementById('exceptionsContent').className = 'empty-state';
+    document.getElementById('exceptionsContent').innerHTML = '<p>No exceptions data yet. Run validation first.</p>';
+    document.getElementById('chartsContent').className = 'empty-state';
+    document.getElementById('chartsContent').innerHTML = '<p>Charts will appear after running validation.</p>';
+    document.getElementById('sqlContent').className = 'empty-state';
+    document.getElementById('sqlContent').innerHTML = '<p>Click "Generate SQL" or run validation to generate the SQL script.</p>';
+    document.getElementById('downloadsContent').className = 'empty-state';
+    document.getElementById('downloadsContent').innerHTML = '<p>Run validation first, then use "Download All" or individual download buttons.</p>';
+
+    Object.values(state.chartInstances).forEach(chart => chart.destroy());
+    state.chartInstances = {};
+
+    updateHeaderBadge('');
+    renderWorkspaceState();
+}
+
+function renderWorkspaceState() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const archived = isArchivedWorkspace();
+    const canEditWorkspace = currentSystemRole === 'DataAnalyst' && !archived;
+    const canSignWorkspace =
+        !archived &&
+        state.currentRunId &&
+        (
+            currentSystemRole === 'DataAnalyst' ||
+            (
+                state.resultsVisible &&
+                (role === 'Manager' || role === 'Director')
+            )
+        );
+    const canRemoveWorkspaceSignoff = !archived && canSignWorkspace && state.currentUserHasSignedOff;
+    const showDisabledArchivedSignoff = archived && !!state.currentRunId;
+    const runValidationBtn = document.getElementById('runValidationBtn');
+    const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
+    const signOffBtn = document.getElementById('signOffBtn');
+    const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
+    const signoffComment = document.getElementById('signoffComment');
+    const signoffLabel = document.getElementById('workspaceSignoffLabel');
+    const actionBar = document.querySelector('.action-bar');
+    const rootShell = document.getElementById('app');
+
+    if (rootShell) {
+        rootShell.classList.toggle('module-readonly', !canEditWorkspace);
+    }
+
+    if (runValidationBtn) {
+        runValidationBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
+        runValidationBtn.disabled = !canEditWorkspace;
+    }
+
+    if (generateSqlBtn) {
+        generateSqlBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
+        generateSqlBtn.disabled = !canEditWorkspace;
+    }
+
+    if (saveWorkspaceBtn) {
+        saveWorkspaceBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
+        saveWorkspaceBtn.disabled = !canEditWorkspace || !state.currentRunId;
+    }
+
+    if (signOffBtn) {
+        if (showDisabledArchivedSignoff) {
+            signOffBtn.style.display = 'inline-flex';
+            signOffBtn.disabled = true;
+            signOffBtn.textContent = `Sign Off as ${role || 'Reviewer'}`;
+            signOffBtn.title = 'Archived engagements are read-only. Signoff is disabled.';
+        } else {
+            signOffBtn.style.display = canSignWorkspace ? 'inline-flex' : 'none';
+            signOffBtn.disabled = !canSignWorkspace || state.isDirty;
+            signOffBtn.textContent = `Sign Off as ${role || 'Reviewer'}`;
+            signOffBtn.title = '';
+        }
+    }
+
+    if (removeWorkspaceSignoffBtn) {
+        if (showDisabledArchivedSignoff && state.currentUserHasSignedOff) {
+            removeWorkspaceSignoffBtn.style.display = 'inline-flex';
+            removeWorkspaceSignoffBtn.disabled = true;
+            removeWorkspaceSignoffBtn.title = 'Archived engagements are read-only. Signoff removal is disabled.';
+        } else {
+            removeWorkspaceSignoffBtn.style.display = canRemoveWorkspaceSignoff ? 'inline-flex' : 'none';
+            removeWorkspaceSignoffBtn.disabled = !canRemoveWorkspaceSignoff;
+            removeWorkspaceSignoffBtn.title = '';
+        }
+    }
+
+    if (signoffComment) {
+        signoffComment.disabled = archived || !canSignWorkspace;
+    }
+
+    if (signoffLabel) {
+        signoffLabel.textContent = role === 'DataAnalyst' ? 'Analyst Signoff Comment' : 'Review Signoff Comment';
+    }
+
+    if (actionBar) {
+        actionBar.style.display = 'flex';
+    }
+
+    applyWorkspaceAccessMode(canEditWorkspace);
+
+    if (!state.clientId) {
+        setWorkspaceRunState('No engagement selected', 'neutral');
+        setWorkspaceInfo('Select an engagement to load the last saved Rule 36 workspace.', 'info');
+        return;
+    }
+
+    if (!state.currentRunId) {
+        setWorkspaceRunState('No saved run loaded', 'neutral');
+        setWorkspaceInfo(
+            canEditWorkspace
+                ? 'No saved Rule 36 workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.'
+                : 'No saved Rule 36 workspace exists for this engagement yet. This module is read-only for your role.',
+            'info'
+        );
+        return;
+    }
+
+    if (archived) {
+        setWorkspaceRunState(`Run #${state.currentRunId} archived`, 'warning');
+        setWorkspaceInfo(
+            `This engagement is archived. The saved workspace and results remain visible, but configuration, validation, saving, and signoff are disabled for every role.`,
+            'warning'
+        );
+        return;
+    }
+
+    if (state.isDirty) {
+        setWorkspaceRunState(`Run #${state.currentRunId} loaded`, 'warning');
+        setWorkspaceInfo(
+            canEditWorkspace
+                ? `Saved run <strong>#${state.currentRunId}</strong> is loaded, but the current screen has unsaved changes. Save the workspace or run validation again before signing off.`
+                : `Saved run <strong>#${state.currentRunId}</strong> is loaded, but your role cannot edit this workspace.`,
+            'warning'
+        );
+        return;
+    }
+
+    if (state.currentUserHasSignedOff) {
+        setWorkspaceRunState(`Run #${state.currentRunId} signed off`, 'success');
+        setWorkspaceInfo(`Saved run <strong>#${state.currentRunId}</strong> is loaded with its last configuration and results. Your analyst signoff is already on this run.`, 'success');
+        return;
+    }
+
+    if (state.hasDataAnalystSignoff) {
+        setWorkspaceRunState(`Run #${state.currentRunId} analyst-signed`, 'success');
+        setWorkspaceInfo(`Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL with its saved configuration and results. Other assigned users can review this analyst-signed run.`, 'success');
+        return;
+    }
+
+    setWorkspaceRunState(`Run #${state.currentRunId} saved`, 'info');
+    setWorkspaceInfo(
+        canEditWorkspace
+            ? `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL. The analyst signoff is still outstanding, so other users will not see this run yet.`
+            : `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL and is awaiting analyst signoff.`,
+        'info'
+    );
+}
+
+function applyWorkspaceAccessMode(canEditWorkspace) {
+    ['body-connection', 'body-tables', 'body-columns'].forEach(id => {
+        const body = document.getElementById(id);
+        if (!body) return;
+        body.style.opacity = canEditWorkspace ? '' : '0.45';
+        body.style.filter = canEditWorkspace ? '' : 'grayscale(0.15)';
+        body.querySelectorAll('input, select, textarea, button').forEach(el => {
+            el.disabled = !canEditWorkspace;
+        });
+    });
+}
+
+async function handleClientChange(value) {
+    state.clientId = parseInt(value || '0') || 0;
+    resetWorkspaceState();
+
+    if (!state.clientId) {
+        return;
+    }
+
+    await loadWorkspaceState();
+}
+
+async function loadWorkspaceState() {
+    if (!state.clientId) {
+        renderWorkspaceState();
+        return;
+    }
+
+    showSpinner('Loading saved workspace...');
+
+    try {
+        const result = await getJson(`/Rule36/GetWorkspaceState?clientId=${state.clientId}`);
+
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to load saved workspace.')}`, 'error');
+            return;
+        }
+
+        if (!result.hasWorkspace || !result.workspace) {
+            renderWorkspaceState();
+            return;
+        }
+
+        await hydrateWorkspace(result.workspace);
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function hydrateWorkspace(workspace) {
+    state.isHydrating = true;
+
+    try {
+        state.currentRunId = workspace.runId || null;
+        state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
+        state.currentStatus = workspace.currentStatus || '';
+        state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+        state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
+        state.resultsVisible = !!workspace.resultsVisible;
+        state.editWarningAccepted = false;
+
+        document.getElementById('serverInput').value = workspace.server || '';
+        document.getElementById('driverSelect').value = workspace.driver || 'ODBC Driver 17 for SQL Server';
+        document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
+
+        state.server = workspace.server || '';
+        state.driver = workspace.driver || 'ODBC Driver 17 for SQL Server';
+
+        if (!state.resultsVisible) {
+            renderWorkspaceState();
+            return;
+        }
+
+        if (workspace.server) {
+            await connectServer({
+                preferredDatabase: workspace.database || '',
+                silent: true,
+                statusMessage: workspace.database
+                    ? `Connected to <strong>${workspace.database}</strong>. Restored from saved run #${workspace.runId}.`
+                    : 'Connected using the saved Rule 36 workspace.'
+            });
+        }
+
+        if (workspace.database) {
+            await loadTables({
+                preferredStudTable: workspace.studTable || '',
+                preferredDeceasedTable: workspace.deceasedTable || '',
+                preferredStudColumn: workspace.studColumn || '',
+                preferredDeceasedColumn: workspace.deceasedColumn || '',
+                silent: true
+            });
+        }
+
+        if (workspace.summary) {
+            applyValidationResult(workspace.summary, { switchToValidation: false, fromWorkspace: true });
+        } else {
+            updateHeaderBadge(workspace.currentStatus || '');
+        }
+    } finally {
+        state.isHydrating = false;
+        state.isDirty = false;
+        renderWorkspaceState();
+    }
+}
+
+async function connectServer(options = {}) {
+    state.server = document.getElementById('serverInput').value.trim();
+    state.driver = document.getElementById('driverSelect').value;
+
+    if (!state.server) {
+        setStatus('connectionStatus', 'Enter a server name.', 'error');
+        return null;
+    }
+
+    if (!options.silent) {
+        showSpinner('Connecting to server...');
+    }
+
+    setStatus('connectionStatus', 'Connecting...', 'info');
+    const result = await post('/Rule36/GetDatabases', { server: state.server, driver: state.driver });
+
+    if (!options.silent) {
+        hideSpinner();
+    }
+
+    if (!result.success) {
+        setStatus('connectionStatus', `Error: ${result.error}`, 'error');
+        return null;
+    }
+
+    const dbSelect = document.getElementById('databaseSelect');
+    dbSelect.innerHTML = '<option value="">Select database</option>';
+    result.databases.forEach(db => dbSelect.appendChild(new Option(db, db)));
+
+    document.getElementById('dbFieldGroup').style.display = 'block';
+
+    if (options.preferredDatabase && result.databases.includes(options.preferredDatabase)) {
+        dbSelect.value = options.preferredDatabase;
+        state.database = options.preferredDatabase;
+    }
+
+    setStatus(
+        'connectionStatus',
+        options.statusMessage || `Connected. Found ${result.databases.length} database(s). Select one below.`,
+        'success');
+
+    return result;
+}
+
+async function loadTables(options = {}) {
+    state.database = document.getElementById('databaseSelect').value;
+    if (!state.database) return null;
+
+    if (!options.silent) {
+        showSpinner('Loading tables...');
+    }
+
+    const result = await post('/Rule36/GetTables', {
+        server: state.server,
+        database: state.database,
+        driver: state.driver
+    });
+
+    if (!options.silent) {
+        hideSpinner();
+    }
+
+    if (!result.success) {
+        setStatus('connectionStatus', `Error: ${result.error}`, 'error');
+        return null;
+    }
+
+    setStatus('connectionStatus', `Connected to <strong>${state.database}</strong>. Found ${result.tables.length} tables.`, 'success');
+
+    ['studTableSelect', 'deceasedTableSelect'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '<option value="">Select table</option>';
+        result.tables.forEach(t => sel.appendChild(new Option(t, t)));
+    });
+
+    const selectedStudTable = options.preferredStudTable && result.tables.includes(options.preferredStudTable)
+        ? options.preferredStudTable
+        : result.autoStudTable || '';
+    const selectedDeceasedTable = options.preferredDeceasedTable && result.tables.includes(options.preferredDeceasedTable)
+        ? options.preferredDeceasedTable
+        : result.autoDeceasedTable || '';
+
+    document.getElementById('studAutoTag').style.display =
+        selectedStudTable && selectedStudTable === result.autoStudTable ? 'inline' : 'none';
+    document.getElementById('decAutoTag').style.display =
+        selectedDeceasedTable && selectedDeceasedTable === result.autoDeceasedTable ? 'inline' : 'none';
+
+    if (selectedStudTable) {
+        document.getElementById('studTableSelect').value = selectedStudTable;
+        state.studTable = selectedStudTable;
+    }
+
+    if (selectedDeceasedTable) {
+        document.getElementById('deceasedTableSelect').value = selectedDeceasedTable;
+        state.deceasedTable = selectedDeceasedTable;
+    }
+
+    document.getElementById('body-tables').style.display = 'block';
+    document.querySelector('#acc-tables .acc-chevron').textContent = '^';
+
+    if (selectedStudTable) {
+        await loadColumns('stud', {
+            preferredColumn: options.preferredStudColumn || '',
+            silent: true
+        });
+    }
+
+    if (selectedDeceasedTable) {
+        await loadColumns('deceased', {
+            preferredColumn: options.preferredDeceasedColumn || '',
+            silent: true
+        });
+    }
+
+    return result;
+}
+
+async function loadColumns(which, options = {}) {
+    const isStud = which === 'stud';
+    const tableName = document.getElementById(isStud ? 'studTableSelect' : 'deceasedTableSelect').value;
+    if (!tableName) return null;
+
+    if (isStud) {
+        state.studTable = tableName;
+    } else {
+        state.deceasedTable = tableName;
+    }
+
+    if (!options.silent) {
+        showSpinner(`Loading columns for ${tableName}...`);
+    }
+
+    const result = await post('/Rule36/GetColumns', {
+        server: state.server,
+        database: state.database,
+        driver: state.driver,
+        tableName,
+        isStudTable: isStud
+    });
+
+    if (!options.silent) {
+        hideSpinner();
+    }
+
+    if (!result.success) {
+        setStatus('tableStatus', `Error: ${result.error}`, 'error');
+        return null;
+    }
+
+    const sel = document.getElementById(isStud ? 'studColumnSelect' : 'deceasedColumnSelect');
+    const columns = result.columns || result.Columns || [];
+    const autoSelected = result.autoSelected || result.AutoSelected || '';
+    sel.innerHTML = '<option value="">Select column</option>';
+    columns.forEach(c => sel.appendChild(new Option(c, c)));
+
+    const preferredColumn = options.preferredColumn
+        ? columns.find(c => c.toLowerCase() === String(options.preferredColumn).toLowerCase())
+        : '';
+    const selectedColumn = preferredColumn || autoSelected || columns[0] || '';
+
+    const tag = document.getElementById(isStud ? 'studColAutoTag' : 'decColAutoTag');
+    if (tag) {
+        tag.style.display = selectedColumn && selectedColumn === autoSelected ? 'inline' : 'none';
+    }
+
+    if (selectedColumn) {
+        sel.value = selectedColumn;
+        if (isStud) {
+            state.studColumn = selectedColumn;
+        } else {
+            state.deceasedColumn = selectedColumn;
+        }
+    }
+
+    document.getElementById('body-columns').style.display = 'block';
+    document.querySelector('#acc-columns .acc-chevron').textContent = '^';
+
+    updatePreview();
+    return result;
+}
+
+function updatePreview() {
+    state.studColumn = document.getElementById('studColumnSelect').value;
+    state.deceasedColumn = document.getElementById('deceasedColumnSelect').value;
+
+    const preview = document.getElementById('validationPreview');
+    if (!state.studColumn || !state.deceasedColumn) {
+        preview.style.display = 'none';
+        return;
+    }
+
+    preview.style.display = 'block';
+    preview.innerHTML = `
+        <div class="preview-inner">
+            <strong>Validation Rule:</strong><br>
+            <code>WHERE [${state.studTable}].[${state.studColumn}] = [${state.deceasedTable}].[${state.deceasedColumn}]</code>
+            <p class="preview-note">Exception: Any student in <strong>${state.studTable}</strong> where
+            <strong>${state.studColumn}</strong> matches a value in <strong>${state.deceasedTable}.${state.deceasedColumn}</strong></p>
+        </div>`;
+}
+
+async function verifyTables() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can verify tables.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Verification is disabled.', 'error');
+        return;
+    }
+    if (!validateConfig()) return;
+    showSpinner('Verifying data...');
+
+    try {
+        const result = await post('/Rule36/VerifyTables', buildRequest());
+
+        if (!result.success) {
+            setStatus('tableStatus', `Error: ${result.error}`, 'error');
+            return;
+        }
+
+        setStatus('tableStatus', `
+            <strong>Verification Complete</strong><br>
+            ${state.studTable}: <strong>${result.studTotal.toLocaleString()}</strong> records<br>
+            ${state.deceasedTable}: <strong>${result.deceasedTotal.toLocaleString()}</strong> records<br>
+            Potential exceptions: <strong class="${result.matchingRecords > 0 ? 'text-danger' : 'text-success'}">${result.matchingRecords.toLocaleString()}</strong> students match deceased records<br>
+            <em>Ready to run full validation.</em>
+        `, result.matchingRecords > 0 ? 'warning' : 'success');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function runValidation(options = {}) {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can run Rule 36.', 'error');
+        return null;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Validation is disabled.', 'error');
+        return null;
+    }
+    if (!validateConfig()) return null;
+    showSpinner(options.spinnerMessage || 'Running validation... this may take a moment for large datasets.');
+
+    try {
+        const result = await post('/Rule36/RunValidation', buildRequest());
+
+        if (!result.success) {
+            const validationContent = document.getElementById('validationContent');
+            validationContent.classList.remove('empty-state');
+            validationContent.innerHTML = `<div class="alert alert--error">Error: ${escapeHtml(result.error)}</div>`;
+            switchTab('validation');
+            return null;
+        }
+
+        applyValidationResult(result, options);
+
+        if (currentSystemRole === 'DataAnalyst') {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo('Validation saved. Save the workspace and sign off again before others review this run.', 'warning');
+            renderWorkspaceState();
+        }
+
+        return result;
+    } finally {
+        hideSpinner();
+    }
+}
+
+function applyValidationResult(result, options = {}) {
+    state.validationResult = result;
+    state.validationView = { filter: 'ALL', page: 1, pageSize: 100 };
+    state.currentRunId = result.savedRunId || state.currentRunId;
+    state.currentUserHasSignedOff = options.fromWorkspace ? !!state.currentUserHasSignedOff : false;
+    state.hasDataAnalystSignoff = options.fromWorkspace ? !!state.hasDataAnalystSignoff : false;
+    if (!options.fromWorkspace) {
+        state.editWarningAccepted = false;
+    }
+    state.isDirty = false;
+    document.getElementById('downloadAllBtn').disabled = false;
+
+    updateHeaderBadge(result.status);
+    renderValidationResults(result);
+    renderExceptions(result);
+    renderDownloads(result);
+
+    if (options.switchToValidation !== false) {
+        switchTab('validation');
+    }
+
+    renderWorkspaceState();
+}
+
+function renderSectionHeader(title, subtitle, meta = '') {
+    return `
+        <div class="section-header">
+            <div>
+                <div class="section-header__title">${escapeHtml(title)}</div>
+                <div class="section-header__subtitle">${escapeHtml(subtitle)}</div>
+            </div>
+            ${meta ? `<div class="section-header__meta">${meta}</div>` : ''}
+        </div>`;
+}
+
+function renderValidationResults(r) {
+    if (!state.validationView) {
+        state.validationView = { filter: 'ALL', page: 1, pageSize: 100 };
+    }
+
+    const rate = parseFloat(r.exceptionRate);
+    const rateColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
+    const allRows = r.validationRows || [];
+    const filteredRows = filterValidationRows(allRows, state.validationView.filter);
+    const pageSize = state.validationView.pageSize || 100;
+    const totalRows = filteredRows.length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    const currentPage = Math.min(Math.max(state.validationView.page || 1, 1), totalPages);
+    state.validationView.page = currentPage;
+    const startIndex = (currentPage - 1) * pageSize;
+    const pageRows = filteredRows.slice(startIndex, startIndex + pageSize);
+    const rowsHtml = renderValidationRowsTable(pageRows, {
+        totalRows,
+        currentPage,
+        totalPages,
+        pageSize,
+        fromRow: totalRows === 0 ? 0 : startIndex + 1,
+        toRow: startIndex + pageRows.length
+    });
+
+    const validationContent = document.getElementById('validationContent');
+    validationContent.classList.remove('empty-state');
+    validationContent.innerHTML = `
+        ${renderSectionHeader(
+            'Rule 36: Deceased Students Validation',
+            `Database ${escapeHtml(r.database)} | STUD ${escapeHtml(r.studTable)}.${escapeHtml(r.studColumn)} | Deceased ${escapeHtml(r.deceasedTable)}.${escapeHtml(r.deceasedColumn)}`,
+            `Scope: ALL RECORDS (100%)<br>Run: ${escapeHtml(r.timestamp)}`
+        )}
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-card__label">Records Validated</div>
+                <div class="stat-card__value">${r.totalValidated.toLocaleString()}</div>
+            </div>
+            <div class="stat-card stat-card--pass">
+                <div class="stat-card__label">PASS (Active Students)</div>
+                <div class="stat-card__value">${r.passCount.toLocaleString()}</div>
+            </div>
+            <div class="stat-card stat-card--fail">
+                <div class="stat-card__label">FAIL (Deceased Found)</div>
+                <div class="stat-card__value">${r.failCount.toLocaleString()}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card__label">Exception Rate</div>
+                <div class="stat-card__value" style="color:${rateColor}">${rate.toFixed(2)}%</div>
+            </div>
+        </div>
+        <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
+            ${r.status === 'PASS'
+                ? 'VALIDATION PASSED - No deceased students found in STUD table'
+                : `VALIDATION FAILED - ${r.failCount.toLocaleString()} deceased student(s) found in STUD table`}
+        </div>
+        <div class="results-table-panel">
+            <div class="panel-title-row">
+                <h4>Validation Rows</h4>
+                <span class="panel-title-badge">${totalRows.toLocaleString()} filtered rows</span>
+            </div>
+            <div class="validation-toolbar">
+                <div class="validation-toolbar__group">
+                    <label for="validationFilter">Filter</label>
+                    <select id="validationFilter" onchange="setValidationFilter(this.value)">
+                        <option value="ALL" ${state.validationView.filter === 'ALL' ? 'selected' : ''}>All</option>
+                        <option value="PASS" ${state.validationView.filter === 'PASS' ? 'selected' : ''}>Passed</option>
+                        <option value="FAIL" ${state.validationView.filter === 'FAIL' ? 'selected' : ''}>Failed</option>
+                    </select>
+                </div>
+                <div class="validation-toolbar__meta">
+                    Showing ${pageRows.length ? startIndex + 1 : 0}-${startIndex + pageRows.length} of ${totalRows.toLocaleString()}
+                </div>
+                <div class="validation-pager">
+                    <button class="btn btn-sm btn-info" onclick="setValidationPage(-1)" ${currentPage <= 1 ? 'disabled' : ''}>Prev</button>
+                    <span class="validation-pager__status">Page ${currentPage} of ${totalPages}</span>
+                    <button class="btn btn-sm btn-info" onclick="setValidationPage(1)" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>
+                </div>
+            </div>
+            ${rowsHtml}
+        </div>`;
+}
+
+function renderValidationRowsTable(rows, pageInfo) {
+    if (!rows.length) {
+        return `<div class="alert alert--info">No rows match the selected filter.</div>`;
+    }
+
+    const headers = ['#', 'Result', 'Reason', 'Student ID'];
+    const headHtml = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
+    const bodyHtml = rows.map((row, i) => `
+            <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
+                <td>${row.validationNumber}</td>
+                <td><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
+                <td>${escapeHtml(row.exceptionReason || '')}</td>
+                <td><strong>${escapeHtml(row.studentId)}</strong></td>
+            </tr>`).join('');
+
+    return `
+        <div class="results-table-shell">
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead><tr>${headHtml}</tr></thead>
+                    <tbody>${bodyHtml}</tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                ${pageInfo.totalRows.toLocaleString()} row(s) after filter. Showing ${pageInfo.fromRow}-${pageInfo.toRow}.
+            </div>
+        </div>`;
+}
+
+function renderExceptions(r) {
+    if (r.failCount === 0) {
+        const exceptionsContent = document.getElementById('exceptionsContent');
+        exceptionsContent.classList.remove('empty-state');
+        exceptionsContent.innerHTML =
+            `${renderSectionHeader('Rule 36 Exceptions', 'Students flagged as deceased by the cross-table match', 'Exceptions: 0')}
+             <div class="alert alert--success">No exceptions found - all students validated successfully.</div>`;
+        return;
+    }
+
+    const rows = r.exceptions.map((ex, i) => `
+        <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
+            <td>${ex.validationNumber}</td>
+            <td><strong>${ex.studentId}</strong></td>
+            <td>${ex.exceptionReason}</td>
+            <td><span class="badge badge--fail">${ex.validationResult}</span></td>
+        </tr>`).join('');
+
+    const exceptionsContent = document.getElementById('exceptionsContent');
+    exceptionsContent.classList.remove('empty-state');
+    exceptionsContent.innerHTML = `
+        ${renderSectionHeader(
+            'Rule 36 Exceptions List',
+            'Rows whose STUD value matched the deceased reference table',
+            `Exceptions: ${r.failCount.toLocaleString()}<br>Validated: ${escapeHtml(r.timestamp)}`
+        )}
+        <div class="results-table-shell">
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Student ID</th>
+                            <th>Exception Reason</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+function renderCharts(r) {
+    Object.values(state.chartInstances).forEach(c => c.destroy());
+    state.chartInstances = {};
+
+    const rate = parseFloat(r.exceptionRate);
+    const rateBarColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
+
+    const chartsContent = document.getElementById('chartsContent');
+    chartsContent.classList.remove('empty-state');
+    chartsContent.innerHTML = `
+        ${renderSectionHeader(
+            'Rule 36 Visualisation',
+            'Notebook-style summary of the validation run',
+            `Status: ${escapeHtml(r.status)}`
+        )}
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h4>Validation Results</h4>
+                <canvas id="chartPassFail"></canvas>
+            </div>
+            <div class="chart-card">
+                <h4>Exception Rate: ${rate.toFixed(2)}%</h4>
+                <canvas id="chartRate"></canvas>
+            </div>
+            <div class="chart-card chart-card--status ${r.status === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                <h4>Validation Status</h4>
+                <div class="big-status">${r.status === 'PASS' ? 'PASS' : 'FAIL'}</div>
+            </div>
+            <div class="chart-card">
+                <h4>Summary</h4>
+                <div class="summary-text">
+                    <div><span>Total Records</span><strong>${r.totalValidated.toLocaleString()}</strong></div>
+                    <div><span>PASS</span><strong class="text-success">${r.passCount.toLocaleString()}</strong></div>
+                    <div><span>FAIL</span><strong class="text-danger">${r.failCount.toLocaleString()}</strong></div>
+                    <div><span>Exception Rate</span><strong style="color:${rateBarColor}">${rate.toFixed(2)}%</strong></div>
+                    <div><span>Status</span><strong>${r.status}</strong></div>
+                </div>
+            </div>
+        </div>`;
+
+    state.chartInstances.passFail = new Chart(document.getElementById('chartPassFail'), {
+        type: 'bar',
+        data: {
+            labels: ['PASS', 'FAIL'],
+            datasets: [{ data: [r.passCount, r.failCount], backgroundColor: ['#4CAF50', '#F44336'], borderWidth: 0 }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+    });
+
+    state.chartInstances.rate = new Chart(document.getElementById('chartRate'), {
+        type: 'bar',
+        data: {
+            labels: ['Exception Rate'],
+            datasets: [
+                { data: [rate], backgroundColor: [rateBarColor], label: 'Exception %' },
+                { data: [Math.max(0, 100 - rate)], backgroundColor: ['#E0E0E0'], label: 'Pass %' }
+            ]
+        },
+        options: {
+            indexAxis: 'y',
+            maintainAspectRatio: false,
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { stacked: true, max: 100 }, y: { stacked: true } }
+        }
+    });
+}
+
+function renderDownloads(r) {
+    const downloadsContent = document.getElementById('downloadsContent');
+    const canUseSql = currentSystemRole === 'DataAnalyst' && !isArchivedWorkspace();
+    downloadsContent.classList.remove('empty-state');
+    downloadsContent.innerHTML = `
+        <div class="downloads-panel">
+            ${renderSectionHeader(
+                'Download Results',
+                'Configuration and results are saved to this engagement. Other assigned users only see this run after the data analyst signs off.',
+                `Completed: ${escapeHtml(r.timestamp)}${r.savedRunId ? `<br>Saved Run: #${r.savedRunId}` : ''}${state.currentUserHasSignedOff ? '<br>Analyst signoff: saved' : ''}`
+            )}
+            <div class="download-buttons download-buttons--wide">
+                <button class="btn btn-success" onclick="downloadExcel()">Excel</button>
+                <button class="btn btn-info" onclick="downloadCsv()">Full CSV</button>
+                <button class="btn btn-info" onclick="downloadExceptionsCsv()">Exceptions CSV</button>
+                ${canUseSql ? '<button class="btn btn-primary" onclick="downloadSql()">SQL Script</button>' : ''}
+                ${r.savedRunId ? `<a href="/Rule36/Run/${r.savedRunId}" class="btn btn-secondary">${canUseSql ? 'Open Saved Run and Sign Off' : 'Open Saved Run'}</a>` : ''}
+            </div>
+            <div class="download-summary-grid">
+                <div class="download-summary-card"><span>Validated</span><strong>${r.totalValidated.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>PASS</span><strong class="text-success">${r.passCount.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>FAIL</span><strong class="text-danger">${r.failCount.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>Exception Rate</span><strong>${parseFloat(r.exceptionRate).toFixed(2)}%</strong></div>
+            </div>
+        </div>`;
+}
+
+async function generateSql() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can generate SQL.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. SQL generation is disabled.', 'error');
+        return;
+    }
+    if (!validateConfig()) return;
+    showSpinner('Generating SQL...');
+
+    try {
+        const result = await post('/Rule36/GenerateSql', buildRequest());
+        if (!result.success) return;
+
+        const sqlContent = document.getElementById('sqlContent');
+        sqlContent.classList.remove('empty-state');
+        sqlContent.innerHTML = `
+            ${renderSectionHeader(
+                'Rule 36 SQL Code',
+                'Generated SQL matches the notebook validation formula',
+                `Database: ${escapeHtml(state.database || '')}`
+            )}
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('sqlCode')">Copy</button>
+                <button class="btn btn-sm btn-info" onclick="downloadSql()">Download SQL</button>
+            </div>
+            <div class="sql-panel">
+                <pre id="sqlCode" class="sql-block">${escapeHtml(result.sql)}</pre>
+            </div>`;
+
+        switchTab('sql');
+    } finally {
+        hideSpinner();
+    }
+}
+
+function filterValidationRows(rows, filter) {
+    if (filter === 'PASS' || filter === 'FAIL') {
+        return rows.filter(r => r.validationResult === filter);
+    }
+    return rows;
+}
+
+function setValidationFilter(filter) {
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: 100 };
+    state.validationView.filter = filter;
+    state.validationView.page = 1;
+    if (state.validationResult) {
+        renderValidationResults(state.validationResult);
+    }
+}
+
+function setValidationPage(delta) {
+    if (!state.validationResult) return;
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: 100 };
+    state.validationView.page = Math.max(1, (state.validationView.page || 1) + delta);
+    renderValidationResults(state.validationResult);
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function validateConfig() {
+    const missing = [];
+    if (!state.clientId) missing.push('engagement');
+    if (!state.server) missing.push('server');
+    if (!state.database) missing.push('database');
+    if (!state.studTable) missing.push('STUD table');
+    if (!state.deceasedTable) missing.push('deceased table');
+    if (!state.studColumn) missing.push('STUD column');
+    if (!state.deceasedColumn) missing.push('deceased column');
+
+    if (missing.length) {
+        setStatus('validationContent', `Please select ${missing.join(', ')} first.`, 'warning');
+        switchTab('validation');
+        return false;
+    }
+
+    return true;
+}
+
+function buildRequest() {
+    return {
+        clientId: state.clientId,
+        runId: state.currentRunId,
+        server: state.server,
+        database: state.database,
+        driver: state.driver,
+        studTable: state.studTable,
+        deceasedTable: state.deceasedTable,
+        studColumn: state.studColumn,
+        deceasedColumn: state.deceasedColumn
+    };
+}
+
+function fileStamp() {
+    return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '');
+}
+
+async function downloadExcel() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule36/DownloadExcel', state.validationResult, `Rule36_Deceased_Validation_${fileStamp()}.xlsx`);
+}
+
+async function downloadCsv() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule36/DownloadCsv', state.validationResult, `Rule36_Validation_Results_${fileStamp()}.csv`);
+}
+
+async function downloadExceptionsCsv() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule36/DownloadExceptionsCsv', state.validationResult, `Rule36_Deceased_Exceptions_${fileStamp()}.csv`);
+}
+
+async function downloadSql() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can download the SQL script.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. SQL download is disabled.', 'error');
+        return;
+    }
+    if (!validateConfig()) return;
+    await downloadPost('/Rule36/DownloadSql', buildRequest(), `Rule36_Deceased_Validation_${fileStamp()}.sql`);
+}
+
+async function downloadAll() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+
+    const tasks = [];
+    if (document.getElementById('chkExcel')?.checked) tasks.push(downloadExcel());
+    if (document.getElementById('chkCsv')?.checked) tasks.push(downloadCsv());
+    if (document.getElementById('chkExceptionsCsv')?.checked) tasks.push(downloadExceptionsCsv());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql')?.checked) tasks.push(downloadSql());
+
+    if (!tasks.length) {
+        alert('Select at least one download format.');
+        return;
+    }
+
+    for (const task of tasks) {
+        await task;
+    }
+}
+
+function copyToClipboard(elId) {
+    const text = document.getElementById(elId).textContent;
+    navigator.clipboard.writeText(text).then(() => alert('Copied to clipboard!'));
+}
+
+async function saveWorkspace() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can save this workspace.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Saving is disabled.', 'error');
+        return;
+    }
+
+    if (!state.currentRunId) {
+        setWorkspaceInfo('Run validation first so the workspace can be saved.', 'error');
+        return;
+    }
+
+    showSpinner('Saving workspace...');
+
+    try {
+        const result = await post('/Rule36/SaveWorkspace', buildRequest());
+
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to save workspace.')}`, 'error');
+            return;
+        }
+
+        state.editWarningAccepted = true;
+        state.isDirty = false;
+
+        if (result.workspace) {
+            state.currentRunId = result.workspace.runId || state.currentRunId;
+            state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+            state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
+            state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
+            document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || document.getElementById('signoffComment').value;
+            if (result.workspace.summary) {
+                applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+            }
+        }
+
+        setWorkspaceInfo(result.message || 'Workspace saved.', result.signoffsCleared ? 'warning' : 'success');
+        renderWorkspaceState();
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function signOffWorkspace() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const canSignWorkspace =
+        !isArchivedWorkspace() &&
+        state.currentRunId &&
+        (
+            currentSystemRole === 'DataAnalyst' ||
+            (
+                state.resultsVisible &&
+                (role === 'Manager' || role === 'Director')
+            )
+        );
+
+    if (!canSignWorkspace) {
+        setWorkspaceInfo('This workspace can only be signed off by the assigned analyst, manager, or director after the analyst review is available.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Signoff is disabled.', 'error');
+        return;
+    }
+
+    if (!state.currentRunId) {
+        setWorkspaceInfo('Run validation first so the workspace can be signed off.', 'error');
+        return;
+    }
+
+    if (state.isDirty) {
+        setWorkspaceInfo('Save the workspace first. Editing removes signoffs and requires a fresh review.', 'warning');
+        return;
+    }
+
+    showSpinner('Saving analyst signoff...');
+
+    try {
+        const result = await post('/Rule36/SignOffWorkspace', {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: document.getElementById('signoffComment').value.trim()
+        });
+
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to save signoff.')}`, 'error');
+            return;
+        }
+
+        if (result.workspace) {
+            state.currentRunId = result.workspace.runId || state.currentRunId;
+            state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+            state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
+            state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
+            document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || document.getElementById('signoffComment').value;
+            if (result.workspace.summary) {
+                applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+            }
+        }
+
+        state.isDirty = false;
+        setWorkspaceInfo('Workspace signoff saved. Other assigned users can now review this signed run.', 'success');
+        renderWorkspaceState();
+        switchTab('downloads');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function removeWorkspaceSignoff() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const canSignWorkspace =
+        !isArchivedWorkspace() &&
+        state.currentRunId &&
+        (
+            currentSystemRole === 'DataAnalyst' ||
+            (
+                state.resultsVisible &&
+                (role === 'Manager' || role === 'Director')
+            )
+        );
+
+    if (!canSignWorkspace || !state.currentUserHasSignedOff) {
+        setWorkspaceInfo('You can only remove your own signoff.', 'error');
+        return;
+    }
+
+    showSpinner('Removing signoff...');
+
+    try {
+        const result = await post('/Rule36/RemoveWorkspaceSignoff', {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: ''
+        });
+
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to remove signoff.')}`, 'error');
+            return;
+        }
+
+        if (result.workspace) {
+            state.currentRunId = result.workspace.runId || state.currentRunId;
+            state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+            state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
+            state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
+            state.resultsVisible = !!result.workspace.resultsVisible;
+            if (result.workspace.summary) {
+                applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+            }
+        }
+
+        setWorkspaceInfo('Your signoff was removed.', 'warning');
+        renderWorkspaceState();
+    } finally {
+        hideSpinner();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    document.getElementById('serverInput').addEventListener('input', () => {
+        state.server = document.getElementById('serverInput').value.trim();
+        markWorkspaceDirty();
+    });
+
+    document.getElementById('driverSelect').addEventListener('change', () => {
+        state.driver = document.getElementById('driverSelect').value;
+        markWorkspaceDirty();
+    });
+
+    document.getElementById('databaseSelect').addEventListener('change', async e => {
+        state.database = e.target.value;
+        markWorkspaceDirty();
+        await loadTables();
+    });
+
+    document.getElementById('studTableSelect').addEventListener('change', async e => {
+        state.studTable = e.target.value;
+        markWorkspaceDirty();
+        await loadColumns('stud');
+    });
+
+    document.getElementById('deceasedTableSelect').addEventListener('change', async e => {
+        state.deceasedTable = e.target.value;
+        markWorkspaceDirty();
+        await loadColumns('deceased');
+    });
+
+    document.getElementById('studColumnSelect').addEventListener('change', e => {
+        state.studColumn = e.target.value;
+        updatePreview();
+        markWorkspaceDirty();
+    });
+
+    document.getElementById('deceasedColumnSelect').addEventListener('change', e => {
+        state.deceasedColumn = e.target.value;
+        updatePreview();
+        markWorkspaceDirty();
+    });
+
+    renderWorkspaceState();
+
+    if (state.clientId > 0) {
+        await loadWorkspaceState();
+    }
+});
+</script>
+
+

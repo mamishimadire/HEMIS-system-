@@ -1,0 +1,164 @@
+@model HemisAudit.ViewModels.MessagePageViewModel
+@{
+    ViewData["Title"] = "Messages";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+<div class="page-header">
+    <div>
+        <h1>Messages</h1>
+        <p>Unread messages: @Model.UnreadCount</p>
+    </div>
+</div>
+
+<div class="messages-layout">
+    <div class="card messages-panel">
+        <h3 class="section-title" style="margin-top:0">Inbox</h3>
+        @if (Model.Inbox.Any())
+        {
+            <div class="messages-list">
+                @foreach (var item in Model.Inbox)
+                {
+                    <a asp-action="Index" asp-route-threadId="@item.ThreadId" class="message-list-item @(item.HasUnread ? "message-list-item--unread" : "")">
+                        <div class="message-list-item__top">
+                            <div class="message-list-item__title">@item.Subject</div>
+                            @if (item.HasUnread)
+                            {
+                                <span class="badge badge--fail">@item.UnreadCount</span>
+                            }
+                        </div>
+                        <div class="message-list-item__meta">@item.ClientName</div>
+                        <div class="message-list-item__preview">@item.Preview</div>
+                        <div class="message-list-item__footer">
+                            <span>@item.LastSenderName</span>
+                            <span>&middot;</span>
+                            <span>@item.LastMessageAt.ToString("dd MMM HH:mm")</span>
+                        </div>
+                    </a>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="empty-card">
+                <p>No messages yet.</p>
+            </div>
+        }
+    </div>
+
+    <div class="messages-main">
+        <div class="card messages-panel">
+            <h3 class="section-title" style="margin-top:0">Compose</h3>
+            <form asp-action="Send" method="post" class="messages-compose">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ClientId" value="@(Model.Compose.ClientId?.ToString() ?? "")" />
+
+                <div class="field-group" style="margin-bottom:12px">
+                    <label>Recipients</label>
+                    <div class="recipient-grid">
+                        @foreach (var recipient in Model.RecipientOptions)
+                        {
+                            <label class="recipient-pill">
+                                <input type="checkbox" name="RecipientIds" value="@recipient.UserId" />
+                                <span>
+                                    <strong>@recipient.FullName</strong><br />
+                                    <small>@recipient.Role</small>
+                                </span>
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                <div class="field-group" style="margin-bottom:12px">
+                    <label for="compose-subject">Subject</label>
+                    <input id="compose-subject" name="Subject" value="@Model.Compose.Subject" maxlength="255" />
+                </div>
+
+                <div class="field-group" style="margin-bottom:12px">
+                    <label for="compose-body">Message</label>
+                    <textarea id="compose-body" name="Body" rows="5" placeholder="Write a message to the team member(s).">@Model.Compose.Body</textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Send Message</button>
+            </form>
+        </div>
+
+        @if (Model.ActiveThread != null)
+        {
+            <div class="card messages-panel">
+                <div class="messages-thread-header">
+                    <div>
+                        <h3 class="section-title" style="margin-top:0">@Model.ActiveThread.Subject</h3>
+                        <div class="messages-thread-header__meta">@Model.ActiveThread.ClientName</div>
+                    </div>
+                    <div class="messages-thread-header__meta messages-thread-header__meta--right">
+                        <div>Thread #@Model.ActiveThread.ThreadId</div>
+                        <div>Last message @Model.ActiveThread.LastMessageAt.ToString("dd MMM yyyy HH:mm")</div>
+                    </div>
+                </div>
+
+                <div class="messages-timeline">
+                    @foreach (var message in Model.ActiveThread.Messages)
+                    {
+                        var statusText = message.IsCurrentUser
+                            ? (message.ReadCount > 0
+                                ? $"Seen by {message.ReadCount}/{Math.Max(message.RecipientCount, 1)}"
+                                : "Sent")
+                            : (message.IsRead ? "Read" : "Delivered");
+                        var statusTime = message.IsCurrentUser
+                            ? (message.LastReadAt ?? message.ReadAt)
+                            : message.ReadAt;
+
+                        <div class="message-row @(message.IsCurrentUser ? "message-row--mine" : "message-row--theirs")">
+                            <div class="message-bubble @(message.IsCurrentUser ? "message-bubble--mine" : "message-bubble--theirs")">
+                                <div class="message-bubble__header">
+                                    <strong>@message.SenderName</strong>
+                                    <span>@message.SentAt.ToString("dd MMM HH:mm")</span>
+                                </div>
+                                <div class="message-bubble__body">@message.Body</div>
+                                <div class="message-bubble__footer">
+                                    <span>@statusText</span>
+                                    @if (statusTime.HasValue)
+                                    {
+                                        <span>&middot;</span>
+                                        <span>@statusTime.Value.ToString("dd MMM HH:mm")</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <form asp-action="Reply" method="post" class="messages-reply">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="ThreadId" value="@Model.ActiveThread.ThreadId" />
+                    <input type="hidden" name="ClientId" value="@(Model.ActiveThread.ClientId?.ToString() ?? "")" />
+                    <div class="field-group" style="margin-bottom:12px">
+                        <label for="reply-body">Reply</label>
+                        <textarea id="reply-body" name="Body" rows="4" placeholder="Write your reply here."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-success">Send Reply</button>
+                </form>
+            </div>
+        }
+        else
+        {
+            <div class="card messages-panel">
+                <h3 class="section-title" style="margin-top:0">Conversation</h3>
+                <div class="empty-card">
+                    <p>Select a thread from the inbox to review or reply.</p>
+                </div>
+            </div>
+        }
+    </div>
+</div>

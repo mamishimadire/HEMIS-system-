@@ -1,0 +1,86 @@
+@model HemisAudit.ViewModels.CreateClientViewModel
+@{
+    ViewData["Title"] = "New Engagement";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var industryOptions = ViewBag.IndustryOptions as IEnumerable<string> ?? Array.Empty<string>();
+}
+
+<div class="page-header">
+    <div>
+        <h1>New Engagement</h1>
+        <p>Create a client engagement and store it in the system database.</p>
+    </div>
+    <a asp-action="Clients" class="btn btn-secondary">Back</a>
+</div>
+
+<div class="card" style="max-width:840px">
+    <form asp-action="CreateClient" method="post" style="padding:20px">
+        @Html.AntiForgeryToken()
+        <div asp-validation-summary="ModelOnly" class="alert alert--error" style="margin-bottom:16px"></div>
+
+        <div class="form-grid">
+            <div class="field-group">
+                <label asp-for="EngagementName">Engagement name *</label>
+                <input asp-for="EngagementName" placeholder="e.g. Tshwane University of Technology" />
+                <span asp-validation-for="EngagementName" class="field-error"></span>
+            </div>
+
+            <div class="field-group">
+                <label asp-for="MaconomyNumber">Maconomy number *</label>
+                <input asp-for="MaconomyNumber" placeholder="e.g. 2564586" />
+                <span asp-validation-for="MaconomyNumber" class="field-error"></span>
+            </div>
+
+            <div class="field-group">
+                <label asp-for="Industry">Industry *</label>
+                <select asp-for="Industry">
+                    <option value="">Select industry</option>
+                    @foreach (var option in industryOptions)
+                    {
+                        <option value="@option">@option</option>
+                    }
+                </select>
+                <span asp-validation-for="Industry" class="field-error"></span>
+            </div>
+        </div>
+
+        <div class="section-title" style="margin-top:8px">Leadership Contacts</div>
+        <div class="form-grid">
+            <div class="field-group">
+                <label asp-for="DirectorName">Director name *</label>
+                <input asp-for="DirectorName" />
+                <span asp-validation-for="DirectorName" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label asp-for="DirectorEmail">Director email *</label>
+                <input asp-for="DirectorEmail" type="email" />
+                <span asp-validation-for="DirectorEmail" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label asp-for="DirectorEmpCode">Director employee code *</label>
+                <input asp-for="DirectorEmpCode" />
+                <span asp-validation-for="DirectorEmpCode" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label asp-for="ManagerName">Manager name *</label>
+                <input asp-for="ManagerName" />
+                <span asp-validation-for="ManagerName" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label asp-for="ManagerEmail">Manager email *</label>
+                <input asp-for="ManagerEmail" type="email" />
+                <span asp-validation-for="ManagerEmail" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label asp-for="ManagerEmpCode">Manager employee code *</label>
+                <input asp-for="ManagerEmpCode" />
+                <span asp-validation-for="ManagerEmpCode" class="field-error"></span>
+            </div>
+        </div>
+
+        <div class="action-bar" style="margin-top:20px;margin-bottom:0">
+            <button type="submit" class="btn btn-success">Create Engagement</button>
+            <a asp-action="Clients" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>

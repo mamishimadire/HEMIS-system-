@@ -1,0 +1,116 @@
+@model List<HemisAudit.ViewModels.ClientListViewModel>
+@{ ViewData["Title"] = "Engagements"; Layout = "~/Views/Shared/_Layout.cshtml"; }
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+<div class="page-header">
+    <div>
+        <h1>Engagements</h1>
+        <p>
+            @Model.Count engagement(s) visible to you
+            @if (!string.IsNullOrWhiteSpace(ViewBag.ClientSearchQuery as string))
+            {
+                <span> - filtered by "@(ViewBag.ClientSearchQuery)"</span>
+            }
+        </p>
+    </div>
+    @if (User.IsInRole("Admin") || User.IsInRole("Director"))
+    {
+        <a asp-action="CreateClient" class="btn btn-success">+ New Engagement</a>
+    }
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Engagement</th>
+                <th>Industry</th>
+                <th>Maconomy No.</th>
+                <th>Status</th>
+                <th>Users</th>
+                <th>Runs</th>
+                <th>Last Run</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var c in Model)
+            {
+                <tr>
+                    <td>
+                        <strong>@c.EngagementName</strong><br />
+                        <small style="color:#757575">by @c.CreatedByName</small>
+                    </td>
+                    <td>@c.Industry</td>
+                    <td>@c.MaconomyNumber</td>
+                    <td><span class="badge @(c.IsArchived ? "badge--warning" : c.IsApproved ? "badge--pass" : "badge--neutral")">@c.Status</span></td>
+                    <td>@c.AssignedUsersCount</td>
+                    <td>@c.ValidationRunsCount</td>
+                    <td>
+                        @if (c.LastRunStatus != null)
+                        {
+                            var lastRunBadge = c.LastRunStatus.Contains("Completed", StringComparison.OrdinalIgnoreCase) || c.LastRunStatus == "Pass"
+                                ? "badge--pass"
+                                : c.LastRunStatus == "Fail" || c.LastRunStatus == "Needs Review"
+                                    ? "badge--fail"
+                                    : "badge--role";
+                            <span class="badge @lastRunBadge">@c.LastRunStatus</span>
+                            <br />
+                            <small style="color:#999">@c.LastRunAt?.ToString("dd MMM HH:mm")</small>
+                        }
+                        else
+                        {
+                            <span style="color:#999">-</span>
+                        }
+                    </td>
+                    <td>@c.CreatedAt.ToString("dd MMM yyyy")</td>
+                    <td>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <a asp-action="ClientDetail" asp-route-id="@c.Id" class="btn btn-sm btn-primary">Manage</a>
+
+                            @if (c.LatestRunId.HasValue)
+                            {
+                                <a asp-controller="Rule36" asp-action="Run" asp-route-id="@c.LatestRunId" class="btn btn-sm btn-secondary">Review</a>
+                            }
+                            else
+                            {
+                                <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Pending</span>
+                            }
+
+                            @if (User.IsInRole("Admin") && !c.IsApproved && !c.IsArchived)
+                            {
+                                <form asp-action="ApproveClient" method="post" style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@c.Id" />
+                                    <input type="hidden" name="returnUrl" value="/Admin/Clients" />
+                                    <button type="submit" class="btn btn-sm btn-warning">Approve</button>
+                                </form>
+                            }
+
+                            @if (User.IsInRole("Admin") && !c.IsArchived)
+                            {
+                                <form asp-action="DeleteClient" method="post" style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@c.Id" />
+                                    <button type="submit" class="btn btn-sm btn-secondary"
+                                            onclick="return confirm('Delete this engagement and its related records?')">
+                                        Delete
+                                    </button>
+                                </form>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

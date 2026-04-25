@@ -1,0 +1,644 @@
+@model HemisAudit.ViewModels.DashboardViewModel
+@{
+    ViewData["Title"] = "My engagements";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var isAdmin = string.Equals(Model.CurrentUserRole, "Admin", StringComparison.OrdinalIgnoreCase);
+    var isDirector = string.Equals(Model.CurrentUserRole, "Director", StringComparison.OrdinalIgnoreCase);
+    var isDataAnalyst = string.Equals(Model.CurrentUserRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+    var currentScope = (Model.CurrentScope ?? "active").ToLowerInvariant();
+    var scopeTitle = currentScope switch
+    {
+        "archived" => "Archived engagements",
+        "favorites" => "Favourite engagements",
+        _ => "Active engagements"
+    };
+    var scopeSubtitle = currentScope switch
+    {
+        "archived" => "Archived engagements remain available for review and downloads only.",
+        "favorites" => "Starred engagements you return to most often.",
+        _ when isDataAnalyst => "These are the active engagements assigned to you. Open the workspace to run and sign off Rule 36.",
+        _ => "Showing active engagements first. Use the tabs to switch to archived or favourited engagements."
+    };
+    var reviewedAndCompletedRuns = Model.ReviewedAndCompletedRuns;
+    var needsReviewRuns = Model.NeedsReviewRuns;
+    var analystSignedRuns = Model.AnalystSignedRuns;
+    var managerSignedRuns = Model.ManagerSignedRuns;
+    var directorSignedRuns = Model.DirectorSignedRuns;
+    var recentInsightRuns = Model.RecentRuns.Take(6).ToList();
+    var archiveReadyEngagements = Model.PortfolioClients.Count(client =>
+        client.IsArchived ||
+        (client.ValidationRunsCount > 0 &&
+         (
+             (client.LastRunStatus?.Contains("Completed", StringComparison.OrdinalIgnoreCase) ?? false) ||
+             (client.LatestSignedOffStatus?.Contains("Completed", StringComparison.OrdinalIgnoreCase) ?? false)
+         )));
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+<div class="page-header">
+    <div>
+        <h1>My engagements</h1>
+        <p>Welcome back, <strong>@Model.CurrentUserName</strong> | @Model.CurrentUserRole</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+        @if (isAdmin || isDirector)
+        {
+            <a asp-controller="Admin" asp-action="CreateClient" class="btn btn-success">New Engagement</a>
+        }
+        @if (isAdmin || isDirector)
+        {
+            <a asp-controller="Admin" asp-action="Clients" class="btn btn-secondary">All Engagements</a>
+        }
+    </div>
+</div>
+
+<div class="dashboard-tabs">
+    <a class="dashboard-tab is-active" href="#engagements" data-dashboard-tab="engagements">Engagements</a>
+    <a class="dashboard-tab" href="#insights" data-dashboard-tab="insights">Insights</a>
+    <a class="dashboard-tab" href="#recent-runs" data-dashboard-tab="recent-runs">Recent Validation Runs</a>
+</div>
+
+<div class="dashboard-panel is-active" data-dashboard-panel="engagements">
+
+<div class="dashboard-scope-grid">
+    <a class="card dashboard-scope-card @(currentScope == "favorites" ? "is-active" : "")"
+       asp-action="Index"
+       asp-route-scope="favorites"
+       asp-route-q="@Model.CurrentSearch">
+        <div>
+            <div class="dashboard-scope-card__label">Favorites</div>
+            <div class="dashboard-scope-card__value">@Model.FavoriteClients</div>
+        </div>
+        <div class="dashboard-scope-card__icon">★</div>
+    </a>
+    <a class="card dashboard-scope-card @(currentScope == "active" ? "is-active" : "")"
+       asp-action="Index"
+       asp-route-scope="active"
+       asp-route-q="@Model.CurrentSearch">
+        <div>
+            <div class="dashboard-scope-card__label">Active</div>
+            <div class="dashboard-scope-card__value">@Model.ApprovedClients</div>
+        </div>
+        <div class="dashboard-scope-card__icon">●</div>
+    </a>
+    <a class="card dashboard-scope-card @(currentScope == "archived" ? "is-active" : "")"
+       asp-action="Index"
+       asp-route-scope="archived"
+       asp-route-q="@Model.CurrentSearch">
+        <div>
+            <div class="dashboard-scope-card__label">Archived</div>
+            <div class="dashboard-scope-card__value">@Model.ArchivedClients</div>
+        </div>
+        <div class="dashboard-scope-card__icon">◌</div>
+    </a>
+</div>
+
+<div class="dashboard-toolbar">
+    <div>
+        <h3 class="section-title" style="margin-bottom:6px">@scopeTitle</h3>
+        <p class="dashboard-band__subtitle">@scopeSubtitle</p>
+    </div>
+    <form method="get" asp-action="Index" class="dashboard-filter-form">
+        <input type="hidden" name="scope" value="@currentScope" />
+        <input id="portfolioFilter" name="q" type="search" value="@Model.CurrentSearch" placeholder="Search engagements, industries, or maconomy numbers" />
+        <button class="btn btn-secondary" type="submit">Search</button>
+        @if (!string.IsNullOrWhiteSpace(Model.CurrentSearch))
+        {
+            <a class="dashboard-clear-link" asp-action="Index" asp-route-scope="@currentScope">Clear search</a>
+        }
+    </form>
+</div>
+
+@if (isAdmin)
+{
+    <div class="dashboard-band">
+        <div class="dashboard-band__header">
+            <div>
+                <h3 class="section-title" style="margin-bottom:6px">Pending Approval Queue</h3>
+                <p class="dashboard-band__subtitle">Director-created engagements stay here until an admin approves them.</p>
+            </div>
+        </div>
+
+        @if (Model.PendingApprovalQueue.Any())
+        {
+            <div class="card">
+                <table class="data-table dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>Engagement</th>
+                            <th>Industry</th>
+                            <th>Maconomy No.</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var client in Model.PendingApprovalQueue)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@client.EngagementName</strong><br />
+                                    <small class="table-meta">by @client.CreatedByName</small>
+                                </td>
+                                <td>@client.Industry</td>
+                                <td>@client.MaconomyNumber</td>
+                                <td>@client.CreatedAt.ToString("dd MMM yyyy")</td>
+                                <td>
+                                    <div class="dashboard-actions">
+                                        <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@client.Id" class="btn btn-sm btn-secondary">Open</a>
+                                        <form asp-controller="Admin" asp-action="ApproveClient" method="post">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@client.Id" />
+                                            <input type="hidden" name="returnUrl" value="/Dashboard" />
+                                            <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                                        </form>
+                                        <form asp-controller="Admin" asp-action="DeleteClient" method="post">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@client.Id" />
+                                            <button type="submit" class="btn btn-sm btn-warning"
+                                                    onclick="return confirm('Delete this engagement and all related assignments and validation runs?')">
+                                                Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="empty-card">
+                <p>No pending approvals.</p>
+            </div>
+        }
+    </div>
+}
+
+<div class="dashboard-band">
+    <div class="dashboard-band__header">
+        <div>
+            <h3 class="section-title" style="margin-bottom:6px">@scopeTitle</h3>
+            <p class="dashboard-band__subtitle">Open an engagement to review results, sign off, or manage the module.</p>
+        </div>
+    </div>
+
+    @if (Model.PortfolioClients.Any())
+    {
+        <div class="card">
+            <table class="data-table dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Engagement</th>
+                        <th>Industry</th>
+                        <th>Status</th>
+                        <th>Your Role</th>
+                        <th>Runs</th>
+                        <th>Last Run</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var client in Model.PortfolioClients)
+                    {
+                        var reviewStatus = (isAdmin || isDataAnalyst) ? client.LastRunStatus : client.LatestSignedOffStatus;
+                        var reviewRunAt = (isAdmin || isDataAnalyst) ? client.LastRunAt : client.LatestSignedOffAt;
+                        var reviewBadge = !string.IsNullOrWhiteSpace(reviewStatus) && (reviewStatus.Contains("Completed", StringComparison.OrdinalIgnoreCase) || reviewStatus == "Pass")
+                            ? "badge--pass"
+                            : reviewStatus == "Fail" || reviewStatus == "Needs Review"
+                                ? "badge--fail"
+                                : "badge--role";
+                        <tr>
+                            <td>
+                                <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@client.Id"><strong>@client.EngagementName</strong></a>
+                                <br />
+                                <small class="table-meta">@client.MaconomyNumber</small>
+                            </td>
+                            <td>@client.Industry</td>
+                            <td>
+                                <span class="badge @(
+                                    client.IsArchived ? "badge--warning" :
+                                    client.IsApproved ? "badge--pass" :
+                                    "badge--neutral")">
+                                    @client.Status
+                                </span>
+                            </td>
+                            <td>@(string.IsNullOrWhiteSpace(client.CurrentUserEngagementRole) ? "-" : client.CurrentUserEngagementRole)</td>
+                            <td>@client.ValidationRunsCount</td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(reviewStatus))
+                                {
+                                    <span class="badge @reviewBadge">@reviewStatus</span>
+                                    <br />
+                                    <small class="table-meta">@reviewRunAt?.ToString("dd MMM yyyy HH:mm")</small>
+                                }
+                                else if (!isAdmin && !isDataAnalyst && client.ValidationRunsCount > 0)
+                                {
+                                    <span class="table-meta">Awaiting analyst signoff</span>
+                                }
+                                else
+                                {
+                                    <span class="table-meta">No runs yet</span>
+                                }
+                            </td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@client.Id" class="btn btn-sm btn-primary">Open Client</a>
+                                    <form asp-action="ToggleFavorite" method="post" style="display:inline-flex;align-items:center">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="clientId" value="@client.Id" />
+                                        <input type="hidden" name="scope" value="@currentScope" />
+                                        <input type="hidden" name="q" value="@Model.CurrentSearch" />
+                                        <button type="submit"
+                                                class="favorite-btn @(client.IsFavorite ? "is-on" : "is-off")"
+                                                title="@(client.IsFavorite ? "Remove from favorites" : "Add to favorites")">
+                                            @(client.IsFavorite ? "★" : "☆")
+                                        </button>
+                                    </form>
+                                    @if (!client.IsApproved)
+                                    {
+                                        <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Pending</span>
+                                    }
+
+                                    @if (isAdmin && !client.IsApproved && !client.IsArchived)
+                                    {
+                                        <form asp-controller="Admin" asp-action="ApproveClient" method="post">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@client.Id" />
+                                            <input type="hidden" name="returnUrl" value="/Dashboard" />
+                                            <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                                        </form>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="empty-card">
+            <p>
+                No engagements match this filter.
+                @if (isAdmin || isDirector)
+                {
+                    <a asp-controller="Admin" asp-action="CreateClient">Create the first engagement</a>
+                }
+            </p>
+        </div>
+    }
+</div>
+
+</div>
+
+<div class="dashboard-panel" data-dashboard-panel="recent-runs">
+<div class="dashboard-band">
+    <div class="dashboard-band__header">
+        <div>
+            <h3 class="section-title" style="margin-bottom:6px">Recent Validation Runs</h3>
+            <p class="dashboard-band__subtitle">Latest saved results available across your accessible engagements.</p>
+        </div>
+    </div>
+
+    @if (Model.RecentRuns.Any())
+    {
+        <div class="card">
+            <table class="data-table dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Run</th>
+                        <th>Rule</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Exceptions</th>
+                        <th>Rate</th>
+                        <th>Run By</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var run in Model.RecentRuns)
+                    {
+                        <tr>
+                            <td>@run.Id</td>
+                            <td>Rule @run.RuleNumber</td>
+                            <td><span class="badge @((run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass") ? "badge--pass" : "badge--fail")">@run.Status</span></td>
+                            <td>@run.TotalValidated.ToString("N0")</td>
+                            <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
+                            <td>@run.ExceptionRate.ToString("F2")%</td>
+                            <td>@run.RunByUserName</td>
+                            <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="empty-card">
+            <p>No validation runs yet.</p>
+        </div>
+    }
+</div>
+
+</div>
+
+<section class="dashboard-band dashboard-insights dashboard-panel" id="insights" data-dashboard-panel="insights">
+    <div class="dashboard-band__header">
+        <div>
+            <h3 class="section-title" style="margin-bottom:6px">Insights</h3>
+            <p class="dashboard-band__subtitle">Workflow health based on active engagements, archived engagements, and the latest validation runs.</p>
+        </div>
+    </div>
+
+    <div class="dashboard-insight-grid">
+        <div class="dashboard-insight-card">
+            <div class="dashboard-insight-card__label">Active engagements</div>
+            <div class="dashboard-insight-card__value">
+                <strong>@Model.ApprovedClients</strong>
+                <span>assigned and open</span>
+            </div>
+        </div>
+        <div class="dashboard-insight-card">
+            <div class="dashboard-insight-card__label">Archived engagements</div>
+            <div class="dashboard-insight-card__value">
+                <strong>@Model.ArchivedClients</strong>
+                <span>read-only records</span>
+            </div>
+        </div>
+        <div class="dashboard-insight-card">
+            <div class="dashboard-insight-card__label">Completed reviews</div>
+            <div class="dashboard-insight-card__value">
+                <strong>@reviewedAndCompletedRuns</strong>
+                <span>all signoffs captured</span>
+            </div>
+        </div>
+        <div class="dashboard-insight-card">
+            <div class="dashboard-insight-card__label">Needs review</div>
+            <div class="dashboard-insight-card__value">
+                <strong>@needsReviewRuns</strong>
+                <span>waiting on signoff</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-insight-layout">
+        <div class="dashboard-insight-rows">
+            <div class="dashboard-insight-chart">
+                <h4>Engagement status</h4>
+                <canvas id="engagementStatusChart"></canvas>
+            </div>
+            <div class="dashboard-insight-chart">
+                <h4>Review pipeline</h4>
+                <canvas id="reviewPipelineChart"></canvas>
+            </div>
+            <div class="dashboard-insight-chart">
+                <h4>Industry workload</h4>
+                <canvas id="industryChart"></canvas>
+            </div>
+            <div class="dashboard-insight-chart">
+                <h4>Signoff coverage</h4>
+                <canvas id="signoffChart"></canvas>
+            </div>
+        </div>
+
+        <div class="dashboard-insight-feed">
+            <h4>Latest activity</h4>
+            @if (recentInsightRuns.Any())
+            {
+                <div class="dashboard-activity-list">
+                    @foreach (var run in recentInsightRuns)
+                    {
+                        var complete = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.HasAllRequiredSignoffs;
+                        var reviewed = run.HasDataAnalystSignoff && !complete;
+                        var pending = !run.HasDataAnalystSignoff;
+                        <div class="dashboard-activity-item">
+                            <span class="dashboard-activity-item__dot @(complete ? "dashboard-activity-item__dot--complete" : reviewed ? "dashboard-activity-item__dot--review" : "dashboard-activity-item__dot--pending")"></span>
+                            <div>
+                                <div class="dashboard-activity-item__title">
+                                    @(!string.IsNullOrWhiteSpace(run.ClientName) ? run.ClientName : $"Run #{run.Id}")
+                                </div>
+                                <div class="dashboard-activity-item__meta">
+                                    Rule @run.RuleNumber | @run.Status | @run.RunAt.ToString("dd MMM yyyy HH:mm")
+                                </div>
+                                <div class="dashboard-activity-item__meta">
+                                    Run by @run.RunByUserName
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="dashboard-activity-empty">No recent validation activity yet.</div>
+            }
+
+            <div style="margin-top:16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+                <div class="dashboard-insight-card">
+                    <div class="dashboard-insight-card__label">Analyst signoffs</div>
+                    <div class="dashboard-insight-card__value"><strong>@analystSignedRuns</strong><span>runs signed by the analyst</span></div>
+                </div>
+                <div class="dashboard-insight-card">
+                    <div class="dashboard-insight-card__label">Archive ready</div>
+                    <div class="dashboard-insight-card__value"><strong>@archiveReadyEngagements</strong><span>engagements ready for archive</span></div>
+                </div>
+                <div class="dashboard-insight-card">
+                    <div class="dashboard-insight-card__label">Manager signoffs</div>
+                    <div class="dashboard-insight-card__value"><strong>@managerSignedRuns</strong><span>review confirmations</span></div>
+                </div>
+                <div class="dashboard-insight-card">
+                    <div class="dashboard-insight-card__label">Director signoffs</div>
+                    <div class="dashboard-insight-card__value"><strong>@directorSignedRuns</strong><span>final approvals</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(function () {
+    const panels = Array.from(document.querySelectorAll('[data-dashboard-panel]'));
+    const tabs = Array.from(document.querySelectorAll('[data-dashboard-tab]'));
+    const panelMap = new Map(panels.map(function (panel) {
+        return [panel.getAttribute('data-dashboard-panel'), panel];
+    }));
+
+    function getVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    const charts = [];
+    let insightsChartsReady = false;
+    const mutedText = getVar('--text-muted') || '#6b7280';
+    const border = getVar('--border') || 'rgba(0,0,0,.08)';
+    const green = '#22c55e';
+    const amber = '#f59e0b';
+    const red = '#ef4444';
+    const violet = '#7c3aed';
+    const teal = '#0891b2';
+    const blue = '#3b82f6';
+
+    function makeDoughnut(id, labels, values, colors) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        charts.push(new Chart(el, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: colors,
+                    borderColor: border,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '68%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: mutedText,
+                            boxWidth: 10,
+                            usePointStyle: true,
+                            pointStyle: 'circle'
+                        }
+                    },
+                    tooltip: {
+                        enabled: true
+                    }
+                }
+            }
+        }));
+    }
+
+    function makeBar(id, labels, values, color) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        charts.push(new Chart(el, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Count',
+                    data: values,
+                    backgroundColor: color,
+                    borderColor: color,
+                    borderWidth: 1,
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { color: mutedText, precision: 0 },
+                        grid: { color: border }
+                    },
+                    y: {
+                        ticks: { color: mutedText },
+                        grid: { color: border }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: true }
+                }
+            }
+        }));
+    }
+
+    function renderInsightsCharts() {
+        if (insightsChartsReady)
+            return;
+
+        const engagementActive = @Model.ApprovedClients;
+        const engagementArchived = @Model.ArchivedClients;
+        const engagementPending = @Model.PendingApprovalClients;
+        const reviewedCompleted = @reviewedAndCompletedRuns;
+        const needsReview = @needsReviewRuns;
+        const analystSigned = @analystSignedRuns;
+        const managerSigned = @managerSignedRuns;
+        const directorSigned = @directorSignedRuns;
+
+        makeDoughnut('engagementStatusChart',
+            ['Active', 'Archived', 'Pending'],
+            [engagementActive, engagementArchived, engagementPending],
+            [green, violet, amber]);
+
+        makeDoughnut('reviewPipelineChart',
+            ['Reviewed and completed', 'Awaiting review', 'Unsigned by analyst'],
+            [reviewedCompleted, Math.max(analystSigned - reviewedCompleted, 0), Math.max(needsReview, 0)],
+            [teal, amber, red]);
+
+        const industryLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.IndustryBreakdown.Select(i => i.Industry).ToArray()));
+        const industryValues = [@string.Join(",", Model.IndustryBreakdown.Select(i => i.Count))];
+
+        makeBar('industryChart', industryLabels, industryValues, blue);
+
+        makeDoughnut('signoffChart',
+            ['Analyst', 'Manager', 'Director'],
+            [analystSigned, managerSigned, directorSigned],
+            [blue, amber, violet]);
+
+        insightsChartsReady = true;
+    }
+
+    function setActivePanel(name) {
+        const targetName = panelMap.has(name) ? name : 'engagements';
+
+        panels.forEach(function (panel) {
+            panel.classList.toggle('is-active', panel.getAttribute('data-dashboard-panel') === targetName);
+        });
+
+        tabs.forEach(function (tab) {
+            tab.classList.toggle('is-active', tab.getAttribute('data-dashboard-tab') === targetName);
+        });
+
+        if (targetName === 'insights') {
+            renderInsightsCharts();
+            window.setTimeout(function () {
+                charts.forEach(function (chart) { chart.resize(); });
+            }, 0);
+        }
+
+        if (history && history.replaceState) {
+            history.replaceState(null, '', '#' + targetName);
+        }
+    }
+
+    tabs.forEach(function (tab) {
+        tab.addEventListener('click', function (event) {
+            event.preventDefault();
+            setActivePanel(tab.getAttribute('data-dashboard-tab') || 'engagements');
+        });
+    });
+
+    const initialHash = (window.location.hash || '').replace('#', '');
+    setActivePanel(panelMap.has(initialHash) ? initialHash : 'engagements');
+
+    window.addEventListener('beforeunload', function () {
+        charts.forEach(function (chart) { chart.destroy(); });
+    });
+})();
+</script>
