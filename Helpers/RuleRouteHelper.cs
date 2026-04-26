@@ -4,6 +4,7 @@ namespace HemisAudit.Helpers
     {
         public static string GetControllerName(int ruleNumber) => ruleNumber switch
         {
+            29 => "Rule29",
             30 => "Rule30",
             31 => "Rule31",
             32 => "Rule32",

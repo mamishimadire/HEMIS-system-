@@ -8,10 +8,12 @@ namespace HemisAudit.Services
     {
         byte[] ExportExcel(ValidationSummary summary);
         byte[] ExportExcel(Rule34ValidationSummary summary);
+        byte[] ExportExcel(Rule29ValidationSummary summary);
         byte[] ExportExcel(Rule31ValidationSummary summary);
         byte[] ExportExcel(Rule32ValidationSummary summary);
         byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportCsv(Rule29ValidationSummary summary);
         byte[] ExportCsv(Rule31ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportCsv(Rule32ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportSql(string sql);
@@ -317,6 +319,91 @@ namespace HemisAudit.Services
             return ms.ToArray();
         }
 
+        public byte[] ExportExcel(Rule29ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var headers = GetRule29Headers(summary);
+            var sampleSheetName = summary.Sampled ? "Displayed Sample" : "Matching Records";
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 29: SINGLE COLUMN FILTER", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("Source Table", summary.TableName),
+                ("Filter Column", summary.FilterColumn),
+                ("Filter Value", summary.FilterValue),
+                ("Breakdown Column", string.IsNullOrWhiteSpace(summary.BreakdownColumn) ? "(not selected)" : summary.BreakdownColumn),
+                ("Sample Size", summary.SampleSize.ToString("N0")),
+                ("Show All Records", summary.ShowAllRecords ? "Yes" : "No"),
+                ("Validation Date", summary.Timestamp),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("100% Source Records Tested", summary.TotalValidated.ToString("N0")),
+                ("100% Matching Records Found", summary.MatchingCount.ToString("N0")),
+                ("Displayed Sample Rows", summary.DisplayedCount.ToString("N0")),
+                ("Displayed Result Type", summary.Sampled ? "Random sample of matching rows" : "All matching rows"),
+                ("Download Scope", summary.Sampled ? "Summary + displayed sample rows + full breakdown" : "Summary + all matching rows + full breakdown"),
+                ("Match Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 30;
+            wsSummary.Column(2).Width = 70;
+
+            var wsMatches = wb.Worksheets.Add(sampleSheetName);
+            StyleHeaderRow(wsMatches, 1, summary.Sampled ? "RULE 29 DISPLAYED RANDOM SAMPLE" : "RULE 29 MATCHING RECORDS", headers.Count);
+            WriteRule29HeaderRow(wsMatches, 2, headers);
+            WriteRule29Rows(wsMatches, 3, summary.MatchingRows, headers);
+
+            var wsBreakdown = wb.Worksheets.Add("100% Breakdown");
+            StyleHeaderRow(wsBreakdown, 1, "RULE 29 100% MATCHING BREAKDOWN", 2);
+            wsBreakdown.Cell(2, 1).Value = string.IsNullOrWhiteSpace(summary.BreakdownColumn) ? "Breakdown Value" : summary.BreakdownColumn;
+            wsBreakdown.Cell(2, 2).Value = "Count";
+            for (var col = 1; col <= 2; col++)
+            {
+                var cell = wsBreakdown.Cell(2, col);
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            for (var i = 0; i < summary.Breakdown.Count; i++)
+            {
+                wsBreakdown.Cell(i + 3, 1).Value = summary.Breakdown[i].Value;
+                wsBreakdown.Cell(i + 3, 2).Value = summary.Breakdown[i].Count;
+            }
+            wsBreakdown.Column(1).AdjustToContents();
+            wsBreakdown.Column(2).AdjustToContents();
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
         public byte[] ExportExcel(Rule32ValidationSummary summary)
             => ExportFatalErrorExcel(summary, 32, "STUD");
 
@@ -490,6 +577,32 @@ namespace HemisAudit.Services
             return Encoding.UTF8.GetBytes(sb.ToString());
         }
 
+        public byte[] ExportCsv(Rule29ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            var headers = GetRule29Headers(summary);
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            foreach (var row in summary.MatchingRows)
+            {
+                var values = headers.Select(header =>
+                {
+                    if (string.Equals(header, "Validation_Number", StringComparison.OrdinalIgnoreCase))
+                        return row.ValidationNumber.ToString();
+                    if (string.Equals(header, "Filter_Value", StringComparison.OrdinalIgnoreCase))
+                        return row.FilterValue;
+                    if (string.Equals(header, "Breakdown_Value", StringComparison.OrdinalIgnoreCase))
+                        return row.BreakdownValue;
+
+                    return row.DisplayValues.TryGetValue(header, out var value) ? value : null;
+                });
+
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
         public byte[] ExportCsv(Rule32ValidationSummary summary, bool exceptionsOnly = false)
         {
             var sb = new StringBuilder();
@@ -603,6 +716,14 @@ namespace HemisAudit.Services
                     .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
                 .ToList();
 
+        private static List<string> GetRule29Headers(Rule29ValidationSummary summary) =>
+            new[] { "Validation_Number", "Filter_Value", "Breakdown_Value" }
+                .Concat(summary.MatchingRows
+                    .SelectMany(r => r.DisplayValues.Keys)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
         private static void WriteRule32HeaderRow(IXLWorksheet ws, int row, List<string> headers)
         {
             for (var i = 0; i < headers.Count; i++)
@@ -637,6 +758,44 @@ namespace HemisAudit.Services
                 }
 
                 ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml(fillColor);
+                rowIndex++;
+            }
+
+            for (var c = 1; c <= headers.Count; c++)
+                ws.Column(c).AdjustToContents();
+        }
+
+        private static void WriteRule29HeaderRow(IXLWorksheet ws, int row, List<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
+        private static void WriteRule29Rows(IXLWorksheet ws, int startRow, List<Rule29ValidationRowRecord> rows, List<string> headers)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = header switch
+                    {
+                        "Validation_Number" => row.ValidationNumber.ToString(),
+                        "Filter_Value" => row.FilterValue,
+                        "Breakdown_Value" => row.BreakdownValue,
+                        _ => row.DisplayValues.TryGetValue(header, out var currentValue) ? currentValue ?? "" : ""
+                    };
+
+                    ws.Cell(rowIndex, i + 1).Value = value;
+                }
+
                 rowIndex++;
             }
 

@@ -84,7 +84,7 @@
                     • Filter Fatal errors from <code>Error_Type</code> column<br />
                     • Exclude specified error codes<br />
                     • PASS if no remaining errors, FAIL if any remain<br />
-                    • Normalization: <code>01501 = 1501</code>
+                    • Normalization: <code>01501 = 1501</code>, <code>000101 = 101</code>
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
@@ -144,7 +144,10 @@
             <div class="accordion-body" id="body-exclusion" style="display:none">
                 <div class="field-group">
                     <label for="exclusionCodes">Exclude Codes</label>
-                    <textarea id="exclusionCodes" rows="4" placeholder="02202, 02301, 02302, 00708, 07201, 01501, 1501">02202, 02301, 02302, 00708, 07201, 01501, 1501</textarea>
+                    <textarea id="exclusionCodes" rows="4" placeholder="02202, 02301;02302, 00708, 07201, 01501, 1501">02202, 02301, 02302, 00708, 07201, 01501, 1501</textarea>
+                </div>
+                <div style="color:#64748b;font-size:13px;margin-top:8px">
+                    Enter one or more exclusion codes separated by <code>,</code> or <code>;</code>. Numeric codes are matched with leading-zero normalization, so <code>1</code>, <code>01</code>, and <code>0000001</code> are treated as the same code.
                 </div>
             </div>
         </div>
@@ -407,6 +410,13 @@
         URL.revokeObjectURL(objectUrl);
     }
 
+    function normalizeSmartFilterValue(value) {
+        const trimmed = String(value || '').trim();
+        if (!trimmed) return '';
+        if (/^\d+$/.test(trimmed)) return trimmed.replace(/^0+/, '') || '0';
+        return trimmed.toUpperCase();
+    }
+
     function canonicalizeExclusionCodes(value) {
         const items = String(value || '')
             .split(/[\s,;]+/)
@@ -416,7 +426,7 @@
         const unique = [];
         const seen = new Set();
         items.forEach(function (item) {
-            const key = item.toUpperCase();
+            const key = normalizeSmartFilterValue(item);
             if (!seen.has(key)) {
                 seen.add(key);
                 unique.push(item);

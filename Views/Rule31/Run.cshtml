@@ -93,10 +93,10 @@
             <input type="hidden" name="RunId" value="@Model.RunId" />
             <div class="field-group" style="margin-bottom:12px">
                 <label>Comment</label>
-                <textarea name="Comment" rows="3" placeholder="Add review or completion notes">@Model.Signoffs.FirstOrDefault(s => s.IsCurrentUser)?.Comment</textarea>
+                <textarea name="Comment" rows="3" placeholder="Add review or completion notes" disabled="@(Model.CurrentUserHasSignedOff ? "disabled" : null)">@Model.Signoffs.FirstOrDefault(s => s.IsCurrentUser)?.Comment</textarea>
             </div>
-            <button type="submit" class="btn btn-primary">
-                @(Model.CurrentUserHasSignedOff ? "Update My Signoff" : $"Sign Off as {Model.CurrentUserEngagementRole}")
+            <button type="submit" class="btn btn-primary" disabled="@(Model.CurrentUserHasSignedOff ? "disabled" : null)">
+                @(Model.CurrentUserHasSignedOff ? $"Signed Off as {Model.CurrentUserEngagementRole}" : $"Sign Off as {Model.CurrentUserEngagementRole}")
             </button>
         </form>
 

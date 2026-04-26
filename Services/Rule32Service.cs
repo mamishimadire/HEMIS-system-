@@ -2,7 +2,7 @@ using Microsoft.Data.SqlClient;
 using Newtonsoft.Json;
 using System.Globalization;
 using System.Security.Cryptography;
-using System.Text.RegularExpressions;
+using HemisAudit.Helpers;
 using HemisAudit.ViewModels;
 
 namespace HemisAudit.Services
@@ -10,7 +10,6 @@ namespace HemisAudit.Services
     public class Rule32Service : IRule32Service
     {
         private static readonly string[] DefaultExclusions = ["02202", "02301", "02302", "00708", "07201", "01501", "1501"];
-        private static readonly Regex ExclusionSplitPattern = new(@"[\s,;]+", RegexOptions.Compiled);
         private readonly IConfiguration _configuration;
 
         public Rule32Service(IConfiguration configuration)
@@ -659,10 +658,24 @@ WHERE RunID = @RunID
 -- PASS if no fatal errors remain after exclusion filtering.
 -- ============================================================================
 
-WITH FatalRows AS
+IF OBJECT_ID('tempdb..#Classified') IS NOT NULL
+    DROP TABLE #Classified;
+
+SELECT
+    ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
+    src.*,
+    src.Error_Code_Raw,
+    src.Error_Code_Normalized,
+    CASE
+        WHEN src.Error_Code_Raw IN ({exclusionList})
+          OR src.Error_Code_Normalized IN ({normalizedList})
+        THEN 'EXCLUDED'
+        ELSE 'REMAINING'
+    END AS Classification
+INTO #Classified
+FROM
 (
     SELECT
-        ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
         *,
         LTRIM(RTRIM(ISNULL(CAST([{safeErrorColumn}] AS nvarchar(255)), ''))) AS Error_Code_Raw,
         CASE
@@ -679,20 +692,9 @@ WITH FatalRows AS
         END AS Error_Code_Normalized
     FROM [{safeTable}]
     WHERE UPPER(LTRIM(RTRIM(ISNULL(CAST([{safeErrorTypeColumn}] AS nvarchar(255)), '')))) = UPPER('{EscapeSqlString(request.ErrorTypeValue)}')
-),
-Classified AS
-(
-    SELECT
-        *,
-        CASE
-            WHEN Error_Code_Raw IN ({exclusionList})
-              OR Error_Code_Normalized IN ({normalizedList})
-            THEN 'EXCLUDED'
-            ELSE 'REMAINING'
-        END AS Classification
-    FROM FatalRows
-)
-SELECT * FROM Classified;
+) src;
+
+SELECT * FROM #Classified;
 
 SELECT
     COUNT(*) AS Total_Fatal,
@@ -702,19 +704,21 @@ SELECT
         WHEN SUM(CASE WHEN Classification = 'REMAINING' THEN 1 ELSE 0 END) = 0 THEN 'PASS'
         ELSE 'FAIL'
     END AS Validation_Result
-FROM Classified;
+FROM #Classified;
 
 SELECT Error_Code_Raw AS Error_Code, COUNT(*) AS Excluded_Count
-FROM Classified
+FROM #Classified
 WHERE Classification = 'EXCLUDED'
 GROUP BY Error_Code_Raw
 ORDER BY COUNT(*) DESC, Error_Code_Raw ASC;
 
 SELECT Error_Code_Raw AS Error_Code, COUNT(*) AS Remaining_Count
-FROM Classified
+FROM #Classified
 WHERE Classification = 'REMAINING'
 GROUP BY Error_Code_Raw
-ORDER BY COUNT(*) DESC, Error_Code_Raw ASC;";
+ORDER BY COUNT(*) DESC, Error_Code_Raw ASC;
+
+DROP TABLE #Classified;";
 
             return Task.FromResult(sql);
         }
@@ -990,33 +994,11 @@ ORDER BY ORDINAL_POSITION;";
             }
         }
 
-        private static List<string> ParseExclusions(string? exclusionCodes)
-        {
-            var source = string.IsNullOrWhiteSpace(exclusionCodes)
-                ? string.Join(", ", DefaultExclusions)
-                : exclusionCodes;
+        private static List<string> ParseExclusions(string? exclusionCodes) =>
+            NumericFilterValueHelper.ParseValues(exclusionCodes, DefaultExclusions);
 
-            var values = ExclusionSplitPattern
-                .Split(source)
-                .Select(s => s.Trim().Trim('"', '\''))
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            return values.Count > 0
-                ? values
-                : DefaultExclusions.ToList();
-        }
-
-        private static string NormalizeErrorCode(string? code)
-        {
-            if (string.IsNullOrWhiteSpace(code))
-                return "";
-
-            var trimmed = code.Trim();
-            var normalized = trimmed.TrimStart('0');
-            return string.IsNullOrEmpty(normalized) ? "0" : normalized;
-        }
+        private static string NormalizeErrorCode(string? code) =>
+            NumericFilterValueHelper.NormalizeNumericLikeValue(code);
 
         private static bool IsExcluded(string? errorCode, IEnumerable<string> normalizedExclusions)
         {

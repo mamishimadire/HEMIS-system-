@@ -51,6 +51,7 @@ builder.Services.AddScoped<IRule34Service, Rule34Service>();
 builder.Services.AddScoped<IRule32Service, Rule32Service>();
 builder.Services.AddScoped<IRule31Service, Rule31Service>();
 builder.Services.AddScoped<IRule30Service, Rule30Service>();
+builder.Services.AddScoped<IRule29Service, Rule29Service>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 
@@ -90,6 +91,11 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule29-short",
+    pattern: "Rule29",
+    defaults: new { controller = "Rule29", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule30-short",

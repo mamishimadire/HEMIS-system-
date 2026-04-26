@@ -91,7 +91,7 @@
                     • Filter Fatal errors from <code>Error_Type</code> column<br />
                     • Exclude specified error codes<br />
                     • PASS if no remaining errors, FAIL if any remain<br />
-                    • Normalization: <code>01501 = 1501</code>
+                    • Normalization: <code>01501 = 1501</code>, <code>000101 = 101</code>
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
@@ -151,7 +151,10 @@
             <div class="accordion-body" id="body-exclusion" style="display:none">
                 <div class="field-group">
                     <label for="exclusionCodes">Exclude Codes</label>
-                    <textarea id="exclusionCodes" rows="4" placeholder="02202, 02301, 02302, 00708, 07201, 01501, 1501">02202, 02301, 02302, 00708, 07201, 01501, 1501</textarea>
+                    <textarea id="exclusionCodes" rows="4" placeholder="02202, 02301;02302, 00708, 07201, 01501, 1501">02202, 02301, 02302, 00708, 07201, 01501, 1501</textarea>
+                </div>
+                <div style="color:#64748b;font-size:13px;margin-top:8px">
+                    Enter one or more exclusion codes separated by <code>,</code> or <code>;</code>. Numeric codes are matched with leading-zero normalization, so <code>1</code>, <code>01</code>, and <code>0000001</code> are treated as the same code.
                 </div>
             </div>
         </div>
@@ -378,21 +381,66 @@
         return String(state.currentStatus || '').toLowerCase() === 'archived';
     }
 
+    async function parseJsonResponse(response, fallbackMessage) {
+        const contentType = response.headers.get('content-type') || '';
+
+        if (contentType.toLowerCase().includes('application/json')) {
+            const data = await response.json();
+            if (!response.ok && data && !data.success && data.error) {
+                return data;
+            }
+
+            if (!response.ok) {
+                throw new Error(data && data.error ? data.error : fallbackMessage);
+            }
+
+            return data;
+        }
+
+        const text = await response.text();
+        if (!response.ok) {
+            throw new Error(text || fallbackMessage);
+        }
+
+        if (response.redirected || text.trim().startsWith('<')) {
+            throw new Error('The request did not return JSON. Refresh the page and try again.');
+        }
+
+        throw new Error(text || fallbackMessage);
+    }
+
+    function toFriendlyRequestError(error, fallbackMessage) {
+        const message = error && error.message ? String(error.message) : '';
+        if (!message) return fallbackMessage;
+        if (message === 'Failed to fetch') {
+            return 'The request could not reach the server. Refresh the page and try again.';
+        }
+        return message;
+    }
+
     async function getJson(url) {
-        const response = await fetch(url, { cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-        return await response.json();
+        try {
+            const response = await fetch(url, { cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            return await parseJsonResponse(response, 'Unable to load data from the server.');
+        } catch (error) {
+            throw new Error(toFriendlyRequestError(error, 'Unable to load data from the server.'));
+        }
     }
 
     async function post(url, body) {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'RequestVerificationToken': token
-            },
-            body: JSON.stringify(body)
-        });
-        return await response.json();
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'RequestVerificationToken': token
+                },
+                body: JSON.stringify(body)
+            });
+            return await parseJsonResponse(response, 'The server could not process the request.');
+        } catch (error) {
+            throw new Error(toFriendlyRequestError(error, 'The server could not process the request.'));
+        }
     }
 
     async function downloadPost(url, body, fileName) {
@@ -419,6 +467,13 @@
         URL.revokeObjectURL(objectUrl);
     }
 
+    function normalizeSmartFilterValue(value) {
+        const trimmed = String(value || '').trim();
+        if (!trimmed) return '';
+        if (/^\d+$/.test(trimmed)) return trimmed.replace(/^0+/, '') || '0';
+        return trimmed.toUpperCase();
+    }
+
     function canonicalizeExclusionCodes(value) {
         const items = String(value || '')
             .split(/[\s,;]+/)
@@ -428,7 +483,7 @@
         const unique = [];
         const seen = new Set();
         items.forEach(function (item) {
-            const key = item.toUpperCase();
+            const key = normalizeSmartFilterValue(item);
             if (!seen.has(key)) {
                 seen.add(key);
                 unique.push(item);
@@ -818,6 +873,7 @@
     function renderWorkspaceState() {
         const role = state.currentUserEngagementRole || currentSystemRole;
         const archived = isArchivedWorkspace();
+        const signedOffLock = !!state.currentUserHasSignedOff;
         const canEditWorkspace = currentSystemRole === 'DataAnalyst' && !archived;
         const canSignWorkspace =
             !archived &&
@@ -834,34 +890,38 @@
         const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
         const signoffBtn = document.getElementById('signoffBtn');
         const removeSignoffBtn = document.getElementById('removeSignoffBtn');
+        const connectBtn = document.getElementById('connectBtn');
+        const verifyBtn = document.getElementById('verifyBtn');
+        const verifyBtnBar = document.getElementById('verifyBtnBar');
+        const refreshFilterBtn = document.getElementById('refreshFilterBtn');
 
         if (rootShell) {
-            rootShell.classList.toggle('module-readonly', !canEditWorkspace);
+            rootShell.classList.toggle('module-readonly', !canEditWorkspace || signedOffLock);
         }
 
         if (runBtn) {
             runBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-            runBtn.disabled = !canEditWorkspace;
+            runBtn.disabled = !canEditWorkspace || signedOffLock;
         }
 
         if (sqlBtn) {
             sqlBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-            sqlBtn.disabled = !canEditWorkspace;
+            sqlBtn.disabled = !canEditWorkspace || signedOffLock;
         }
 
         if (beginEditBtn) {
             beginEditBtn.style.display = canEditWorkspace && state.currentRunId ? 'inline-flex' : 'none';
-            beginEditBtn.disabled = !canEditWorkspace || !state.currentRunId || state.isDirty;
+            beginEditBtn.disabled = !canEditWorkspace || !state.currentRunId || state.isDirty || signedOffLock;
         }
 
         if (saveWorkspaceBtn) {
             saveWorkspaceBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-            saveWorkspaceBtn.disabled = !canEditWorkspace || !state.currentRunId;
+            saveWorkspaceBtn.disabled = !canEditWorkspace || !state.currentRunId || signedOffLock;
         }
 
         if (signoffBtn) {
             signoffBtn.style.display = canSignWorkspace ? 'inline-flex' : 'none';
-            signoffBtn.disabled = !canSignWorkspace || state.isDirty;
+            signoffBtn.disabled = !canSignWorkspace || state.isDirty || signedOffLock;
         }
 
         if (removeSignoffBtn) {
@@ -869,8 +929,13 @@
             removeSignoffBtn.disabled = !canRemoveWorkspaceSignoff;
         }
 
+        if (connectBtn) connectBtn.disabled = !canEditWorkspace || signedOffLock;
+        if (verifyBtn) verifyBtn.disabled = !canEditWorkspace || signedOffLock;
+        if (verifyBtnBar) verifyBtnBar.disabled = !canEditWorkspace || signedOffLock;
+        if (refreshFilterBtn) refreshFilterBtn.disabled = !canEditWorkspace || signedOffLock;
+
         if (els.workspaceSignoffComment) {
-            els.workspaceSignoffComment.disabled = archived || !canSignWorkspace;
+            els.workspaceSignoffComment.disabled = archived || !canSignWorkspace || signedOffLock;
         }
 
         if (!state.currentRunId) {
@@ -1193,17 +1258,21 @@
         }
 
         showSpinner('Generating SQL...');
-        const result = await post(`${apiBasePath}/GenerateSql`, buildRequest());
-        if (!result.success) {
-            setInfo(result.error || 'Unable to generate SQL.', 'error');
-            hideSpinner();
-            return;
-        }
+        try {
+            const result = await post(`${apiBasePath}/GenerateSql`, buildRequest());
+            if (!result.success) {
+                setInfo(result.error || 'Unable to generate SQL.', 'error');
+                return;
+            }
 
-        state.sql = result.sql || '';
-        els.sqlText.value = state.sql;
-        switchTab('sql');
-        hideSpinner();
+            state.sql = result.sql || '';
+            els.sqlText.value = state.sql;
+            switchTab('sql');
+        } catch (error) {
+            setInfo(toFriendlyRequestError(error, 'Unable to generate SQL.'), 'error');
+        } finally {
+            hideSpinner();
+        }
     }
 
     async function saveWorkspace() {
@@ -1213,70 +1282,90 @@
         }
 
         showSpinner('Saving workspace...');
-        const result = await post(`${apiBasePath}/SaveWorkspace`, buildRequest());
-        if (!result.success) {
-            setInfo(result.error || 'Unable to save workspace.', 'error');
-            hideSpinner();
-            return;
-        }
+        try {
+            const result = await post(`${apiBasePath}/SaveWorkspace`, buildRequest());
+            if (!result.success) {
+                setInfo(result.error || 'Unable to save workspace.', 'error');
+                return;
+            }
 
-        applyWorkspace(result.workspace, true);
-        setInfo(result.message || 'Workspace saved.', 'success');
-        hideSpinner();
+            applyWorkspace(result.workspace, true);
+            setInfo(result.message || 'Workspace saved.', 'success');
+        } catch (error) {
+            setInfo(toFriendlyRequestError(error, 'Unable to save workspace.'), 'error');
+        } finally {
+            hideSpinner();
+        }
     }
 
     async function beginWorkspaceEdit() {
         showSpinner('Clearing signoffs for the edited workspace...');
-        const result = await post(`${apiBasePath}/BeginWorkspaceEdit`, buildRequest());
-        if (!result.success) {
-            setInfo(result.error || 'Unable to begin editing.', 'error');
-            hideSpinner();
-            return;
-        }
+        try {
+            const result = await post(`${apiBasePath}/BeginWorkspaceEdit`, buildRequest());
+            if (!result.success) {
+                setInfo(result.error || 'Unable to begin editing.', 'error');
+                return;
+            }
 
-        applyWorkspace(result.workspace, true);
-        state.editWarningAccepted = true;
-        state.isDirty = true;
-        renderWorkspaceState();
-        setInfo(result.message || 'Editing has begun.', 'success');
-        hideSpinner();
+            applyWorkspace(result.workspace, true);
+            state.editWarningAccepted = true;
+            state.isDirty = true;
+            renderWorkspaceState();
+            setInfo(result.message || 'Editing has begun.', 'success');
+        } catch (error) {
+            setInfo(toFriendlyRequestError(error, 'Unable to begin editing.'), 'error');
+        } finally {
+            hideSpinner();
+        }
     }
 
     async function signoffWorkspace() {
         showSpinner('Saving signoff...');
-        const result = await post(`${apiBasePath}/SignOffWorkspace`, {
-            clientId: state.clientId,
-            runId: state.currentRunId,
-            comment: els.workspaceSignoffComment.value.trim()
-        });
-        if (!result.success) {
-            setInfo(result.error || 'Unable to save signoff.', 'error');
-            hideSpinner();
-            return;
-        }
+        try {
+            const result = await post(`${apiBasePath}/SignOffWorkspace`, {
+                clientId: state.clientId,
+                runId: state.currentRunId,
+                comment: els.workspaceSignoffComment.value.trim()
+            });
+            if (!result.success) {
+                setInfo(result.error || 'Unable to save signoff.', 'error');
+                return;
+            }
 
-        applyWorkspace(result.workspace, true);
-        setInfo(result.message || 'Signoff saved.', 'success');
-        switchTab('downloads');
-        hideSpinner();
+            state.currentUserHasSignedOff = true;
+            applyWorkspace(result.workspace, true);
+            renderWorkspaceState();
+            setInfo(result.message || 'Signoff saved.', 'success');
+            switchTab('downloads');
+        } catch (error) {
+            setInfo(toFriendlyRequestError(error, 'Unable to save signoff.'), 'error');
+        } finally {
+            hideSpinner();
+        }
     }
 
     async function removeWorkspaceSignoff() {
         showSpinner('Removing signoff...');
-        const result = await post(`${apiBasePath}/RemoveWorkspaceSignoff`, {
-            clientId: state.clientId,
-            runId: state.currentRunId,
-            comment: ''
-        });
-        if (!result.success) {
-            setInfo(result.error || 'Unable to remove signoff.', 'error');
-            hideSpinner();
-            return;
-        }
+        try {
+            const result = await post(`${apiBasePath}/RemoveWorkspaceSignoff`, {
+                clientId: state.clientId,
+                runId: state.currentRunId,
+                comment: ''
+            });
+            if (!result.success) {
+                setInfo(result.error || 'Unable to remove signoff.', 'error');
+                return;
+            }
 
-        applyWorkspace(result.workspace, true);
-        setInfo(result.message || 'Signoff removed.', 'success');
-        hideSpinner();
+            state.currentUserHasSignedOff = false;
+            applyWorkspace(result.workspace, true);
+            renderWorkspaceState();
+            setInfo(result.message || 'Signoff removed.', 'success');
+        } catch (error) {
+            setInfo(toFriendlyRequestError(error, 'Unable to remove signoff.'), 'error');
+        } finally {
+            hideSpinner();
+        }
     }
 
     async function downloadAll() {
