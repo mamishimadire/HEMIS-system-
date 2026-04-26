@@ -46,6 +46,7 @@ builder.Services.AddControllersWithViews(options =>
     options.Filters.AddService<PasswordAgeFilter>();
 }).AddNewtonsoftJson();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IRule26Service, Rule26Service>();
 builder.Services.AddScoped<IRule36Service, Rule36Service>();
 builder.Services.AddScoped<IRule34Service, Rule34Service>();
 builder.Services.AddScoped<IRule32Service, Rule32Service>();
@@ -92,6 +93,11 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule26-short",
+    pattern: "Rule26",
+    defaults: new { controller = "Rule26", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule29-short",
