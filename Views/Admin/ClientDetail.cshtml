@@ -11,6 +11,8 @@
     var canReviewUnsignedRuns =
         string.Equals(currentSystemRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
     var showModulesWorkspaceUi = ViewBag.ShowModulesWorkspaceUi is bool showModules && showModules;
+    var currentValidationRuns = Model.ValidationRuns.Where(run => run.IsCurrent).ToList();
+    var historicalValidationRuns = Model.ValidationRuns.Where(run => !run.IsCurrent).ToList();
 }
 
 @if (TempData["Success"] != null)
@@ -321,73 +323,155 @@
     <summary class="collapsible-trigger">
         <div>
             <span class="collapsible-trigger__title">Validation Runs (@Model.ValidationRuns.Count)</span>
-            <span class="collapsible-trigger__subtitle">Show or hide saved runs, statuses, signoffs, and review links for this engagement.</span>
+            <span class="collapsible-trigger__subtitle">Current results and history are separated for easier review.</span>
         </div>
         <span class="collapsible-trigger__icon" aria-hidden="true"></span>
     </summary>
     <div class="collapsible-panel">
 @if (Model.ValidationRuns.Any())
 {
-    <div class="card">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Rule</th>
-                    <th>Status</th>
-                    <th>Current</th>
-                    <th>Total</th>
-                    <th>Exceptions</th>
-                    <th>Rate</th>
-                    <th>Signoffs</th>
-                    <th>Run By</th>
-                    <th>Date</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var run in Model.ValidationRuns)
-                {
-                    var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
-                        ? "badge--pass"
-                        : run.Status == "Fail" || run.Status == "Needs Review"
-                            ? "badge--fail"
-                            : "badge--role";
-                    <tr>
-                        <td>@run.Id</td>
-                        <td>Rule @run.RuleNumber - @run.RuleName</td>
-                        <td><span class="badge @runBadge">@run.Status</span></td>
-                        <td><span class="badge @(run.IsCurrent ? "badge--pass" : "badge--neutral")">@(run.IsCurrent ? "Current" : "History")</span></td>
-                        <td>@run.TotalValidated.ToString("N0")</td>
-                        <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
-                        <td>@run.ExceptionRate.ToString("F2")%</td>
-                        <td>
-                            @run.SignoffCount
-                            @if (run.HasDataAnalystSignoff)
-                            {
-                                <br />
-                                <small style="color:#2e7d32">Data analyst signed</small>
-                            }
-                        </td>
-                        <td>@run.RunByUserName</td>
-                        <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
-                        <td>
-            @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
+    <div style="display:grid;gap:18px">
+        <div class="card">
+            <div style="padding:18px 20px 0">
+                <h3 class="section-title" style="margin:0">Current Results (@currentValidationRuns.Count)</h3>
+                <p style="margin:6px 0 0;color:#64748b">These are the active runs currently in effect for each module.</p>
+            </div>
+            @if (currentValidationRuns.Any())
             {
-                <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
-                   asp-action="Run"
-                   asp-route-id="@run.Id"
-                   class="btn btn-sm btn-secondary">Review</a>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Rule</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                            <th>Exceptions</th>
+                            <th>Rate</th>
+                            <th>Signoffs</th>
+                            <th>Run By</th>
+                            <th>Date</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in currentValidationRuns)
+                        {
+                            var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
+                                ? "badge--pass"
+                                : run.Status == "Fail" || run.Status == "Needs Review"
+                                    ? "badge--fail"
+                                    : "badge--role";
+                            <tr>
+                                <td>@run.Id</td>
+                                <td>Rule @run.RuleNumber - @run.RuleName</td>
+                                <td><span class="badge @runBadge">@run.Status</span></td>
+                                <td>@run.TotalValidated.ToString("N0")</td>
+                                <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
+                                <td>@run.ExceptionRate.ToString("F2")%</td>
+                                <td>
+                                    @run.SignoffCount
+                                    @if (run.HasDataAnalystSignoff)
+                                    {
+                                        <br />
+                                        <small style="color:#2e7d32">Data analyst signed</small>
+                                    }
+                                </td>
+                                <td>@run.RunByUserName</td>
+                                <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
+                                    {
+                                        <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
+                                           asp-action="Run"
+                                           asp-route-id="@run.Id"
+                                           class="btn btn-sm btn-secondary">Review</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             }
-                            else
-                            {
-                                <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+            else
+            {
+                <div style="padding:16px 20px;color:#757575">No current validation results are available.</div>
+            }
+        </div>
+
+        <div class="card">
+            <div style="padding:18px 20px 0">
+                <h3 class="section-title" style="margin:0">History (@historicalValidationRuns.Count)</h3>
+                <p style="margin:6px 0 0;color:#64748b">Previous saved runs remain available here for comparison and audit trail review.</p>
+            </div>
+            @if (historicalValidationRuns.Any())
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Rule</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                            <th>Exceptions</th>
+                            <th>Rate</th>
+                            <th>Signoffs</th>
+                            <th>Run By</th>
+                            <th>Date</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in historicalValidationRuns)
+                        {
+                            var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
+                                ? "badge--pass"
+                                : run.Status == "Fail" || run.Status == "Needs Review"
+                                    ? "badge--fail"
+                                    : "badge--role";
+                            <tr>
+                                <td>@run.Id</td>
+                                <td>Rule @run.RuleNumber - @run.RuleName</td>
+                                <td><span class="badge @runBadge">@run.Status</span></td>
+                                <td>@run.TotalValidated.ToString("N0")</td>
+                                <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
+                                <td>@run.ExceptionRate.ToString("F2")%</td>
+                                <td>
+                                    @run.SignoffCount
+                                    @if (run.HasDataAnalystSignoff)
+                                    {
+                                        <br />
+                                        <small style="color:#2e7d32">Data analyst signed</small>
+                                    }
+                                </td>
+                                <td>@run.RunByUserName</td>
+                                <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
+                                    {
+                                        <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
+                                           asp-action="Run"
+                                           asp-route-id="@run.Id"
+                                           class="btn btn-sm btn-secondary">Review</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="padding:16px 20px;color:#757575">No historical validation runs have been saved yet.</div>
+            }
+        </div>
     </div>
 }
 else
