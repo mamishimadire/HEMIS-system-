@@ -13,31 +13,6 @@ namespace HemisAudit.Controllers
     {
         private const long MaxAttachmentSizeBytes = 15 * 1024 * 1024;
 
-        private static readonly Dictionary<string, (string ContentType, string Kind)> AllowedAttachmentTypes =
-            new(StringComparer.OrdinalIgnoreCase)
-            {
-                [".jpg"] = ("image/jpeg", "image"),
-                [".jpeg"] = ("image/jpeg", "image"),
-                [".png"] = ("image/png", "image"),
-                [".gif"] = ("image/gif", "image"),
-                [".webp"] = ("image/webp", "image"),
-                [".mp3"] = ("audio/mpeg", "audio"),
-                [".wav"] = ("audio/wav", "audio"),
-                [".ogg"] = ("audio/ogg", "audio"),
-                [".m4a"] = ("audio/mp4", "audio"),
-                [".mp4"] = ("video/mp4", "video"),
-                [".webm"] = ("video/webm", "video"),
-                [".mov"] = ("video/quicktime", "video"),
-                [".pdf"] = ("application/pdf", "file"),
-                [".doc"] = ("application/msword", "file"),
-                [".docx"] = ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "file"),
-                [".xls"] = ("application/vnd.ms-excel", "file"),
-                [".xlsx"] = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "file"),
-                [".csv"] = ("text/csv", "file"),
-                [".txt"] = ("text/plain", "file"),
-                [".zip"] = ("application/zip", "file")
-            };
-
         private readonly UserManager<ApplicationUser> _users;
         private readonly ISystemDatabaseService _systemDb;
         private readonly IAuditLogService _audit;
@@ -144,7 +119,7 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public async Task<IActionResult> Send(MessageComposeViewModel model)
+        public async Task<IActionResult> Send(MessageSendViewModel model)
         {
             var user = await _users.GetUserAsync(User);
             if (user == null)
@@ -178,7 +153,7 @@ namespace HemisAudit.Controllers
                     role,
                     recipientIds,
                     model.Subject.Trim(),
-                    model.Body.Trim(),
+                    NormaliseMessageBody(model.Body),
                     model.ClientId,
                     savedAttachments);
 
@@ -199,7 +174,7 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public async Task<IActionResult> Reply(MessageComposeViewModel model)
+        public async Task<IActionResult> Reply(MessageReplyViewModel model)
         {
             if (!model.ThreadId.HasValue)
                 return RedirectToAction(nameof(Index));
@@ -223,7 +198,7 @@ namespace HemisAudit.Controllers
 
             try
             {
-                await _systemDb.ReplyToThreadAsync(model.ThreadId.Value, user, role, model.Body.Trim(), savedAttachments);
+                await _systemDb.ReplyToThreadAsync(model.ThreadId.Value, user, role, NormaliseMessageBody(model.Body), savedAttachments);
                 await _audit.LogAsync(
                     "TEAM_MESSAGE_REPLIED",
                     $"Replied in message thread {model.ThreadId.Value}.",
@@ -367,9 +342,8 @@ namespace HemisAudit.Controllers
                 ShowEditModal = edit && activeThread != null,
                 ShowEditMessageModal = editMessageId.HasValue && activeThread?.Messages.Any(m => m.MessageId == editMessageId.Value) == true,
                 EditingMessageId = editMessageId,
-                Compose = new MessageComposeViewModel
+                Compose = new MessageSendViewModel
                 {
-                    ThreadId = activeThread?.ThreadId,
                     ClientId = composeClientId
                 },
                 EditThread = new MessageThreadEditViewModel
@@ -398,7 +372,7 @@ namespace HemisAudit.Controllers
             return vm;
         }
 
-        private static List<int> ResolveRecipientIds(MessageComposeViewModel model)
+        private static List<int> ResolveRecipientIds(MessageSendViewModel model)
         {
             var recipientIds = (model.RecipientIds ?? new List<int>()).Distinct().ToList();
             if (!recipientIds.Any() && !string.IsNullOrWhiteSpace(model.RecipientIdsCsv))
@@ -425,25 +399,21 @@ namespace HemisAudit.Controllers
 
             foreach (var file in files.Where(file => file != null && file.Length > 0))
             {
-                var extension = Path.GetExtension(file.FileName);
-                if (string.IsNullOrWhiteSpace(extension) || !AllowedAttachmentTypes.TryGetValue(extension, out var fileMeta))
-                {
-                    modelState.AddModelError("Attachments", $"Unsupported attachment type: {file.FileName}");
-                    continue;
-                }
-
                 if (file.Length > MaxAttachmentSizeBytes)
                 {
                     modelState.AddModelError("Attachments", $"{file.FileName} must be 15 MB or smaller.");
                     continue;
                 }
 
+                var extension = Path.GetExtension(file.FileName);
                 var safeFileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
                 var physicalPath = Path.Combine(attachmentsFolder, safeFileName);
                 await using (var stream = System.IO.File.Create(physicalPath))
                 {
                     await file.CopyToAsync(stream);
                 }
+
+                var fileMeta = ClassifyAttachment(file.ContentType, extension);
 
                 saved.Add(new MessageAttachmentInput
                 {
@@ -470,6 +440,40 @@ namespace HemisAudit.Controllers
                 if (System.IO.File.Exists(physicalPath))
                     System.IO.File.Delete(physicalPath);
             }
+        }
+
+        private static string NormaliseMessageBody(string? body) =>
+            string.IsNullOrWhiteSpace(body) ? "" : body.Trim();
+
+        private static (string ContentType, string Kind) ClassifyAttachment(string? contentType, string? extension)
+        {
+            var normalizedContentType = string.IsNullOrWhiteSpace(contentType)
+                ? "application/octet-stream"
+                : contentType.Trim();
+
+            if (normalizedContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                return (normalizedContentType, "image");
+
+            if (normalizedContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+                return (normalizedContentType, "audio");
+
+            if (normalizedContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+                return (normalizedContentType, "video");
+
+            var normalizedExtension = string.IsNullOrWhiteSpace(extension)
+                ? ""
+                : extension.Trim().ToLowerInvariant();
+
+            return normalizedExtension switch
+            {
+                ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".bmp" or ".tif" or ".tiff" or ".heic" or ".svg"
+                    => (string.IsNullOrWhiteSpace(contentType) ? "image/*" : normalizedContentType, "image"),
+                ".mp3" or ".wav" or ".ogg" or ".m4a" or ".aac" or ".flac"
+                    => (string.IsNullOrWhiteSpace(contentType) ? "audio/*" : normalizedContentType, "audio"),
+                ".mp4" or ".webm" or ".mov" or ".avi" or ".mkv" or ".wmv"
+                    => (string.IsNullOrWhiteSpace(contentType) ? "video/*" : normalizedContentType, "video"),
+                _ => (normalizedContentType, "file")
+            };
         }
 
         private async Task<string> GetCurrentSystemRoleAsync(ApplicationUser user)

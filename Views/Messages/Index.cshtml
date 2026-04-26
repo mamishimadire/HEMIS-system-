@@ -1,6 +1,11 @@
 @using System.Linq
+@using System.Text
+@using System.Text.Encodings.Web
+@using System.Text.RegularExpressions
 @model HemisAudit.ViewModels.MessagePageViewModel
 @functions {
+    private static readonly Regex UrlPattern = new(@"((https?:\/\/|www\.)[^\s<]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private static string ChatInitials(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -22,13 +27,60 @@
 
         return string.Concat(parts.Select(part => char.ToUpperInvariant(part[0])));
     }
+
+    private static string FormatMessageBody(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var body = value.Replace("\r\n", "\n");
+        var builder = new StringBuilder();
+        var currentIndex = 0;
+
+        foreach (Match match in UrlPattern.Matches(body))
+        {
+            if (match.Index > currentIndex)
+                AppendEncodedText(builder, body[currentIndex..match.Index]);
+
+            var linkText = match.Value;
+            var href = linkText.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                       linkText.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? linkText
+                : $"https://{linkText}";
+
+            builder.Append("<a class=\"message-inline-link\" target=\"_blank\" rel=\"noopener noreferrer\" href=\"");
+            builder.Append(HtmlEncoder.Default.Encode(href));
+            builder.Append("\">");
+            builder.Append(HtmlEncoder.Default.Encode(linkText));
+            builder.Append("</a>");
+
+            currentIndex = match.Index + match.Length;
+        }
+
+        if (currentIndex < body.Length)
+            AppendEncodedText(builder, body[currentIndex..]);
+
+        return builder.ToString();
+    }
+
+    private static void AppendEncodedText(StringBuilder builder, string value)
+    {
+        var lines = value.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (i > 0)
+                builder.Append("<br />");
+
+            builder.Append(HtmlEncoder.Default.Encode(lines[i]));
+        }
+    }
 }
 @{
     ViewData["Title"] = "Messages";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var activeThread = Model.ActiveThread;
     var unreadThreads = Model.Inbox.Count(thread => thread.HasUnread);
-    var attachmentAccept = ".jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.ogg,.m4a,.mp4,.webm,.mov,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip";
+    var attachmentAccept = "*/*";
     var currentUserEmail = User.Identity?.Name ?? "";
 }
 
@@ -177,7 +229,7 @@
                             {
                                 if (!string.IsNullOrWhiteSpace(message.Body))
                                 {
-                                    <div class="message-bubble__body">@message.Body</div>
+                                    <div class="message-bubble__body">@Html.Raw(FormatMessageBody(message.Body))</div>
                                 }
 
                                 if (message.Attachments.Any())
@@ -187,27 +239,30 @@
                                         {
                                             if (attachment.IsImage)
                                             {
-                                                <a href="@attachment.FilePath" class="message-attachment message-attachment--image" target="_blank" rel="noopener">
-                                                    <img src="@attachment.FilePath" alt="@attachment.FileName" />
-                                                </a>
+                                                <div class="message-attachment message-attachment--image">
+                                                    <a href="@attachment.FilePath" target="_blank" rel="noopener noreferrer">
+                                                        <img src="@attachment.FilePath" alt="@attachment.FileName" />
+                                                    </a>
+                                                    <a href="@attachment.FilePath" download="@attachment.FileName">Download</a>
+                                                </div>
                                             }
                                             else if (attachment.IsAudio)
                                             {
                                                 <div class="message-attachment message-attachment--audio">
                                                     <audio controls preload="metadata" src="@attachment.FilePath"></audio>
-                                                    <a href="@attachment.FilePath" target="_blank" rel="noopener">@attachment.FileName</a>
+                                                    <a href="@attachment.FilePath" download="@attachment.FileName">@attachment.FileName</a>
                                                 </div>
                                             }
                                             else if (attachment.IsVideo)
                                             {
                                                 <div class="message-attachment message-attachment--video">
                                                     <video controls preload="metadata" src="@attachment.FilePath"></video>
-                                                    <a href="@attachment.FilePath" target="_blank" rel="noopener">@attachment.FileName</a>
+                                                    <a href="@attachment.FilePath" download="@attachment.FileName">@attachment.FileName</a>
                                                 </div>
                                             }
                                             else
                                             {
-                                                <a href="@attachment.FilePath" class="message-attachment message-attachment--file" target="_blank" rel="noopener">
+                                                <a href="@attachment.FilePath" class="message-attachment message-attachment--file" download="@attachment.FileName">
                                                     <span>@attachment.FileName</span>
                                                 </a>
                                             }
@@ -285,7 +340,7 @@
                     <textarea id="reply-body" name="Body" rows="3" placeholder="Type a message"></textarea>
                     <input id="reply-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
                     <div class="messages-compose-meta">
-                        <span>Images, audio, video, PDF, Office files, text files, and ZIP are supported.</span>
+                        <span>All file types are supported. Links in messages open in a new tab.</span>
                         <span data-attachment-count-for="reply-attachments">No files selected</span>
                     </div>
                     <div class="messages-attachment-preview" id="reply-attachment-preview"></div>
@@ -368,7 +423,7 @@
                     <textarea id="compose-body" name="Body" rows="5" placeholder="Write your first message.">@Model.Compose.Body</textarea>
                     <input id="compose-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
                     <div class="messages-compose-meta">
-                        <span>Send a message, an attachment, or both.</span>
+                        <span>Chat title is required only for a new chat. Attach any file type if needed.</span>
                         <span data-attachment-count-for="compose-attachments">No files selected</span>
                     </div>
                     <div class="messages-attachment-preview" id="compose-attachment-preview"></div>
@@ -569,28 +624,49 @@
 
     function renderAttachment(attachment) {
         if (attachment.isImage) {
-            return `<a href="${attachment.filePath}" class="message-attachment message-attachment--image" target="_blank" rel="noopener">
-                        <img src="${attachment.filePath}" alt="${escapeHtml(attachment.fileName)}" />
-                    </a>`;
+            return `<div class="message-attachment message-attachment--image">
+                        <a href="${attachment.filePath}" target="_blank" rel="noopener noreferrer">
+                            <img src="${attachment.filePath}" alt="${escapeHtml(attachment.fileName)}" />
+                        </a>
+                        <a href="${attachment.filePath}" download="${escapeHtml(attachment.fileName)}">Download</a>
+                    </div>`;
         }
 
         if (attachment.isAudio) {
             return `<div class="message-attachment message-attachment--audio">
                         <audio controls preload="metadata" src="${attachment.filePath}"></audio>
-                        <a href="${attachment.filePath}" target="_blank" rel="noopener">${escapeHtml(attachment.fileName)}</a>
+                        <a href="${attachment.filePath}" download="${escapeHtml(attachment.fileName)}">${escapeHtml(attachment.fileName)}</a>
                     </div>`;
         }
 
         if (attachment.isVideo) {
             return `<div class="message-attachment message-attachment--video">
                         <video controls preload="metadata" src="${attachment.filePath}"></video>
-                        <a href="${attachment.filePath}" target="_blank" rel="noopener">${escapeHtml(attachment.fileName)}</a>
+                        <a href="${attachment.filePath}" download="${escapeHtml(attachment.fileName)}">${escapeHtml(attachment.fileName)}</a>
                     </div>`;
         }
 
-        return `<a href="${attachment.filePath}" class="message-attachment message-attachment--file" target="_blank" rel="noopener">
+        return `<a href="${attachment.filePath}" class="message-attachment message-attachment--file" download="${escapeHtml(attachment.fileName)}">
                     <span>${escapeHtml(attachment.fileName)}</span>
                 </a>`;
+    }
+
+    function linkifyMessageBody(value) {
+        const source = String(value || '');
+        const urlPattern = /((https?:\/\/|www\.)[^\s<]+)/gi;
+        let lastIndex = 0;
+        let html = '';
+
+        source.replace(urlPattern, function (match, _prefix, _scheme, offset) {
+            html += escapeHtml(source.slice(lastIndex, offset)).replace(/\n/g, '<br />');
+            const href = /^https?:\/\//i.test(match) ? match : `https://${match}`;
+            html += `<a class="message-inline-link" target="_blank" rel="noopener noreferrer" href="${escapeHtml(href)}">${escapeHtml(match)}</a>`;
+            lastIndex = offset + match.length;
+            return match;
+        });
+
+        html += escapeHtml(source.slice(lastIndex)).replace(/\n/g, '<br />');
+        return html;
     }
 
     function isOwnMessage(message) {
@@ -607,7 +683,7 @@
         const statusTime = ownMessage ? (message.lastReadAt || message.readAt) : message.readAt;
         const bodyHtml = message.isDeleted
             ? '<div class="message-bubble__deleted">This message was deleted.</div>'
-            : `${message.body ? `<div class="message-bubble__body">${escapeHtml(message.body)}</div>` : ''}${
+            : `${message.body ? `<div class="message-bubble__body">${linkifyMessageBody(message.body)}</div>` : ''}${
                 message.attachments && message.attachments.length
                     ? `<div class="message-attachments">${message.attachments.map(renderAttachment).join('')}</div>`
                     : ''

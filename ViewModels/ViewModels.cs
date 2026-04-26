@@ -655,7 +655,7 @@ namespace HemisAudit.ViewModels
         public string Subject { get; set; } = "";
     }
 
-    public class MessageComposeViewModel
+    public class MessageSendViewModel
     {
         public int? ClientId { get; set; }
         [MaxLength(255)]
@@ -664,7 +664,14 @@ namespace HemisAudit.ViewModels
         public List<int> RecipientIds { get; set; } = new();
         public string RecipientIdsCsv { get; set; } = "";
         public int? ReplyToMessageId { get; set; }
+        public List<IFormFile> Attachments { get; set; } = new();
+    }
+
+    public class MessageReplyViewModel
+    {
+        public int? ClientId { get; set; }
         public int? ThreadId { get; set; }
+        public string Body { get; set; } = "";
         public List<IFormFile> Attachments { get; set; } = new();
     }
 
@@ -688,7 +695,7 @@ namespace HemisAudit.ViewModels
         public List<MessageSummaryViewModel> Inbox { get; set; } = new();
         public List<MessageRecipientOptionViewModel> RecipientOptions { get; set; } = new();
         public MessageThreadViewModel? ActiveThread { get; set; }
-        public MessageComposeViewModel Compose { get; set; } = new();
+        public MessageSendViewModel Compose { get; set; } = new();
         public MessageThreadEditViewModel EditThread { get; set; } = new();
         public MessageEditViewModel EditMessage { get; set; } = new();
         public int UnreadCount { get; set; }
