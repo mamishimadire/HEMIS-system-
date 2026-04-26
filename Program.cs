@@ -39,12 +39,14 @@ builder.Services.AddScoped<IPasswordPolicyService, PasswordPolicyService>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<PasswordAgeFilter>();
 builder.Services.AddScoped<ISystemDatabaseService, SystemDatabaseService>();
+builder.Services.AddHttpClient();
 builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.AddService<PasswordAgeFilter>();
 }).AddNewtonsoftJson();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRule36Service, Rule36Service>();
+builder.Services.AddScoped<IRule34Service, Rule34Service>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 
@@ -78,6 +80,11 @@ app.MapControllerRoute(
     name: "rule36-short",
     pattern: "Rule36",
     defaults: new { controller = "Rule36", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule34-short",
+    pattern: "Rule34",
+    defaults: new { controller = "Rule34", action = "Index" });
 
 app.MapControllerRoute(
     name: "messages-short",

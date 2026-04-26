@@ -1,0 +1,10 @@
+bin/
+bin2/
+obj/
+artifacts/
+
+*.log
+*.db-shm
+*.db-wal
+
+.vscode/

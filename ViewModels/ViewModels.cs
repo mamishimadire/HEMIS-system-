@@ -208,7 +208,9 @@ namespace HemisAudit.ViewModels
         public int AssignedUsersCount { get; set; }
         public int ValidationRunsCount { get; set; }
         public int? LatestRunId { get; set; }
+        public int? LatestRunRuleNumber { get; set; }
         public int? LatestSignedOffRunId { get; set; }
+        public int? LatestSignedOffRunRuleNumber { get; set; }
         public string? LastRunStatus { get; set; }
         public DateTime? LastRunAt { get; set; }
         public string? LatestSignedOffStatus { get; set; }
@@ -284,6 +286,7 @@ namespace HemisAudit.ViewModels
         public bool CanArchive { get; set; }
         public string? ArchiveEligibilityMessage { get; set; }
         public int? CurrentRunId { get; set; }
+        public int? CurrentRunRuleNumber { get; set; }
     }
 
     public class ClientUserRow
@@ -436,6 +439,7 @@ namespace HemisAudit.ViewModels
     {
         public bool CanArchive { get; set; }
         public int? CurrentRunId { get; set; }
+        public int? CurrentRunRuleNumber { get; set; }
         public string Message { get; set; } = "";
         public List<string> MissingSignoffRoles { get; set; } = new();
     }
@@ -578,6 +582,7 @@ namespace HemisAudit.ViewModels
         public string LastSenderName { get; set; } = "";
         public int UnreadCount { get; set; }
         public bool HasUnread => UnreadCount > 0;
+        public bool IsActive { get; set; }
     }
 
     public class MessageItemViewModel
@@ -595,6 +600,36 @@ namespace HemisAudit.ViewModels
         public int ReadCount { get; set; }
         public DateTime? FirstReadAt { get; set; }
         public DateTime? LastReadAt { get; set; }
+        public bool CanEdit { get; set; }
+        public bool CanDelete { get; set; }
+        public bool IsEdited { get; set; }
+        public DateTime? EditedAt { get; set; }
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAt { get; set; }
+        public List<MessageAttachmentViewModel> Attachments { get; set; } = new();
+    }
+
+    public class MessageAttachmentInput
+    {
+        public string FileName { get; set; } = "";
+        public string FilePath { get; set; } = "";
+        public string ContentType { get; set; } = "";
+        public long FileSize { get; set; }
+        public string AttachmentKind { get; set; } = "file";
+    }
+
+    public class MessageAttachmentViewModel
+    {
+        public int AttachmentId { get; set; }
+        public int MessageId { get; set; }
+        public string FileName { get; set; } = "";
+        public string FilePath { get; set; } = "";
+        public string ContentType { get; set; } = "";
+        public long FileSize { get; set; }
+        public string AttachmentKind { get; set; } = "file";
+        public bool IsImage => string.Equals(AttachmentKind, "image", StringComparison.OrdinalIgnoreCase);
+        public bool IsAudio => string.Equals(AttachmentKind, "audio", StringComparison.OrdinalIgnoreCase);
+        public bool IsVideo => string.Equals(AttachmentKind, "video", StringComparison.OrdinalIgnoreCase);
     }
 
     public class MessageThreadViewModel
@@ -606,21 +641,53 @@ namespace HemisAudit.ViewModels
         public string CreatedByName { get; set; } = "";
         public DateTime CreatedAt { get; set; }
         public DateTime LastMessageAt { get; set; }
+        public bool CanEdit { get; set; }
+        public bool CanDelete { get; set; }
         public List<string> Participants { get; set; } = new();
         public List<MessageItemViewModel> Messages { get; set; } = new();
     }
 
-    public class MessageComposeViewModel
+    public class MessageThreadEditViewModel
     {
+        public int ThreadId { get; set; }
         public int? ClientId { get; set; }
         [Required, MaxLength(255)]
         public string Subject { get; set; } = "";
-        [Required]
+    }
+
+    public class MessageSendViewModel
+    {
+        public int? ClientId { get; set; }
+        [MaxLength(255)]
+        public string Subject { get; set; } = "";
         public string Body { get; set; } = "";
         public List<int> RecipientIds { get; set; } = new();
         public string RecipientIdsCsv { get; set; } = "";
         public int? ReplyToMessageId { get; set; }
+        public List<IFormFile> Attachments { get; set; } = new();
+    }
+
+    public class MessageReplyViewModel
+    {
+        public int? ClientId { get; set; }
         public int? ThreadId { get; set; }
+        public string Body { get; set; } = "";
+        public List<IFormFile> Attachments { get; set; } = new();
+    }
+
+    public class MessageEditViewModel
+    {
+        public int MessageId { get; set; }
+        public int ThreadId { get; set; }
+        public int? ClientId { get; set; }
+        public string Body { get; set; } = "";
+    }
+
+    public class MessagePollViewModel
+    {
+        public int UnreadCount { get; set; }
+        public List<MessageSummaryViewModel> Inbox { get; set; } = new();
+        public MessageThreadViewModel? ActiveThread { get; set; }
     }
 
     public class MessagePageViewModel
@@ -628,9 +695,16 @@ namespace HemisAudit.ViewModels
         public List<MessageSummaryViewModel> Inbox { get; set; } = new();
         public List<MessageRecipientOptionViewModel> RecipientOptions { get; set; } = new();
         public MessageThreadViewModel? ActiveThread { get; set; }
-        public MessageComposeViewModel Compose { get; set; } = new();
+        public MessageSendViewModel Compose { get; set; } = new();
+        public MessageThreadEditViewModel EditThread { get; set; } = new();
+        public MessageEditViewModel EditMessage { get; set; } = new();
         public int UnreadCount { get; set; }
         public string CurrentRole { get; set; } = "";
+        public bool ShowComposeModal { get; set; }
+        public bool ShowEditModal { get; set; }
+        public bool ShowEditMessageModal { get; set; }
+        public int? SelectedThreadId { get; set; }
+        public int? EditingMessageId { get; set; }
     }
 
     public class ValidationRowRecord

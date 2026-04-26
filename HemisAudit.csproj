@@ -9,10 +9,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="artifacts\**" />
+    <Compile Remove="bin\**" />
+    <Compile Remove="obj\**" />
     <Compile Remove="runobj\**" />
     <Compile Remove="runout\**" />
+    <Content Remove="artifacts\**" />
+    <Content Remove="bin\**" />
+    <Content Remove="obj\**" />
     <Content Remove="runobj\**" />
     <Content Remove="runout\**" />
+    <None Remove="artifacts\**" />
+    <None Remove="bin\**" />
+    <None Remove="obj\**" />
     <None Remove="runobj\**" />
     <None Remove="runout\**" />
   </ItemGroup>

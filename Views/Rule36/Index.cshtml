@@ -263,6 +263,7 @@ const state = {
     hasDataAnalystSignoff: false,
     resultsVisible: false,
     editWarningAccepted: false,
+    isBeginningWorkspaceEdit: false,
     isHydrating: false,
     isDirty: false,
     chartInstances: {}
@@ -377,6 +378,12 @@ async function markWorkspaceDirty() {
     if (isArchivedWorkspace()) return;
 
     if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+        if (state.isBeginningWorkspaceEdit) {
+            state.isDirty = true;
+            renderWorkspaceState();
+            return;
+        }
+
         const confirmEdit = window.confirm(
             'Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.'
         );
@@ -386,30 +393,40 @@ async function markWorkspaceDirty() {
             return;
         }
 
+        state.isBeginningWorkspaceEdit = true;
+        state.editWarningAccepted = true;
         showSpinner('Clearing signoffs for the edited workspace...');
 
         try {
             const result = await post('/Rule36/BeginWorkspaceEdit', buildRequest());
             if (!result.success) {
+                state.editWarningAccepted = false;
                 setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
                 await loadWorkspaceState();
                 return;
             }
 
-            state.editWarningAccepted = true;
             state.currentUserHasSignedOff = false;
             state.hasDataAnalystSignoff = false;
 
             if (result.workspace) {
                 state.currentRunId = result.workspace.runId || state.currentRunId;
                 state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+                state.currentStatus = result.workspace.currentStatus || state.currentStatus;
+                state.resultsVisible = !!result.workspace.resultsVisible;
+                document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || '';
                 if (result.workspace.summary) {
                     applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
                 }
             }
 
             setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+        } catch (error) {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo(`Error: ${escapeHtml(error?.message || 'Failed to begin editing.')}`, 'error');
+            await loadWorkspaceState();
         } finally {
+            state.isBeginningWorkspaceEdit = false;
             hideSpinner();
         }
     }
@@ -1608,44 +1625,44 @@ async function removeWorkspaceSignoff() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    document.getElementById('serverInput').addEventListener('input', () => {
+    document.getElementById('serverInput').addEventListener('input', async () => {
         state.server = document.getElementById('serverInput').value.trim();
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
-    document.getElementById('driverSelect').addEventListener('change', () => {
+    document.getElementById('driverSelect').addEventListener('change', async () => {
         state.driver = document.getElementById('driverSelect').value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
     document.getElementById('databaseSelect').addEventListener('change', async e => {
         state.database = e.target.value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
         await loadTables();
     });
 
     document.getElementById('studTableSelect').addEventListener('change', async e => {
         state.studTable = e.target.value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
         await loadColumns('stud');
     });
 
     document.getElementById('deceasedTableSelect').addEventListener('change', async e => {
         state.deceasedTable = e.target.value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
         await loadColumns('deceased');
     });
 
-    document.getElementById('studColumnSelect').addEventListener('change', e => {
+    document.getElementById('studColumnSelect').addEventListener('change', async e => {
         state.studColumn = e.target.value;
         updatePreview();
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
-    document.getElementById('deceasedColumnSelect').addEventListener('change', e => {
+    document.getElementById('deceasedColumnSelect').addEventListener('change', async e => {
         state.deceasedColumn = e.target.value;
         updatePreview();
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
     renderWorkspaceState();

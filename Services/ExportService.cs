@@ -7,7 +7,9 @@ namespace HemisAudit.Services
     public interface IExportService
     {
         byte[] ExportExcel(ValidationSummary summary);
+        byte[] ExportExcel(Rule34ValidationSummary summary);
         byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportSql(string sql);
     }
 
@@ -147,6 +149,161 @@ namespace HemisAudit.Services
             return ms.ToArray();
         }
 
+        public byte[] ExportExcel(Rule34ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var wsResults = wb.Worksheets.Add("Validation Results");
+            StyleHeaderRow(wsResults, 1, "RULE 34 VALIDATION RESULTS", 7);
+            var resultHeaders = new[]
+            {
+                "Validation Number",
+                "First Day",
+                "Last Day",
+                "Prepared Census Date",
+                "Stored Census Date",
+                "Day Status",
+                "Validation Status"
+            };
+
+            for (int i = 0; i < resultHeaders.Length; i++)
+            {
+                var cell = wsResults.Cell(2, i + 1);
+                cell.Value = resultHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var rowIndex = 3;
+            foreach (var row in summary.ValidationRows)
+            {
+                wsResults.Cell(rowIndex, 1).Value = row.ValidationNumber;
+                wsResults.Cell(rowIndex, 2).Value = row.FirstDayValue;
+                wsResults.Cell(rowIndex, 3).Value = row.LastDayValue;
+                wsResults.Cell(rowIndex, 4).Value = row.ComputedCensusDate;
+                wsResults.Cell(rowIndex, 5).Value = row.CensusDateValue;
+                wsResults.Cell(rowIndex, 6).Value = row.DayStatus;
+                wsResults.Cell(rowIndex, 7).Value = row.ValidationStatus;
+
+                wsResults.Range(rowIndex, 1, rowIndex, 7).Style.Fill.BackgroundColor =
+                    row.DateMatch ? XLColor.FromHtml("#F3FFF3") : XLColor.FromHtml("#FFF3F3");
+                rowIndex++;
+            }
+
+            for (int c = 1; c <= 7; c++) wsResults.Column(c).AdjustToContents();
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 34: CENSUS DATE VALIDATION", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("Source Table", summary.TableName),
+                ("First Day Column", summary.FirstDayColumn),
+                ("Last Day Column", summary.LastDayColumn),
+                ("Census Date Column", summary.CensusDateColumn),
+                ("Holiday Years", summary.HolidayYearRange),
+                ("Validation Date", summary.Timestamp),
+                ("", ""),
+                ("VALIDATION RESULTS", ""),
+                ("Total Validated", summary.TotalValidated.ToString("N0")),
+                ("PASS (Match)", summary.PassCount.ToString("N0")),
+                ("FAIL (Mismatch)", summary.FailCount.ToString("N0")),
+                ("Mismatch Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Computed Holidays", summary.HolidayCount.ToString("N0")),
+                ("Computed Weekends", summary.WeekendCount.ToString("N0")),
+                ("Status", summary.Status)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "VALIDATION RESULTS")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+
+                    if (label == "Status")
+                    {
+                        var color = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2");
+                        wsSummary.Cell(summaryRow, 2).Style.Fill.BackgroundColor = color;
+                        wsSummary.Cell(summaryRow, 2).Style.Font.Bold = true;
+                    }
+                }
+
+                summaryRow++;
+            }
+
+            wsSummary.Column(1).Width = 30;
+            wsSummary.Column(2).Width = 60;
+
+            var wsExceptions = wb.Worksheets.Add("Exceptions");
+            StyleHeaderRow(wsExceptions, 1, "RULE 34 EXCEPTIONS", 7);
+            for (int i = 0; i < resultHeaders.Length; i++)
+            {
+                var cell = wsExceptions.Cell(2, i + 1);
+                cell.Value = resultHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var exceptionRow = 3;
+            foreach (var row in summary.Exceptions)
+            {
+                wsExceptions.Cell(exceptionRow, 1).Value = row.ValidationNumber;
+                wsExceptions.Cell(exceptionRow, 2).Value = row.FirstDayValue;
+                wsExceptions.Cell(exceptionRow, 3).Value = row.LastDayValue;
+                wsExceptions.Cell(exceptionRow, 4).Value = row.ComputedCensusDate;
+                wsExceptions.Cell(exceptionRow, 5).Value = row.CensusDateValue;
+                wsExceptions.Cell(exceptionRow, 6).Value = row.DayStatus;
+                wsExceptions.Cell(exceptionRow, 7).Value = row.ValidationStatus;
+                wsExceptions.Range(exceptionRow, 1, exceptionRow, 7).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
+                exceptionRow++;
+            }
+
+            for (int c = 1; c <= 7; c++) wsExceptions.Column(c).AdjustToContents();
+
+            var wsStats = wb.Worksheets.Add("Statistics");
+            StyleHeaderRow(wsStats, 1, "VALIDATION STATISTICS", 2);
+            var stats = new[]
+            {
+                ("Total Records Validated", (object)summary.TotalValidated),
+                ("PASS Count", (object)summary.PassCount),
+                ("FAIL Count", (object)summary.FailCount),
+                ("Mismatch Rate (%)", (object)(double)summary.ExceptionRate),
+                ("Holiday Count", (object)summary.HolidayCount),
+                ("Weekend Count", (object)summary.WeekendCount)
+            };
+
+            var statsRow = 2;
+            foreach (var (label, value) in stats)
+            {
+                wsStats.Cell(statsRow, 1).Value = label;
+                wsStats.Cell(statsRow, 1).Style.Font.Bold = true;
+                wsStats.Cell(statsRow, 2).SetValue(value?.ToString());
+                statsRow++;
+            }
+
+            wsStats.Column(1).Width = 30;
+            wsStats.Column(2).Width = 20;
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
         // ─── CSV Export ───────────────────────────────────────────────────────
         public byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false)
         {
@@ -182,6 +339,27 @@ namespace HemisAudit.Services
 
                     sb.AppendLine(string.Join(",", values));
                 }
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        public byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Validation_Number,First_Day,Last_Day,Prepared_Census_Date,Stored_Census_Date,Day_Status,Validation_Status");
+
+            var rows = exceptionsOnly ? summary.Exceptions : summary.ValidationRows;
+            foreach (var row in rows)
+            {
+                sb.AppendLine(string.Join(",",
+                    row.ValidationNumber,
+                    CsvEscape(row.FirstDayValue),
+                    CsvEscape(row.LastDayValue),
+                    CsvEscape(row.ComputedCensusDate),
+                    CsvEscape(row.CensusDateValue),
+                    CsvEscape(row.DayStatus),
+                    CsvEscape(row.ValidationStatus)));
             }
 
             return Encoding.UTF8.GetBytes(sb.ToString());

@@ -1,7 +1,87 @@
+﻿@using System.Linq
+@using System.Text
+@using System.Text.Encodings.Web
+@using System.Text.RegularExpressions
 @model HemisAudit.ViewModels.MessagePageViewModel
+@functions {
+    private static readonly Regex UrlPattern = new(@"((https?:\/\/|www\.)[^\s<]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static string ChatInitials(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "CH";
+
+        var parts = value
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Take(2)
+            .ToList();
+
+        if (parts.Count == 0)
+            return "CH";
+
+        if (parts.Count == 1)
+            return parts[0].Length >= 2
+                ? parts[0][..2].ToUpperInvariant()
+                : parts[0].ToUpperInvariant();
+
+        return string.Concat(parts.Select(part => char.ToUpperInvariant(part[0])));
+    }
+
+    private static string FormatMessageBody(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var body = value.Replace("\r\n", "\n");
+        var builder = new StringBuilder();
+        var currentIndex = 0;
+
+        foreach (Match match in UrlPattern.Matches(body))
+        {
+            if (match.Index > currentIndex)
+                AppendEncodedText(builder, body[currentIndex..match.Index]);
+
+            var linkText = match.Value;
+            var href = linkText.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                       linkText.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? linkText
+                : $"https://{linkText}";
+
+            builder.Append("<a class=\"message-inline-link\" target=\"_blank\" rel=\"noopener noreferrer\" href=\"");
+            builder.Append(HtmlEncoder.Default.Encode(href));
+            builder.Append("\">");
+            builder.Append(HtmlEncoder.Default.Encode(linkText));
+            builder.Append("</a>");
+
+            currentIndex = match.Index + match.Length;
+        }
+
+        if (currentIndex < body.Length)
+            AppendEncodedText(builder, body[currentIndex..]);
+
+        return builder.ToString();
+    }
+
+    private static void AppendEncodedText(StringBuilder builder, string value)
+    {
+        var lines = value.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (i > 0)
+                builder.Append("<br />");
+
+            builder.Append(HtmlEncoder.Default.Encode(lines[i]));
+        }
+    }
+}
 @{
     ViewData["Title"] = "Messages";
     Layout = "~/Views/Shared/_Layout.cshtml";
+    var activeThread = Model.ActiveThread;
+    var unreadThreads = Model.Inbox.Count(thread => thread.HasUnread);
+    var attachmentAccept = "*/*";
+    var currentUserEmail = User.Identity?.Name ?? "";
 }
 
 @if (TempData["Success"] != null)
@@ -14,151 +94,953 @@
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
 }
 
-<div class="page-header">
-    <div>
-        <h1>Messages</h1>
-        <p>Unread messages: @Model.UnreadCount</p>
-    </div>
-</div>
+<div class="messages-shell" data-current-thread-id="@(Model.SelectedThreadId?.ToString() ?? "")" data-current-client-id="@(activeThread?.ClientId?.ToString() ?? Model.Compose.ClientId?.ToString() ?? "")">
+    <aside class="messages-sidebar">
+        <div class="messages-sidebar__header">
+            <div>
+                <div class="messages-sidebar__eyebrow">Team chat</div>
+                <h1 class="messages-sidebar__title">Chats</h1>
+            </div>
+            <button type="button" class="messages-icon-btn" data-modal-open="compose-modal">New</button>
+        </div>
 
-<div class="messages-layout">
-    <div class="card messages-panel">
-        <h3 class="section-title" style="margin-top:0">Inbox</h3>
-        @if (Model.Inbox.Any())
-        {
-            <div class="messages-list">
+        <div class="messages-search">
+            <input id="chatSearchInput" type="search" placeholder="Search chats" autocomplete="off" />
+        </div>
+
+        <div class="messages-filter-row">
+            <button type="button" class="messages-filter-pill is-active" data-chat-filter="all">All</button>
+            <button type="button" class="messages-filter-pill" data-chat-filter="unread">Unread @unreadThreads</button>
+            <button type="button" class="messages-filter-pill" data-modal-open="compose-modal">Compose</button>
+        </div>
+
+        <div class="messages-sidebar__count" id="messagesUnreadText">Unread messages: @Model.UnreadCount</div>
+
+        <div class="messages-list" id="chatList">
+            @if (Model.Inbox.Any())
+            {
                 @foreach (var item in Model.Inbox)
                 {
-                    <a asp-action="Index" asp-route-threadId="@item.ThreadId" class="message-list-item @(item.HasUnread ? "message-list-item--unread" : "")">
-                        <div class="message-list-item__top">
-                            <div class="message-list-item__title">@item.Subject</div>
+                    <a asp-action="Index"
+                       asp-route-threadId="@item.ThreadId"
+                       class="message-list-item @(item.IsActive ? "message-list-item--active" : "") @(item.HasUnread ? "message-list-item--unread" : "")"
+                       data-chat-item
+                       data-has-unread="@(item.HasUnread ? "true" : "false")"
+                       data-chat-search="@($"{item.Subject} {item.ClientName} {item.Preview} {item.LastSenderName}".ToLowerInvariant())">
+                        <div class="message-list-item__avatar">@ChatInitials(item.LastSenderName)</div>
+                        <div class="message-list-item__content">
+                            <div class="message-list-item__top">
+                                <div class="message-list-item__title">@item.Subject</div>
+                                <div class="message-list-item__time">@item.LastMessageAt.ToString("dd MMM HH:mm")</div>
+                            </div>
+                            <div class="message-list-item__meta">@item.ClientName</div>
+                            <div class="message-list-item__preview">
+                                <strong>@item.LastSenderName:</strong> @item.Preview
+                            </div>
+                        </div>
+                        <div class="message-list-item__status">
                             @if (item.HasUnread)
                             {
-                                <span class="badge badge--fail">@item.UnreadCount</span>
+                                <span class="messages-unread-badge">@item.UnreadCount</span>
                             }
-                        </div>
-                        <div class="message-list-item__meta">@item.ClientName</div>
-                        <div class="message-list-item__preview">@item.Preview</div>
-                        <div class="message-list-item__footer">
-                            <span>@item.LastSenderName</span>
-                            <span>&middot;</span>
-                            <span>@item.LastMessageAt.ToString("dd MMM HH:mm")</span>
                         </div>
                     </a>
                 }
-            </div>
-        }
-        else
-        {
-            <div class="empty-card">
-                <p>No messages yet.</p>
-            </div>
-        }
-    </div>
-
-    <div class="messages-main">
-        <div class="card messages-panel">
-            <h3 class="section-title" style="margin-top:0">Compose</h3>
-            <form asp-action="Send" method="post" class="messages-compose">
-                @Html.AntiForgeryToken()
-                <input type="hidden" name="ClientId" value="@(Model.Compose.ClientId?.ToString() ?? "")" />
-
-                <div class="field-group" style="margin-bottom:12px">
-                    <label>Recipients</label>
-                    <div class="recipient-grid">
-                        @foreach (var recipient in Model.RecipientOptions)
-                        {
-                            <label class="recipient-pill">
-                                <input type="checkbox" name="RecipientIds" value="@recipient.UserId" />
-                                <span>
-                                    <strong>@recipient.FullName</strong><br />
-                                    <small>@recipient.Role</small>
-                                </span>
-                            </label>
-                        }
-                    </div>
+            }
+            else
+            {
+                <div class="messages-empty-list" id="chatListEmpty">
+                    <p>No chats yet.</p>
+                    <button type="button" class="btn btn-success" data-modal-open="compose-modal">Start chat</button>
                 </div>
-
-                <div class="field-group" style="margin-bottom:12px">
-                    <label for="compose-subject">Subject</label>
-                    <input id="compose-subject" name="Subject" value="@Model.Compose.Subject" maxlength="255" />
-                </div>
-
-                <div class="field-group" style="margin-bottom:12px">
-                    <label for="compose-body">Message</label>
-                    <textarea id="compose-body" name="Body" rows="5" placeholder="Write a message to the team member(s).">@Model.Compose.Body</textarea>
-                </div>
-
-                <button type="submit" class="btn btn-primary">Send Message</button>
-            </form>
+            }
         </div>
+    </aside>
 
-        @if (Model.ActiveThread != null)
+    <section class="messages-stage" id="messagesStage">
+        @if (activeThread != null)
         {
-            <div class="card messages-panel">
-                <div class="messages-thread-header">
+            <header class="messages-stage__header" id="messagesStageHeader">
+                <div class="messages-stage__identity">
+                    <div class="messages-stage__avatar">@ChatInitials(activeThread.Subject)</div>
                     <div>
-                        <h3 class="section-title" style="margin-top:0">@Model.ActiveThread.Subject</h3>
-                        <div class="messages-thread-header__meta">@Model.ActiveThread.ClientName</div>
-                    </div>
-                    <div class="messages-thread-header__meta messages-thread-header__meta--right">
-                        <div>Thread #@Model.ActiveThread.ThreadId</div>
-                        <div>Last message @Model.ActiveThread.LastMessageAt.ToString("dd MMM yyyy HH:mm")</div>
+                        <div class="messages-stage__title">@activeThread.Subject</div>
+                        <div class="messages-stage__subtitle">
+                            @activeThread.ClientName
+                            @if (activeThread.Participants.Any())
+                            {
+                                <span> | @string.Join(", ", activeThread.Participants.Where(name => !string.IsNullOrWhiteSpace(name)).Take(4))</span>
+                            }
+                        </div>
                     </div>
                 </div>
 
-                <div class="messages-timeline">
-                    @foreach (var message in Model.ActiveThread.Messages)
-                    {
-                        var statusText = message.IsCurrentUser
-                            ? (message.ReadCount > 0
-                                ? $"Seen by {message.ReadCount}/{Math.Max(message.RecipientCount, 1)}"
-                                : "Sent")
-                            : (message.IsRead ? "Read" : "Delivered");
-                        var statusTime = message.IsCurrentUser
-                            ? (message.LastReadAt ?? message.ReadAt)
-                            : message.ReadAt;
+                <div class="messages-stage__actions">
+                    <a asp-action="Index" asp-route-clientId="@(activeThread.ClientId?.ToString() ?? "")" class="messages-header-link">Close chat</a>
+                    <button type="button" class="messages-icon-btn" data-dropdown-toggle="chat-actions-menu">Actions</button>
+                    <div class="messages-dropdown" id="chat-actions-menu">
+                        <button type="button" class="messages-dropdown__item" data-modal-open="edit-modal">Edit chat</button>
+                        <form asp-action="DeleteThread" method="post" onsubmit="return confirm('Delete this chat from your inbox?');">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="threadId" value="@activeThread.ThreadId" />
+                            <input type="hidden" name="clientId" value="@(activeThread.ClientId?.ToString() ?? "")" />
+                            <button type="submit" class="messages-dropdown__item messages-dropdown__item--danger">Delete chat</button>
+                        </form>
+                        <a asp-action="Index" asp-route-clientId="@(activeThread.ClientId?.ToString() ?? "")" class="messages-dropdown__item">Close chat</a>
+                    </div>
+                </div>
+            </header>
 
-                        <div class="message-row @(message.IsCurrentUser ? "message-row--mine" : "message-row--theirs")">
-                            <div class="message-bubble @(message.IsCurrentUser ? "message-bubble--mine" : "message-bubble--theirs")">
-                                <div class="message-bubble__header">
-                                    <strong>@message.SenderName</strong>
-                                    <span>@message.SentAt.ToString("dd MMM HH:mm")</span>
-                                </div>
-                                <div class="message-bubble__body">@message.Body</div>
-                                <div class="message-bubble__footer">
-                                    <span>@statusText</span>
-                                    @if (statusTime.HasValue)
+            <div class="messages-stage__timeline" id="messagesTimeline">
+                @{
+                    DateTime? previousDate = null;
+                }
+                @foreach (var message in activeThread.Messages)
+                {
+                    var messageDate = message.SentAt.Date;
+                    if (!previousDate.HasValue || previousDate.Value != messageDate)
+                    {
+                        <div class="messages-day-chip">@message.SentAt.ToString("dd MMM yyyy")</div>
+                        previousDate = messageDate;
+                    }
+
+                    var isOwnMessage = message.IsCurrentUser ||
+                        (!string.IsNullOrWhiteSpace(currentUserEmail) &&
+                         string.Equals(message.SenderEmail, currentUserEmail, StringComparison.OrdinalIgnoreCase));
+                    var statusText = isOwnMessage
+                        ? (message.ReadCount > 0
+                            ? $"Seen by {message.ReadCount}/{Math.Max(message.RecipientCount, 1)}"
+                            : "Sent")
+                        : (message.IsRead ? "Read" : "Delivered");
+                    var statusTime = isOwnMessage ? (message.LastReadAt ?? message.ReadAt) : message.ReadAt;
+
+                    <div class="message-row @(isOwnMessage ? "message-row--mine" : "message-row--theirs")">
+                        <article class="message-bubble @(isOwnMessage ? "message-bubble--mine" : "message-bubble--theirs")">
+                            <div class="message-bubble__header">
+                                <strong>@message.SenderName</strong>
+                                <span>@message.SentAt.ToString("HH:mm")</span>
+                            </div>
+
+                            @if (message.IsDeleted)
+                            {
+                                <div class="message-bubble__deleted">This message was deleted.</div>
+                            }
+                            else
+                            {
+                                if (!string.IsNullOrWhiteSpace(message.Body))
+                                {
+                                    <div class="message-bubble__body">@Html.Raw(FormatMessageBody(message.Body))</div>
+                                }
+
+                                if (message.Attachments.Any())
+                                {
+                                    <div class="message-attachments">
+                                        @foreach (var attachment in message.Attachments)
+                                        {
+                                            if (attachment.IsImage)
+                                            {
+                                                <div class="message-attachment message-attachment--image">
+                                                    <a href="@attachment.FilePath" target="_blank" rel="noopener noreferrer">
+                                                        <img src="@attachment.FilePath" alt="@attachment.FileName" />
+                                                    </a>
+                                                    <a href="@attachment.FilePath" download="@attachment.FileName">Download</a>
+                                                </div>
+                                            }
+                                            else if (attachment.IsAudio)
+                                            {
+                                                <div class="message-attachment message-attachment--audio">
+                                                    <audio controls preload="metadata" src="@attachment.FilePath"></audio>
+                                                    <a href="@attachment.FilePath" download="@attachment.FileName">@attachment.FileName</a>
+                                                </div>
+                                            }
+                                            else if (attachment.IsVideo)
+                                            {
+                                                <div class="message-attachment message-attachment--video">
+                                                    <video controls preload="metadata" src="@attachment.FilePath"></video>
+                                                    <a href="@attachment.FilePath" download="@attachment.FileName">@attachment.FileName</a>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <a href="@attachment.FilePath" class="message-attachment message-attachment--file" download="@attachment.FileName">
+                                                    <span>@attachment.FileName</span>
+                                                </a>
+                                            }
+                                        }
+                                    </div>
+                                }
+                            }
+
+                            <div class="message-bubble__footer">
+                                @if (message.IsEdited && !message.IsDeleted)
+                                {
+                                    <span>Edited</span>
+                                    <span>|</span>
+                                }
+                                <span>@statusText</span>
+                                @if (statusTime.HasValue)
+                                {
+                                    <span>|</span>
+                                    <span>@statusTime.Value.ToString("dd MMM HH:mm")</span>
+                                }
+                            </div>
+
+                            @if ((message.CanEdit || message.CanDelete) && !message.IsDeleted)
+                            {
+                                <div class="message-bubble__actions">
+                                    @if (message.CanEdit)
                                     {
-                                        <span>&middot;</span>
-                                        <span>@statusTime.Value.ToString("dd MMM HH:mm")</span>
+                                        <button type="button"
+                                                class="message-action-btn"
+                                                data-message-edit
+                                                data-message-id="@message.MessageId"
+                                                data-thread-id="@message.ThreadId"
+                                                data-client-id="@(activeThread.ClientId?.ToString() ?? "")"
+                                                data-message-body="@message.Body">
+                                            Edit
+                                        </button>
+                                    }
+                                    @if (message.CanDelete)
+                                    {
+                                        <form asp-action="DeleteMessage" method="post" onsubmit="return confirm('Delete this message?');">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="messageId" value="@message.MessageId" />
+                                            <input type="hidden" name="threadId" value="@message.ThreadId" />
+                                            <input type="hidden" name="clientId" value="@(activeThread.ClientId?.ToString() ?? "")" />
+                                            <button type="submit" class="message-action-btn message-action-btn--danger">Delete</button>
+                                        </form>
                                     }
                                 </div>
-                            </div>
-                        </div>
-                    }
-                </div>
-
-                <form asp-action="Reply" method="post" class="messages-reply">
-                    @Html.AntiForgeryToken()
-                    <input type="hidden" name="ThreadId" value="@Model.ActiveThread.ThreadId" />
-                    <input type="hidden" name="ClientId" value="@(Model.ActiveThread.ClientId?.ToString() ?? "")" />
-                    <div class="field-group" style="margin-bottom:12px">
-                        <label for="reply-body">Reply</label>
-                        <textarea id="reply-body" name="Body" rows="4" placeholder="Write your reply here."></textarea>
+                            }
+                        </article>
                     </div>
-                    <button type="submit" class="btn btn-success">Send Reply</button>
-                </form>
+                }
             </div>
+
+            <form asp-action="Reply" method="post" enctype="multipart/form-data" class="messages-reply-bar" id="replyForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ThreadId" value="@activeThread.ThreadId" />
+                <input type="hidden" name="ClientId" value="@(activeThread.ClientId?.ToString() ?? "")" />
+                <div class="messages-compose-box">
+                    <div class="messages-compose-toolbar">
+                        <div class="messages-compose-toolbar__group">
+                            <button type="button" class="messages-toolbar-btn" data-emoji-toggle="reply-body">Emoji</button>
+                            <button type="button" class="messages-toolbar-btn" data-file-trigger="reply-attachments">Attach</button>
+                        </div>
+                        <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
+                    </div>
+                    <div class="emoji-picker" data-emoji-panel="reply-body">
+                        <button type="button" data-emoji-value="grinning">&#x1F600;</button>
+                        <button type="button" data-emoji-value="thumbs_up">&#x1F44D;</button>
+                        <button type="button" data-emoji-value="party_popper">&#x1F389;</button>
+                        <button type="button" data-emoji-value="check_mark">&#x2705;</button>
+                        <button type="button" data-emoji-value="pushpin">&#x1F4CC;</button>
+                        <button type="button" data-emoji-value="pray">&#x1F64F;</button>
+                    </div>
+                    <textarea id="reply-body" name="Body" rows="3" placeholder="Type a message"></textarea>
+                    <input id="reply-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
+                    <div class="messages-compose-meta">
+                        <span>All file types are supported. Links in messages open in a new tab.</span>
+                        <span data-attachment-count-for="reply-attachments">No files selected</span>
+                    </div>
+                    <div class="messages-attachment-preview" id="reply-attachment-preview"></div>
+                </div>
+                <button type="submit" class="btn btn-success messages-send-btn">Send</button>
+            </form>
         }
         else
         {
-            <div class="card messages-panel">
-                <h3 class="section-title" style="margin-top:0">Conversation</h3>
-                <div class="empty-card">
-                    <p>Select a thread from the inbox to review or reply.</p>
+            <div class="messages-stage__empty" id="messagesStageEmpty">
+                <div class="messages-stage__empty-card">
+                    <div class="messages-stage__empty-icon">CH</div>
+                    <h2>Select a chat</h2>
+                    <p>Open a conversation from the left or start a new chat. New messages will refresh here automatically.</p>
+                    <div class="messages-stage__empty-actions">
+                        <button type="button" class="btn btn-success" data-modal-open="compose-modal">New chat</button>
+                        <a href="/Dashboard" class="btn btn-secondary">Back to dashboard</a>
+                    </div>
                 </div>
             </div>
         }
+    </section>
+</div>
+
+<div class="messages-modal @(Model.ShowComposeModal ? "is-open" : "")" id="compose-modal">
+    <div class="messages-modal__backdrop" data-modal-close="compose-modal"></div>
+    <div class="messages-modal__dialog">
+        <div class="messages-modal__header">
+            <div>
+                <div class="messages-modal__title">New chat</div>
+                <div class="messages-modal__subtitle">Choose recipients, add files if needed, and send the first message.</div>
+            </div>
+            <button type="button" class="messages-icon-btn" data-modal-close="compose-modal">Close</button>
+        </div>
+
+        <form asp-action="Send" method="post" enctype="multipart/form-data" class="messages-modal__form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="ClientId" value="@(Model.Compose.ClientId?.ToString() ?? "")" />
+
+            <div class="field-group">
+                <label>Recipients</label>
+                <div class="recipient-grid recipient-grid--modal">
+                    @foreach (var recipient in Model.RecipientOptions)
+                    {
+                        <label class="recipient-pill recipient-pill--chat">
+                            <input type="checkbox" name="RecipientIds" value="@recipient.UserId" />
+                            <span class="recipient-pill__avatar">@ChatInitials(recipient.FullName)</span>
+                            <span>
+                                <strong>@recipient.FullName</strong>
+                                <small>@recipient.Role</small>
+                            </span>
+                        </label>
+                    }
+                </div>
+            </div>
+
+            <div class="field-group">
+                <label for="compose-subject">Chat title</label>
+                <input id="compose-subject" name="Subject" value="@Model.Compose.Subject" maxlength="255" placeholder="Example: Rule 34 Review" required />
+            </div>
+
+            <div class="field-group">
+                <label for="compose-body">Message</label>
+                <div class="messages-compose-box messages-compose-box--modal">
+                    <div class="messages-compose-toolbar">
+                        <div class="messages-compose-toolbar__group">
+                            <button type="button" class="messages-toolbar-btn" data-emoji-toggle="compose-body">Emoji</button>
+                            <button type="button" class="messages-toolbar-btn" data-file-trigger="compose-attachments">Attach</button>
+                        </div>
+                        <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
+                    </div>
+                    <div class="emoji-picker" data-emoji-panel="compose-body">
+                        <button type="button" data-emoji-value="grinning">&#x1F600;</button>
+                        <button type="button" data-emoji-value="thumbs_up">&#x1F44D;</button>
+                        <button type="button" data-emoji-value="party_popper">&#x1F389;</button>
+                        <button type="button" data-emoji-value="check_mark">&#x2705;</button>
+                        <button type="button" data-emoji-value="pushpin">&#x1F4CC;</button>
+                        <button type="button" data-emoji-value="pray">&#x1F64F;</button>
+                    </div>
+                    <textarea id="compose-body" name="Body" rows="5" placeholder="Write your first message.">@Model.Compose.Body</textarea>
+                    <input id="compose-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
+                    <div class="messages-compose-meta">
+                        <span>Chat title is required only for a new chat. Attach any file type if needed.</span>
+                        <span data-attachment-count-for="compose-attachments">No files selected</span>
+                    </div>
+                    <div class="messages-attachment-preview" id="compose-attachment-preview"></div>
+                </div>
+            </div>
+
+            <div class="messages-modal__actions">
+                <button type="button" class="btn btn-secondary" data-modal-close="compose-modal">Cancel</button>
+                <button type="submit" class="btn btn-success">Send message</button>
+            </div>
+        </form>
     </div>
 </div>
+
+@if (activeThread != null)
+{
+    <div class="messages-modal @(Model.ShowEditModal ? "is-open" : "")" id="edit-modal">
+        <div class="messages-modal__backdrop" data-modal-close="edit-modal"></div>
+        <div class="messages-modal__dialog messages-modal__dialog--sm">
+            <div class="messages-modal__header">
+                <div>
+                    <div class="messages-modal__title">Edit chat</div>
+                    <div class="messages-modal__subtitle">Rename this chat without removing the message history.</div>
+                </div>
+                <button type="button" class="messages-icon-btn" data-modal-close="edit-modal">Close</button>
+            </div>
+
+            <form asp-action="EditThread" method="post" class="messages-modal__form">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ThreadId" value="@activeThread.ThreadId" />
+                <input type="hidden" name="ClientId" value="@(activeThread.ClientId?.ToString() ?? "")" />
+
+                <div class="field-group">
+                    <label for="edit-subject">Chat title</label>
+                    <input id="edit-subject" name="Subject" value="@Model.EditThread.Subject" maxlength="255" />
+                </div>
+
+                <div class="messages-modal__actions">
+                    <button type="button" class="btn btn-secondary" data-modal-close="edit-modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="messages-modal @(Model.ShowEditMessageModal ? "is-open" : "")" id="edit-message-modal">
+        <div class="messages-modal__backdrop" data-modal-close="edit-message-modal"></div>
+        <div class="messages-modal__dialog messages-modal__dialog--sm">
+            <div class="messages-modal__header">
+                <div>
+                    <div class="messages-modal__title">Edit message</div>
+                    <div class="messages-modal__subtitle">Update the text of your last sent message.</div>
+                </div>
+                <button type="button" class="messages-icon-btn" data-modal-close="edit-message-modal">Close</button>
+            </div>
+
+            <form asp-action="EditMessage" method="post" class="messages-modal__form" id="editMessageForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="MessageId" id="edit-message-id" value="@(Model.EditMessage.MessageId)" />
+                <input type="hidden" name="ThreadId" id="edit-message-thread-id" value="@(Model.EditMessage.ThreadId)" />
+                <input type="hidden" name="ClientId" id="edit-message-client-id" value="@(Model.EditMessage.ClientId?.ToString() ?? "")" />
+
+                <div class="field-group">
+                    <label for="edit-message-body">Message</label>
+                    <div class="messages-compose-box messages-compose-box--modal">
+                        <div class="messages-compose-toolbar">
+                            <button type="button" class="messages-toolbar-btn" data-emoji-toggle="edit-message-body">Emoji</button>
+                        </div>
+                        <div class="emoji-picker" data-emoji-panel="edit-message-body">
+                        <button type="button" data-emoji-value="grinning">&#x1F600;</button>
+                        <button type="button" data-emoji-value="thumbs_up">&#x1F44D;</button>
+                        <button type="button" data-emoji-value="party_popper">&#x1F389;</button>
+                        <button type="button" data-emoji-value="check_mark">&#x2705;</button>
+                        <button type="button" data-emoji-value="pushpin">&#x1F4CC;</button>
+                        <button type="button" data-emoji-value="pray">&#x1F64F;</button>
+                        </div>
+                        <textarea id="edit-message-body" name="Body" rows="5">@Model.EditMessage.Body</textarea>
+                    </div>
+                </div>
+
+                <div class="messages-modal__actions">
+                    <button type="button" class="btn btn-secondary" data-modal-close="edit-message-modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+<script>
+(function () {
+    const shell = document.querySelector('.messages-shell');
+    if (!shell) return;
+    const currentUserEmail = '@currentUserEmail';
+
+    const state = {
+        threadId: parseInt(shell.getAttribute('data-current-thread-id') || '0', 10) || 0,
+        clientId: parseInt(shell.getAttribute('data-current-client-id') || '0', 10) || 0,
+        activeFilter: 'all',
+        searchTerm: '',
+        pollHandle: null
+    };
+
+    const searchInput = document.getElementById('chatSearchInput');
+    const chatList = document.getElementById('chatList');
+    const unreadText = document.getElementById('messagesUnreadText');
+    const stage = document.getElementById('messagesStage');
+
+    function escapeHtml(value) {
+        return (value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function chatInitials(value) {
+        const text = (value || '').trim();
+        if (!text) return 'CH';
+        const parts = text.split(/\s+/).filter(Boolean).slice(0, 2);
+        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+        return parts.map(part => part.charAt(0).toUpperCase()).join('');
+    }
+
+    function formatDate(dateValue, withTime) {
+        if (!dateValue) return '';
+        const date = new Date(dateValue);
+        if (Number.isNaN(date.getTime())) return '';
+
+        const options = withTime
+            ? { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }
+            : { day: '2-digit', month: 'short', year: 'numeric' };
+
+        return new Intl.DateTimeFormat('en-GB', options).format(date);
+    }
+
+    function formatTime(dateValue) {
+        if (!dateValue) return '';
+        const date = new Date(dateValue);
+        if (Number.isNaN(date.getTime())) return '';
+        return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(date);
+    }
+
+    function updateGlobalUnreadBadges(count) {
+        if (unreadText) {
+            unreadText.textContent = `Unread messages: ${count}`;
+        }
+
+        document.querySelectorAll('.topnav-pill__badge, .nav-rule-num').forEach(function (badge) {
+            if (count > 0) {
+                badge.textContent = count;
+                badge.style.display = '';
+            } else {
+                badge.style.display = 'none';
+            }
+        });
+    }
+
+    function renderInbox(inbox) {
+        if (!chatList) return;
+
+        if (!inbox || !inbox.length) {
+            chatList.innerHTML = `
+                <div class="messages-empty-list" id="chatListEmpty">
+                    <p>No chats yet.</p>
+                    <button type="button" class="btn btn-success" data-modal-open="compose-modal">Start chat</button>
+                </div>`;
+            bindModalToggles();
+            return;
+        }
+
+        chatList.innerHTML = inbox.map(function (item) {
+            const searchText = `${item.subject} ${item.clientName} ${item.preview} ${item.lastSenderName}`.toLowerCase();
+            return `
+                <a href="/Messages?threadId=${item.threadId}"
+                   class="message-list-item ${item.isActive ? 'message-list-item--active' : ''} ${item.hasUnread ? 'message-list-item--unread' : ''}"
+                   data-chat-item
+                   data-has-unread="${item.hasUnread ? 'true' : 'false'}"
+                   data-chat-search="${escapeHtml(searchText)}">
+                    <div class="message-list-item__avatar">${escapeHtml(chatInitials(item.lastSenderName))}</div>
+                    <div class="message-list-item__content">
+                        <div class="message-list-item__top">
+                            <div class="message-list-item__title">${escapeHtml(item.subject || '')}</div>
+                            <div class="message-list-item__time">${escapeHtml(formatDate(item.lastMessageAt, true))}</div>
+                        </div>
+                        <div class="message-list-item__meta">${escapeHtml(item.clientName || '')}</div>
+                        <div class="message-list-item__preview"><strong>${escapeHtml(item.lastSenderName || '')}:</strong> ${escapeHtml(item.preview || '')}</div>
+                    </div>
+                    <div class="message-list-item__status">
+                        ${item.hasUnread ? `<span class="messages-unread-badge">${item.unreadCount}</span>` : ''}
+                    </div>
+                </a>`;
+        }).join('');
+
+        applyChatFilters();
+    }
+
+    function renderAttachment(attachment) {
+        if (attachment.isImage) {
+            return `<div class="message-attachment message-attachment--image">
+                        <a href="${attachment.filePath}" target="_blank" rel="noopener noreferrer">
+                            <img src="${attachment.filePath}" alt="${escapeHtml(attachment.fileName)}" />
+                        </a>
+                        <a href="${attachment.filePath}" download="${escapeHtml(attachment.fileName)}">Download</a>
+                    </div>`;
+        }
+
+        if (attachment.isAudio) {
+            return `<div class="message-attachment message-attachment--audio">
+                        <audio controls preload="metadata" src="${attachment.filePath}"></audio>
+                        <a href="${attachment.filePath}" download="${escapeHtml(attachment.fileName)}">${escapeHtml(attachment.fileName)}</a>
+                    </div>`;
+        }
+
+        if (attachment.isVideo) {
+            return `<div class="message-attachment message-attachment--video">
+                        <video controls preload="metadata" src="${attachment.filePath}"></video>
+                        <a href="${attachment.filePath}" download="${escapeHtml(attachment.fileName)}">${escapeHtml(attachment.fileName)}</a>
+                    </div>`;
+        }
+
+        return `<a href="${attachment.filePath}" class="message-attachment message-attachment--file" download="${escapeHtml(attachment.fileName)}">
+                    <span>${escapeHtml(attachment.fileName)}</span>
+                </a>`;
+    }
+
+    function linkifyMessageBody(value) {
+        const source = String(value || '');
+        const urlPattern = /((https?:\/\/|www\.)[^\s<]+)/gi;
+        let lastIndex = 0;
+        let html = '';
+
+        source.replace(urlPattern, function (match, _prefix, _scheme, offset) {
+            html += escapeHtml(source.slice(lastIndex, offset)).replace(/\n/g, '<br />');
+            const href = /^https?:\/\//i.test(match) ? match : `https://${match}`;
+            html += `<a class="message-inline-link" target="_blank" rel="noopener noreferrer" href="${escapeHtml(href)}">${escapeHtml(match)}</a>`;
+            lastIndex = offset + match.length;
+            return match;
+        });
+
+        html += escapeHtml(source.slice(lastIndex)).replace(/\n/g, '<br />');
+        return html;
+    }
+
+    function isOwnMessage(message) {
+        const senderEmail = String(message?.senderEmail || '').trim().toLowerCase();
+        const loggedInEmail = String(currentUserEmail || '').trim().toLowerCase();
+        return !!message && (message.isCurrentUser === true || (!!senderEmail && senderEmail === loggedInEmail));
+    }
+
+    function renderMessage(message, clientId) {
+        const ownMessage = isOwnMessage(message);
+        const statusText = ownMessage
+            ? (message.readCount > 0 ? `Seen by ${message.readCount}/${Math.max(message.recipientCount || 0, 1)}` : 'Sent')
+            : (message.isRead ? 'Read' : 'Delivered');
+        const statusTime = ownMessage ? (message.lastReadAt || message.readAt) : message.readAt;
+        const bodyHtml = message.isDeleted
+            ? '<div class="message-bubble__deleted">This message was deleted.</div>'
+            : `${message.body ? `<div class="message-bubble__body">${linkifyMessageBody(message.body)}</div>` : ''}${
+                message.attachments && message.attachments.length
+                    ? `<div class="message-attachments">${message.attachments.map(renderAttachment).join('')}</div>`
+                    : ''
+            }`;
+
+        const actionHtml = (message.canEdit || message.canDelete) && !message.isDeleted
+            ? `<div class="message-bubble__actions">
+                    ${message.canEdit
+                        ? `<button type="button"
+                                   class="message-action-btn"
+                                   data-message-edit
+                                   data-message-id="${message.messageId}"
+                                   data-thread-id="${message.threadId}"
+                                   data-client-id="${clientId || ''}"
+                                   data-message-body="${escapeHtml(message.body || '')}">Edit</button>`
+                        : ''}
+                    ${message.canDelete
+                        ? `<form action="/Messages/DeleteMessage" method="post" onsubmit="return confirm('Delete this message?');">
+                                <input name="__RequestVerificationToken" type="hidden" value="${document.querySelector('input[name=\"__RequestVerificationToken\"]')?.value || ''}" />
+                                <input type="hidden" name="messageId" value="${message.messageId}" />
+                                <input type="hidden" name="threadId" value="${message.threadId}" />
+                                <input type="hidden" name="clientId" value="${clientId || ''}" />
+                                <button type="submit" class="message-action-btn message-action-btn--danger">Delete</button>
+                           </form>`
+                        : ''}
+               </div>`
+            : '';
+
+        return `
+            <div class="message-row ${ownMessage ? 'message-row--mine' : 'message-row--theirs'}">
+                <article class="message-bubble ${ownMessage ? 'message-bubble--mine' : 'message-bubble--theirs'}">
+                    <div class="message-bubble__header">
+                        <strong>${escapeHtml(message.senderName || '')}</strong>
+                        <span>${escapeHtml(formatTime(message.sentAt))}</span>
+                    </div>
+                    ${bodyHtml}
+                    <div class="message-bubble__footer">
+                        ${message.isEdited && !message.isDeleted ? '<span>Edited</span><span>|</span>' : ''}
+                        <span>${escapeHtml(statusText)}</span>
+                        ${statusTime ? `<span>|</span><span>${escapeHtml(formatDate(statusTime, true))}</span>` : ''}
+                    </div>
+                    ${actionHtml}
+                </article>
+            </div>`;
+    }
+
+    function renderStage(thread) {
+        if (!stage) return;
+
+        if (!thread) {
+            shell.setAttribute('data-current-thread-id', '');
+            state.threadId = 0;
+            stage.innerHTML = `
+                <div class="messages-stage__empty" id="messagesStageEmpty">
+                    <div class="messages-stage__empty-card">
+                        <div class="messages-stage__empty-icon">CH</div>
+                        <h2>Select a chat</h2>
+                        <p>Open a conversation from the left or start a new chat. New messages will refresh here automatically.</p>
+                        <div class="messages-stage__empty-actions">
+                            <button type="button" class="btn btn-success" data-modal-open="compose-modal">New chat</button>
+                            <a href="/Dashboard" class="btn btn-secondary">Back to dashboard</a>
+                        </div>
+                    </div>
+                </div>`;
+            bindModalToggles();
+            return;
+        }
+
+        shell.setAttribute('data-current-thread-id', thread.threadId);
+        shell.setAttribute('data-current-client-id', thread.clientId || '');
+        state.threadId = thread.threadId || 0;
+        state.clientId = thread.clientId || 0;
+
+        let timelineHtml = '';
+        let previousDay = '';
+        (thread.messages || []).forEach(function (message) {
+            const currentDay = formatDate(message.sentAt, false);
+            if (currentDay && currentDay !== previousDay) {
+                timelineHtml += `<div class="messages-day-chip">${escapeHtml(currentDay)}</div>`;
+                previousDay = currentDay;
+            }
+            timelineHtml += renderMessage(message, thread.clientId);
+        });
+
+        stage.innerHTML = `
+            <header class="messages-stage__header" id="messagesStageHeader">
+                <div class="messages-stage__identity">
+                    <div class="messages-stage__avatar">${escapeHtml(chatInitials(thread.subject))}</div>
+                    <div>
+                        <div class="messages-stage__title">${escapeHtml(thread.subject || '')}</div>
+                        <div class="messages-stage__subtitle">
+                            ${escapeHtml(thread.clientName || '')}
+                            ${(thread.participants || []).length ? ` | ${(thread.participants || []).slice(0, 4).map(escapeHtml).join(', ')}` : ''}
+                        </div>
+                    </div>
+                </div>
+                <div class="messages-stage__actions">
+                    <a href="/Messages?clientId=${thread.clientId || ''}" class="messages-header-link">Close chat</a>
+                    <button type="button" class="messages-icon-btn" data-dropdown-toggle="chat-actions-menu">Actions</button>
+                    <div class="messages-dropdown" id="chat-actions-menu">
+                        <button type="button" class="messages-dropdown__item" data-modal-open="edit-modal">Edit chat</button>
+                        <form action="/Messages/DeleteThread" method="post" onsubmit="return confirm('Delete this chat from your inbox?');">
+                            <input name="__RequestVerificationToken" type="hidden" value="${document.querySelector('input[name=\"__RequestVerificationToken\"]')?.value || ''}" />
+                            <input type="hidden" name="threadId" value="${thread.threadId}" />
+                            <input type="hidden" name="clientId" value="${thread.clientId || ''}" />
+                            <button type="submit" class="messages-dropdown__item messages-dropdown__item--danger">Delete chat</button>
+                        </form>
+                        <a href="/Messages?clientId=${thread.clientId || ''}" class="messages-dropdown__item">Close chat</a>
+                    </div>
+                </div>
+            </header>
+            <div class="messages-stage__timeline" id="messagesTimeline">${timelineHtml}</div>
+            <form action="/Messages/Reply" method="post" enctype="multipart/form-data" class="messages-reply-bar" id="replyForm">
+                <input name="__RequestVerificationToken" type="hidden" value="${document.querySelector('input[name=\"__RequestVerificationToken\"]')?.value || ''}" />
+                <input type="hidden" name="ThreadId" value="${thread.threadId}" />
+                <input type="hidden" name="ClientId" value="${thread.clientId || ''}" />
+                <div class="messages-compose-box">
+                    <div class="messages-compose-toolbar">
+                        <div class="messages-compose-toolbar__group">
+                            <button type="button" class="messages-toolbar-btn" data-emoji-toggle="reply-body">Emoji</button>
+                            <button type="button" class="messages-toolbar-btn" data-file-trigger="reply-attachments">Attach</button>
+                        </div>
+                        <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
+                    </div>
+                    <div class="emoji-picker" data-emoji-panel="reply-body">
+                        <button type="button" data-emoji-value="grinning">\u{1F600}</button>
+                        <button type="button" data-emoji-value="thumbs_up">\u{1F44D}</button>
+                        <button type="button" data-emoji-value="party_popper">\u{1F389}</button>
+                        <button type="button" data-emoji-value="check_mark">\u2705</button>
+                        <button type="button" data-emoji-value="pushpin">\u{1F4CC}</button>
+                        <button type="button" data-emoji-value="pray">\u{1F64F}</button>
+                    </div>
+                    <textarea id="reply-body" name="Body" rows="3" placeholder="Type a message"></textarea>
+                    <input id="reply-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
+                    <div class="messages-compose-meta">
+                        <span>All file types are supported. Links in messages open in a new tab.</span>
+                        <span data-attachment-count-for="reply-attachments">No files selected</span>
+                    </div>
+                    <div class="messages-attachment-preview" id="reply-attachment-preview"></div>
+                </div>
+                <button type="submit" class="btn btn-success messages-send-btn">Send</button>
+            </form>`;
+
+        document.getElementById('edit-subject').value = thread.subject || '';
+        const editThreadId = document.querySelector('#edit-modal input[name="ThreadId"]');
+        const editClientId = document.querySelector('#edit-modal input[name="ClientId"]');
+        if (editThreadId) editThreadId.value = thread.threadId || '';
+        if (editClientId) editClientId.value = thread.clientId || '';
+
+        bindDropdowns();
+        bindModalToggles();
+        bindEmojiPickers();
+        bindFilePickers();
+        bindMessageEditButtons();
+    }
+
+    function applyChatFilters() {
+        const items = Array.from(document.querySelectorAll('[data-chat-item]'));
+        items.forEach(function (item) {
+            const haystack = item.getAttribute('data-chat-search') || '';
+            const hasUnread = item.getAttribute('data-has-unread') === 'true';
+            const matchesSearch = !state.searchTerm || haystack.indexOf(state.searchTerm) >= 0;
+            const matchesFilter = state.activeFilter === 'all' || (state.activeFilter === 'unread' && hasUnread);
+            item.style.display = matchesSearch && matchesFilter ? '' : 'none';
+        });
+    }
+
+    function bindModalToggles() {
+        document.querySelectorAll('[data-modal-open]').forEach(function (button) {
+            button.onclick = function () {
+                const modalId = button.getAttribute('data-modal-open');
+                const modal = document.getElementById(modalId || '');
+                if (modal) {
+                    modal.classList.add('is-open');
+                    document.body.classList.add('messages-modal-open');
+                }
+            };
+        });
+
+        document.querySelectorAll('[data-modal-close]').forEach(function (button) {
+            button.onclick = function () {
+                const modalId = button.getAttribute('data-modal-close');
+                const modal = document.getElementById(modalId || '');
+                if (modal) {
+                    modal.classList.remove('is-open');
+                }
+                if (!document.querySelector('.messages-modal.is-open')) {
+                    document.body.classList.remove('messages-modal-open');
+                }
+            };
+        });
+    }
+
+    function bindDropdowns() {
+        const toggle = document.querySelector('[data-dropdown-toggle]');
+        const menu = document.getElementById(toggle?.getAttribute('data-dropdown-toggle') || '');
+        if (!toggle || !menu) return;
+
+        toggle.onclick = function (event) {
+            event.stopPropagation();
+            menu.classList.toggle('is-open');
+        };
+
+        document.addEventListener('click', function (event) {
+            if (!menu.contains(event.target) && !toggle.contains(event.target)) {
+                menu.classList.remove('is-open');
+            }
+        });
+    }
+
+    function bindEmojiPickers() {
+        function normalizeEmojiValue(rawValue) {
+            const value = rawValue || '';
+            const replacements = {
+                grinning: '\u{1F600}',
+                thumbs_up: '\u{1F44D}',
+                party_popper: '\u{1F389}',
+                check_mark: '\u2705',
+                pushpin: '\u{1F4CC}',
+                pray: '\u{1F64F}'
+            };
+
+            return replacements[value] || value;
+        }
+
+        document.querySelectorAll('[data-emoji-toggle]').forEach(function (button) {
+            button.onclick = function () {
+                const targetId = button.getAttribute('data-emoji-toggle');
+                const panel = document.querySelector(`[data-emoji-panel="${targetId}"]`);
+                if (!panel) return;
+
+                document.querySelectorAll('.emoji-picker').forEach(function (picker) {
+                    if (picker !== panel) picker.classList.remove('is-open');
+                });
+
+                panel.classList.toggle('is-open');
+            };
+        });
+
+        document.querySelectorAll('[data-emoji-value]').forEach(function (button) {
+            button.onclick = function () {
+                const panel = button.closest('.emoji-picker');
+                const targetId = panel?.getAttribute('data-emoji-panel');
+                const target = document.getElementById(targetId || '');
+                if (!target) return;
+
+                const value = normalizeEmojiValue(button.getAttribute('data-emoji-value'));
+                if (!value) return;
+                const start = target.selectionStart || target.value.length;
+                const end = target.selectionEnd || target.value.length;
+                target.value = `${target.value.slice(0, start)}${value}${target.value.slice(end)}`;
+                target.focus();
+                target.selectionStart = target.selectionEnd = start + value.length;
+            };
+        });
+    }
+
+    function bindFilePickers() {
+        document.querySelectorAll('[data-file-trigger]').forEach(function (button) {
+            button.onclick = function () {
+                const inputId = button.getAttribute('data-file-trigger');
+                document.getElementById(inputId || '')?.click();
+            };
+        });
+
+        [['reply-attachments', 'reply-attachment-preview'], ['compose-attachments', 'compose-attachment-preview']].forEach(function (pair) {
+            const input = document.getElementById(pair[0]);
+            const preview = document.getElementById(pair[1]);
+            const count = document.querySelector(`[data-attachment-count-for="${pair[0]}"]`);
+            if (!input || !preview) return;
+
+            input.onchange = function () {
+                const files = Array.from(input.files || []);
+                if (count) {
+                    count.textContent = files.length
+                        ? `${files.length} file${files.length === 1 ? '' : 's'} selected`
+                        : 'No files selected';
+                }
+                preview.innerHTML = files.map(file => `<span class="messages-attachment-chip">${escapeHtml(file.name)}</span>`).join('');
+            };
+        });
+    }
+
+    function bindMessageEditButtons() {
+        document.querySelectorAll('[data-message-edit]').forEach(function (button) {
+            button.onclick = function () {
+                const modal = document.getElementById('edit-message-modal');
+                if (!modal) return;
+
+                document.getElementById('edit-message-id').value = button.getAttribute('data-message-id') || '';
+                document.getElementById('edit-message-thread-id').value = button.getAttribute('data-thread-id') || '';
+                document.getElementById('edit-message-client-id').value = button.getAttribute('data-client-id') || '';
+                document.getElementById('edit-message-body').value = button.getAttribute('data-message-body') || '';
+                modal.classList.add('is-open');
+                document.body.classList.add('messages-modal-open');
+            };
+        });
+    }
+
+    async function pollMessages() {
+        const params = new URLSearchParams();
+        if (state.threadId > 0) params.set('threadId', String(state.threadId));
+        if (state.clientId > 0) params.set('clientId', String(state.clientId));
+
+        const response = await fetch(`/Messages/Poll?${params.toString()}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            cache: 'no-store'
+        });
+
+        if (!response.ok) return;
+        const snapshot = await response.json();
+
+        updateGlobalUnreadBadges(snapshot.unreadCount || 0);
+        renderInbox(snapshot.inbox || []);
+
+        const replyBox = document.getElementById('reply-body');
+        const replyAttachments = document.getElementById('reply-attachments');
+        const hasReplyFiles = replyAttachments && replyAttachments.files && replyAttachments.files.length > 0;
+        const isReplyBusy = (replyBox && (replyBox === document.activeElement || (replyBox.value || '').trim().length > 0)) || hasReplyFiles;
+        const editMessageModalOpen = document.getElementById('edit-message-modal')?.classList.contains('is-open');
+        const editThreadModalOpen = document.getElementById('edit-modal')?.classList.contains('is-open');
+
+        if (!isReplyBusy && !editMessageModalOpen && !editThreadModalOpen) {
+            renderStage(snapshot.activeThread || null);
+        }
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function () {
+            state.searchTerm = (searchInput.value || '').trim().toLowerCase();
+            applyChatFilters();
+        });
+    }
+
+    document.querySelectorAll('[data-chat-filter]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            const nextFilter = button.getAttribute('data-chat-filter');
+            if (!nextFilter) return;
+
+            state.activeFilter = nextFilter;
+            document.querySelectorAll('[data-chat-filter]').forEach(function (candidate) {
+                candidate.classList.toggle('is-active', candidate === button);
+            });
+            applyChatFilters();
+        });
+    });
+
+    bindModalToggles();
+    bindDropdowns();
+    bindEmojiPickers();
+    bindFilePickers();
+    bindMessageEditButtons();
+    applyChatFilters();
+
+    state.pollHandle = window.setInterval(function () {
+        pollMessages().catch(function () { });
+    }, 7000);
+})();
+</script>
+

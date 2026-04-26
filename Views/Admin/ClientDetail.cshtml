@@ -3,6 +3,7 @@
     ViewData["Title"] = Model.EngagementName;
     Layout = "~/Views/Shared/_Layout.cshtml";
     var canOpenModule = ViewBag.CanOpenModule is bool allowed && allowed;
+    var canRunModules = ViewBag.CanRunModules is bool runModules && runModules;
     var canManageAssignments = ViewBag.CanManageAssignments is bool manageAssignments && manageAssignments;
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
     var isArchived = Model.IsArchived;
@@ -39,19 +40,13 @@
         </p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
-        @if (canOpenModule)
+        @if (canOpenModule || Model.IsArchived)
         {
-            <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">
-                @(string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase) ? "Open Workspace" : "Open Rule 36")
-            </a>
-        }
-        else if (Model.IsArchived)
-        {
-            <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Archived</span>
+            <a href="#modules-panel" class="btn btn-secondary">Modules</a>
         }
         else
         {
-            <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Awaiting Approval</span>
+            <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Modules Locked</span>
         }
 
         @if (User.IsInRole("Admin") && !Model.IsApproved && !isArchived)
@@ -114,10 +109,16 @@
                 Open the latest signed-off validation run or download it directly. No edits are allowed on archived engagements.
             </p>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <a asp-controller="Rule36" asp-action="Run" asp-route-id="@Model.CurrentRunId" class="btn btn-primary">
+                <a asp-controller="@(Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                   asp-action="Run"
+                   asp-route-id="@Model.CurrentRunId"
+                   class="btn btn-primary">
                     Open Latest Results
                 </a>
-                <a asp-controller="Rule36" asp-action="DownloadSavedExcel" asp-route-runId="@Model.CurrentRunId" class="btn btn-success">
+                <a asp-controller="@(Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                   asp-action="DownloadSavedExcel"
+                   asp-route-runId="@Model.CurrentRunId"
+                   class="btn btn-success">
                     Download Excel
                 </a>
             </div>
@@ -130,8 +131,70 @@
     <div class="alert alert--info" style="margin-bottom:24px">@Model.ArchiveEligibilityMessage</div>
 }
 
-<h3 class="section-title">Assigned Users (@Model.AssignedUsers.Count)</h3>
-<div class="card" style="margin-bottom:24px">
+<details class="collapsible-section" id="modules-panel" style="margin-bottom:24px">
+    <summary class="collapsible-trigger">
+        <div>
+            <span class="collapsible-trigger__title">Modules</span>
+            <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
+        </div>
+        <span class="collapsible-trigger__meta">Rules 34 and 36</span>
+        <span class="collapsible-trigger__icon" aria-hidden="true"></span>
+    </summary>
+    <div class="collapsible-panel">
+        <div class="card" style="padding:18px 20px">
+            @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
+            {
+                <div class="module-card-grid">
+                    <article class="module-card">
+                        <div class="module-card__eyebrow">Rule 34</div>
+                        <h4 class="module-card__title">Census Date Validation</h4>
+                        <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it with the stored census date, and evaluate weekends and SA public holidays.</p>
+                        <div class="module-card__actions">
+                            <a href="/Rule34?clientId=@Model.Id" class="btn btn-success">Open Rule 34</a>
+                        </div>
+                    </article>
+                    <article class="module-card">
+                        <div class="module-card__eyebrow">Rule 36</div>
+                        <h4 class="module-card__title">Deceased Students Validation</h4>
+                        <p class="module-card__text">Match student records against the deceased students reference table and save exceptions for review and signoff.</p>
+                        <div class="module-card__actions">
+                            <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">Open Rule 36</a>
+                        </div>
+                    </article>
+                </div>
+            }
+            else if (Model.IsArchived)
+            {
+                <div class="empty-card" style="margin:0">
+                    <p>This engagement is archived. Modules are read-only now, and saved results stay available through archived results and validation runs.</p>
+                </div>
+            }
+            else if (canOpenModule)
+            {
+                <div class="empty-card" style="margin:0">
+                    <p>This engagement is results-only for your role. Open saved validation runs below to review outputs and signoff progress.</p>
+                </div>
+            }
+            else
+            {
+                <div class="empty-card" style="margin:0">
+                    <p>This engagement must be approved before users can access modules.</p>
+                </div>
+            }
+        </div>
+    </div>
+</details>
+
+<details class="collapsible-section" style="margin-bottom:24px">
+    <summary class="collapsible-trigger">
+        <div>
+            <span class="collapsible-trigger__title">Assigned Users (@Model.AssignedUsers.Count)</span>
+            <span class="collapsible-trigger__subtitle">Show or hide the current engagement team and assignment actions.</span>
+        </div>
+        <span class="collapsible-trigger__icon" aria-hidden="true"></span>
+    </summary>
+    <div class="collapsible-panel">
+        <div class="card">
     @if (User.IsInRole("Admin") && Model.IsArchived)
     {
         <div style="padding:12px 16px;color:#757575;font-size:13px;border-bottom:1px solid #E0E0E0">
@@ -224,9 +287,19 @@
     {
         <div style="padding:16px;color:#757575;text-align:center">No users assigned yet.</div>
     }
-</div>
+        </div>
+    </div>
+</details>
 
-<h3 class="section-title">Validation Runs (@Model.ValidationRuns.Count)</h3>
+<details class="collapsible-section">
+    <summary class="collapsible-trigger">
+        <div>
+            <span class="collapsible-trigger__title">Validation Runs (@Model.ValidationRuns.Count)</span>
+            <span class="collapsible-trigger__subtitle">Show or hide saved runs, statuses, signoffs, and review links for this engagement.</span>
+        </div>
+        <span class="collapsible-trigger__icon" aria-hidden="true"></span>
+    </summary>
+    <div class="collapsible-panel">
 @if (Model.ValidationRuns.Any())
 {
     <div class="card">
@@ -275,7 +348,10 @@
                         <td>
             @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
             {
-                <a asp-controller="Rule36" asp-action="Run" asp-route-id="@run.Id" class="btn btn-sm btn-secondary">Review</a>
+                <a asp-controller="@(run.RuleNumber == 34 ? "Rule34" : "Rule36")"
+                   asp-action="Run"
+                   asp-route-id="@run.Id"
+                   class="btn btn-sm btn-secondary">Review</a>
             }
                             else
                             {
@@ -293,7 +369,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a> or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
         }
         else if (Model.IsArchived)
         {
@@ -305,3 +381,5 @@ else
         }
     </div>
 }
+    </div>
+</details>

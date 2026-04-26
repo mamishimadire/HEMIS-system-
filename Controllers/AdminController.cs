@@ -437,12 +437,15 @@ namespace HemisAudit.Controllers
                 var archiveEligibility = await _systemDb.GetArchiveEligibilityAsync(id);
                 detail.CanArchive = archiveEligibility.CanArchive;
                 detail.CurrentRunId = archiveEligibility.CurrentRunId;
+                detail.CurrentRunRuleNumber = archiveEligibility.CurrentRunRuleNumber;
                 detail.ArchiveEligibilityMessage = archiveEligibility.Message;
             }
             else
             {
-                detail.CurrentRunId = detail.ValidationRuns.FirstOrDefault(run => run.IsCurrent)?.Id
-                    ?? detail.ValidationRuns.FirstOrDefault(run => run.HasAllRequiredSignoffs)?.Id;
+                var currentRun = detail.ValidationRuns.FirstOrDefault(run => run.IsCurrent)
+                    ?? detail.ValidationRuns.FirstOrDefault(run => run.HasAllRequiredSignoffs);
+                detail.CurrentRunId = currentRun?.Id;
+                detail.CurrentRunRuleNumber = currentRun?.RuleNumber;
             }
 
             if (!string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) &&

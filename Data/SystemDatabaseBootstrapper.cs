@@ -224,6 +224,34 @@ BEGIN
 END"
                 ,
                 @"
+IF OBJECT_ID(N'dbo.ThreadUserStates', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ThreadUserStates (
+      StateID      INT IDENTITY(1,1) PRIMARY KEY,
+      ThreadID     INT NOT NULL REFERENCES dbo.MessageThreads(ThreadID),
+      UserID       INT NOT NULL REFERENCES dbo.Users(UserID),
+      IsDeleted    BIT NOT NULL DEFAULT 0,
+      DeletedAt    DATETIME NULL,
+      CONSTRAINT UQ_ThreadUserStates_Thread_User UNIQUE (ThreadID, UserID)
+    );
+END"
+                ,
+                @"
+IF OBJECT_ID(N'dbo.ThreadMessageAttachments', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ThreadMessageAttachments (
+      AttachmentID     INT IDENTITY(1,1) PRIMARY KEY,
+      MessageID        INT NOT NULL REFERENCES dbo.ThreadMessages(MessageID),
+      FileName         NVARCHAR(255) NOT NULL,
+      FilePath         NVARCHAR(500) NOT NULL,
+      ContentType      NVARCHAR(100) NOT NULL,
+      FileSize         BIGINT NOT NULL,
+      AttachmentKind   NVARCHAR(20) NOT NULL DEFAULT 'file',
+      CreatedAt        DATETIME NOT NULL DEFAULT GETDATE()
+    );
+END"
+                ,
+                @"
 IF OBJECT_ID(N'dbo.ClientFavorites', N'U') IS NULL
 BEGIN
     CREATE TABLE dbo.ClientFavorites (
@@ -253,6 +281,8 @@ END"
             await EnsureIndexAsync(connection, "MessageThreads", "IX_MessageThreads_Client_LastMessage", false, "[ClientID], [LastMessageAt]");
             await EnsureIndexAsync(connection, "ThreadMessages", "IX_ThreadMessages_Thread_SentAt", false, "[ThreadID], [SentAt]");
             await EnsureIndexAsync(connection, "ThreadMessageRecipients", "IX_ThreadMessageRecipients_User_Read", false, "[UserID], [IsRead]");
+            await EnsureIndexAsync(connection, "ThreadUserStates", "IX_ThreadUserStates_User_Deleted", false, "[UserID], [IsDeleted]");
+            await EnsureIndexAsync(connection, "ThreadMessageAttachments", "IX_ThreadMessageAttachments_Message", false, "[MessageID]");
             await EnsureIndexAsync(connection, "ClientFavorites", "IX_ClientFavorites_User", false, "[UserID]");
         }
 
@@ -305,6 +335,9 @@ END"
             await EnsureColumnAsync(connection, "MessageThreads", "RecordHash", "NVARCHAR(128) NULL");
             await EnsureColumnAsync(connection, "ThreadMessages", "PreviousHash", "NVARCHAR(128) NULL");
             await EnsureColumnAsync(connection, "ThreadMessages", "RecordHash", "NVARCHAR(128) NULL");
+            await EnsureColumnAsync(connection, "ThreadMessages", "EditedAt", "DATETIME NULL");
+            await EnsureColumnAsync(connection, "ThreadMessages", "IsDeleted", "BIT NOT NULL CONSTRAINT DF_ThreadMessages_IsDeleted DEFAULT 0");
+            await EnsureColumnAsync(connection, "ThreadMessages", "DeletedAt", "DATETIME NULL");
             await EnsureClientStatusConstraintAsync(connection);
         }
 
