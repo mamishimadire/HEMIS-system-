@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using HemisAudit.Data;
 using HemisAudit.Models;
 using HemisAudit.Services;
@@ -67,6 +68,17 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(Path.Combine(app.Environment.WebRootPath, "uploads", "messages")),
+    RequestPath = "/uploads/messages",
+    ServeUnknownFileTypes = true,
+    DefaultContentType = "application/octet-stream",
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    }
+});
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();

@@ -4,9 +4,15 @@
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
     var selectedClientId = (int)(ViewBag.ClientId ?? 0);
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
 }
 
 <div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
     <div class="engagement-selector">
         <label>Engagement</label>
         <select id="clientIdSelect" onchange="handleClientChange(this.value)">
@@ -91,7 +97,7 @@
             </button>
             <div class="accordion-body" id="body-config" style="display:none">
                 <div class="info-box info-box--red">
-                    <strong>Rule 34 Requirement:</strong> Calculate the midpoint between the first day and last day, then compare it with the stored census date.
+                    <strong>Rule 34 Requirement:</strong> Calculate c_Days, c_Days_2, c_Census_Date_Prep, then shift to c_ACTUAL_CENSUS_DATE when the prepared date falls on a weekend or public holiday before testing pass or fail.
                     <br />
                     FALSE (dates match) = PASS. TRUE (dates do not match) = FAIL.
                 </div>
@@ -211,6 +217,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 const currentSystemRole = '@(ViewBag.CurrentSystemRole ?? "")';
+let spinnerDelayHandle = null;
 const state = {
     clientId: parseInt(document.getElementById('clientIdSelect')?.value || '0') || 0,
     server: '',
@@ -233,7 +240,12 @@ const state = {
     isBeginningWorkspaceEdit: false,
     isHydrating: false,
     isDirty: false,
-    chartInstances: {}
+    chartInstances: {},
+    cache: {
+        databases: {},
+        tables: {},
+        columns: {}
+    }
 };
 
 function toggleAccordion(name) {
@@ -253,10 +265,18 @@ function switchTab(name) {
 
 function showSpinner(msg) {
     document.getElementById('spinnerMsg').textContent = msg || 'Processing...';
-    document.getElementById('spinner').style.display = 'flex';
+    if (spinnerDelayHandle) window.clearTimeout(spinnerDelayHandle);
+    spinnerDelayHandle = window.setTimeout(() => {
+        document.getElementById('spinner').style.display = 'flex';
+        spinnerDelayHandle = null;
+    }, 150);
 }
 
 function hideSpinner() {
+    if (spinnerDelayHandle) {
+        window.clearTimeout(spinnerDelayHandle);
+        spinnerDelayHandle = null;
+    }
     document.getElementById('spinner').style.display = 'none';
 }
 
@@ -626,6 +646,17 @@ async function connectServer() {
         return;
     }
 
+    const cacheKey = `${state.server}|${state.driver}`;
+    if (state.cache.databases[cacheKey]) {
+        document.getElementById('dbFieldGroup').style.display = 'block';
+        const select = document.getElementById('databaseSelect');
+        select.innerHTML = '<option value="">Select database</option>' +
+            state.cache.databases[cacheKey].map(db => `<option value="${escapeHtml(db)}">${escapeHtml(db)}</option>`).join('');
+        setStatus('connectionStatus', `Loaded ${state.cache.databases[cacheKey].length} cached databases. Select one to continue.`, 'success');
+        await markWorkspaceDirty();
+        return;
+    }
+
     showSpinner('Connecting to SQL Server...');
     try {
         const result = await post('/Rule34/GetDatabases', { server: state.server, driver: state.driver });
@@ -634,6 +665,7 @@ async function connectServer() {
             return;
         }
 
+        state.cache.databases[cacheKey] = result.databases || [];
         document.getElementById('dbFieldGroup').style.display = 'block';
         const select = document.getElementById('databaseSelect');
         select.innerHTML = '<option value="">Select database</option>' +
@@ -647,6 +679,20 @@ async function connectServer() {
 
 async function loadTables() {
     if (!state.server || !state.database) return;
+    const cacheKey = `${state.server}|${state.driver}|${state.database}`;
+    if (state.cache.tables[cacheKey]) {
+        const cached = state.cache.tables[cacheKey];
+        const select = document.getElementById('tableSelect');
+        select.innerHTML = '<option value="">Select table</option>' +
+            cached.tables.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+        if (cached.autoStudTable) {
+            select.value = cached.autoStudTable;
+            state.tableName = cached.autoStudTable;
+            await loadColumns();
+        }
+        return;
+    }
+
     showSpinner('Loading tables...');
     try {
         const result = await post('/Rule34/GetTables', { server: state.server, database: state.database, driver: state.driver });
@@ -655,6 +701,10 @@ async function loadTables() {
             return;
         }
 
+        state.cache.tables[cacheKey] = {
+            tables: result.tables || [],
+            autoStudTable: result.autoStudTable || ''
+        };
         const select = document.getElementById('tableSelect');
         select.innerHTML = '<option value="">Select table</option>' +
             (result.tables || []).map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
@@ -670,6 +720,12 @@ async function loadTables() {
 
 async function loadColumns() {
     if (!state.tableName) return;
+    const cacheKey = `${state.server}|${state.driver}|${state.database}|${state.tableName}`;
+    if (state.cache.columns[cacheKey]) {
+        populateRule34ColumnSelects(state.cache.columns[cacheKey]);
+        return;
+    }
+
     showSpinner('Loading columns...');
     try {
         const result = await post('/Rule34/GetColumns', {
@@ -684,28 +740,32 @@ async function loadColumns() {
             return;
         }
 
-        const options = '<option value="">Select column</option>' +
-            (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-        document.getElementById('firstDaySelect').innerHTML = options;
-        document.getElementById('lastDaySelect').innerHTML = options;
-        document.getElementById('censusDateSelect').innerHTML = options;
-
-        if (result.autoFirstDayColumn) {
-            document.getElementById('firstDaySelect').value = result.autoFirstDayColumn;
-            state.firstDayColumn = result.autoFirstDayColumn;
-        }
-        if (result.autoLastDayColumn) {
-            document.getElementById('lastDaySelect').value = result.autoLastDayColumn;
-            state.lastDayColumn = result.autoLastDayColumn;
-        }
-        if (result.autoCensusDateColumn) {
-            document.getElementById('censusDateSelect').value = result.autoCensusDateColumn;
-            state.censusDateColumn = result.autoCensusDateColumn;
-        }
-
+        state.cache.columns[cacheKey] = result;
+        populateRule34ColumnSelects(result);
         setStatus('configStatus', 'Columns loaded. Review the auto-selected date fields before running validation.', 'success');
     } finally {
         hideSpinner();
+    }
+}
+
+function populateRule34ColumnSelects(result) {
+    const options = '<option value="">Select column</option>' +
+        (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    document.getElementById('firstDaySelect').innerHTML = options;
+    document.getElementById('lastDaySelect').innerHTML = options;
+    document.getElementById('censusDateSelect').innerHTML = options;
+
+    if (result.autoFirstDayColumn) {
+        document.getElementById('firstDaySelect').value = result.autoFirstDayColumn;
+        state.firstDayColumn = result.autoFirstDayColumn;
+    }
+    if (result.autoLastDayColumn) {
+        document.getElementById('lastDaySelect').value = result.autoLastDayColumn;
+        state.lastDayColumn = result.autoLastDayColumn;
+    }
+    if (result.autoCensusDateColumn) {
+        document.getElementById('censusDateSelect').value = result.autoCensusDateColumn;
+        state.censusDateColumn = result.autoCensusDateColumn;
     }
 }
 
@@ -848,7 +908,10 @@ function renderValidationResults(r) {
             <td>${row.validationNumber}</td>
             <td>${escapeHtml(row.firstDayValue)}</td>
             <td>${escapeHtml(row.lastDayValue)}</td>
+            <td>${row.currentDays ?? ''}</td>
+            <td>${row.currentDaysHalf ?? ''}</td>
             <td>${escapeHtml(row.computedCensusDate)}</td>
+            <td>${escapeHtml(row.actualCensusDate)}</td>
             <td>${escapeHtml(row.censusDateValue)}</td>
             <td>${escapeHtml(row.dayStatus)}</td>
             <td><span class="badge ${row.dateMatch ? 'badge--pass' : 'badge--fail'}">${escapeHtml(row.validationStatus)}</span></td>
@@ -875,7 +938,10 @@ function renderValidationResults(r) {
                         <th>#</th>
                         <th>First Day</th>
                         <th>Last Day</th>
+                        <th>c_Days</th>
+                        <th>c_Days_2</th>
                         <th>Prepared Census Date</th>
+                        <th>Actual Census Date</th>
                         <th>Stored Census Date</th>
                         <th>Day Status</th>
                         <th>Validation Status</th>
@@ -893,7 +959,10 @@ function renderExceptions(r) {
             <td>${row.validationNumber}</td>
             <td>${escapeHtml(row.firstDayValue)}</td>
             <td>${escapeHtml(row.lastDayValue)}</td>
+            <td>${row.currentDays ?? ''}</td>
+            <td>${row.currentDaysHalf ?? ''}</td>
             <td>${escapeHtml(row.computedCensusDate)}</td>
+            <td>${escapeHtml(row.actualCensusDate)}</td>
             <td>${escapeHtml(row.censusDateValue)}</td>
             <td>${escapeHtml(row.dayStatus)}</td>
             <td><span class="badge badge--fail">${escapeHtml(row.validationStatus)}</span></td>
@@ -913,13 +982,16 @@ function renderExceptions(r) {
                         <th>#</th>
                         <th>First Day</th>
                         <th>Last Day</th>
+                        <th>c_Days</th>
+                        <th>c_Days_2</th>
                         <th>Prepared Census Date</th>
+                        <th>Actual Census Date</th>
                         <th>Stored Census Date</th>
                         <th>Day Status</th>
                         <th>Validation Status</th>
                     </tr>
                 </thead>
-                <tbody>${rows || '<tr><td colspan="7">No exceptions found.</td></tr>'}</tbody>
+                <tbody>${rows || '<tr><td colspan="10">No exceptions found.</td></tr>'}</tbody>
             </table>
         </div>`;
 }

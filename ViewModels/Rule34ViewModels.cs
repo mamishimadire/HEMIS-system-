@@ -85,7 +85,10 @@ namespace HemisAudit.ViewModels
         public int ValidationNumber { get; set; }
         public string FirstDayValue { get; set; } = "";
         public string LastDayValue { get; set; } = "";
+        public int? CurrentDays { get; set; }
+        public decimal? CurrentDaysHalf { get; set; }
         public string ComputedCensusDate { get; set; } = "";
+        public string ActualCensusDate { get; set; } = "";
         public string CensusDateValue { get; set; } = "";
         public string DayStatus { get; set; } = "";
         public bool ComparisonResult { get; set; }

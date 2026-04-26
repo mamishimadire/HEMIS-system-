@@ -1,0 +1,27 @@
+@model HemisAudit.ViewModels.ModuleSequenceNavigationViewModel
+
+@if (Model?.Previous != null || Model?.Next != null)
+{
+    <div class="card" style="margin-bottom:20px;padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Module Sequence</div>
+                <div>@Model.CurrentRuleLabel | @Model.CurrentRuleTitle</div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                @if (Model.Previous != null)
+                {
+                    <a href="@Model.Previous.Url" class="btn btn-secondary">
+                        Previous Module: @Model.Previous.RuleLabel
+                    </a>
+                }
+                @if (Model.Next != null)
+                {
+                    <a href="@Model.Next.Url" class="btn btn-primary">
+                        Next Module: @Model.Next.RuleLabel
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+}

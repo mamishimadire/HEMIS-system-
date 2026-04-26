@@ -154,13 +154,16 @@ namespace HemisAudit.Services
             using var wb = new XLWorkbook();
 
             var wsResults = wb.Worksheets.Add("Validation Results");
-            StyleHeaderRow(wsResults, 1, "RULE 34 VALIDATION RESULTS", 7);
+            StyleHeaderRow(wsResults, 1, "RULE 34 VALIDATION RESULTS", 10);
             var resultHeaders = new[]
             {
                 "Validation Number",
                 "First Day",
                 "Last Day",
+                "c_Days",
+                "c_Days_2",
                 "Prepared Census Date",
+                "Actual Census Date",
                 "Stored Census Date",
                 "Day Status",
                 "Validation Status"
@@ -181,17 +184,20 @@ namespace HemisAudit.Services
                 wsResults.Cell(rowIndex, 1).Value = row.ValidationNumber;
                 wsResults.Cell(rowIndex, 2).Value = row.FirstDayValue;
                 wsResults.Cell(rowIndex, 3).Value = row.LastDayValue;
-                wsResults.Cell(rowIndex, 4).Value = row.ComputedCensusDate;
-                wsResults.Cell(rowIndex, 5).Value = row.CensusDateValue;
-                wsResults.Cell(rowIndex, 6).Value = row.DayStatus;
-                wsResults.Cell(rowIndex, 7).Value = row.ValidationStatus;
+                wsResults.Cell(rowIndex, 4).Value = row.CurrentDays?.ToString() ?? "NULL";
+                wsResults.Cell(rowIndex, 5).Value = row.CurrentDaysHalf?.ToString() ?? "NULL";
+                wsResults.Cell(rowIndex, 6).Value = row.ComputedCensusDate;
+                wsResults.Cell(rowIndex, 7).Value = row.ActualCensusDate;
+                wsResults.Cell(rowIndex, 8).Value = row.CensusDateValue;
+                wsResults.Cell(rowIndex, 9).Value = row.DayStatus;
+                wsResults.Cell(rowIndex, 10).Value = row.ValidationStatus;
 
-                wsResults.Range(rowIndex, 1, rowIndex, 7).Style.Fill.BackgroundColor =
+                wsResults.Range(rowIndex, 1, rowIndex, 10).Style.Fill.BackgroundColor =
                     row.DateMatch ? XLColor.FromHtml("#F3FFF3") : XLColor.FromHtml("#FFF3F3");
                 rowIndex++;
             }
 
-            for (int c = 1; c <= 7; c++) wsResults.Column(c).AdjustToContents();
+            for (int c = 1; c <= 10; c++) wsResults.Column(c).AdjustToContents();
 
             var wsSummary = wb.Worksheets.Add("Summary");
             StyleHeaderRow(wsSummary, 1, "HEMIS RULE 34: CENSUS DATE VALIDATION", 2);
@@ -249,7 +255,7 @@ namespace HemisAudit.Services
             wsSummary.Column(2).Width = 60;
 
             var wsExceptions = wb.Worksheets.Add("Exceptions");
-            StyleHeaderRow(wsExceptions, 1, "RULE 34 EXCEPTIONS", 7);
+            StyleHeaderRow(wsExceptions, 1, "RULE 34 EXCEPTIONS", 10);
             for (int i = 0; i < resultHeaders.Length; i++)
             {
                 var cell = wsExceptions.Cell(2, i + 1);
@@ -265,15 +271,18 @@ namespace HemisAudit.Services
                 wsExceptions.Cell(exceptionRow, 1).Value = row.ValidationNumber;
                 wsExceptions.Cell(exceptionRow, 2).Value = row.FirstDayValue;
                 wsExceptions.Cell(exceptionRow, 3).Value = row.LastDayValue;
-                wsExceptions.Cell(exceptionRow, 4).Value = row.ComputedCensusDate;
-                wsExceptions.Cell(exceptionRow, 5).Value = row.CensusDateValue;
-                wsExceptions.Cell(exceptionRow, 6).Value = row.DayStatus;
-                wsExceptions.Cell(exceptionRow, 7).Value = row.ValidationStatus;
-                wsExceptions.Range(exceptionRow, 1, exceptionRow, 7).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
+                wsExceptions.Cell(exceptionRow, 4).Value = row.CurrentDays?.ToString() ?? "NULL";
+                wsExceptions.Cell(exceptionRow, 5).Value = row.CurrentDaysHalf?.ToString() ?? "NULL";
+                wsExceptions.Cell(exceptionRow, 6).Value = row.ComputedCensusDate;
+                wsExceptions.Cell(exceptionRow, 7).Value = row.ActualCensusDate;
+                wsExceptions.Cell(exceptionRow, 8).Value = row.CensusDateValue;
+                wsExceptions.Cell(exceptionRow, 9).Value = row.DayStatus;
+                wsExceptions.Cell(exceptionRow, 10).Value = row.ValidationStatus;
+                wsExceptions.Range(exceptionRow, 1, exceptionRow, 10).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
                 exceptionRow++;
             }
 
-            for (int c = 1; c <= 7; c++) wsExceptions.Column(c).AdjustToContents();
+            for (int c = 1; c <= 10; c++) wsExceptions.Column(c).AdjustToContents();
 
             var wsStats = wb.Worksheets.Add("Statistics");
             StyleHeaderRow(wsStats, 1, "VALIDATION STATISTICS", 2);
@@ -347,7 +356,7 @@ namespace HemisAudit.Services
         public byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Validation_Number,First_Day,Last_Day,Prepared_Census_Date,Stored_Census_Date,Day_Status,Validation_Status");
+            sb.AppendLine("Validation_Number,First_Day,Last_Day,c_Days,c_Days_2,Prepared_Census_Date,Actual_Census_Date,Stored_Census_Date,Day_Status,Validation_Status");
 
             var rows = exceptionsOnly ? summary.Exceptions : summary.ValidationRows;
             foreach (var row in rows)
@@ -356,7 +365,10 @@ namespace HemisAudit.Services
                     row.ValidationNumber,
                     CsvEscape(row.FirstDayValue),
                     CsvEscape(row.LastDayValue),
+                    CsvEscape(row.CurrentDays?.ToString()),
+                    CsvEscape(row.CurrentDaysHalf?.ToString()),
                     CsvEscape(row.ComputedCensusDate),
+                    CsvEscape(row.ActualCensusDate),
                     CsvEscape(row.CensusDateValue),
                     CsvEscape(row.DayStatus),
                     CsvEscape(row.ValidationStatus)));

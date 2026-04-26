@@ -7,6 +7,7 @@
     var canManageEngagement = ViewBag.CanManageEngagement is bool manageEngagement && manageEngagement;
     var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool openWorkspace && openWorkspace;
     var isArchived = ViewBag.IsArchived is bool archived && archived;
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
 }
 
 @if (TempData["Success"] != null)
@@ -17,6 +18,11 @@
 @if (TempData["Error"] != null)
 {
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+@if (moduleNavigation != null)
+{
+    @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
 }
 
 <div class="page-header">

@@ -7,6 +7,7 @@
     var canManageEngagement = ViewBag.CanManageEngagement is bool manageEngagement && manageEngagement;
     var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool openWorkspace && openWorkspace;
     var isArchived = ViewBag.IsArchived is bool archived && archived;
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
 }
 
 @if (TempData["Success"] != null)
@@ -17,6 +18,11 @@
 @if (TempData["Error"] != null)
 {
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+@if (moduleNavigation != null)
+{
+    @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
 }
 
 <div class="page-header">
@@ -220,7 +226,10 @@
                     <th>#</th>
                     <th>First Day</th>
                     <th>Last Day</th>
+                    <th>c_Days</th>
+                    <th>c_Days_2</th>
                     <th>Prepared Census Date</th>
+                    <th>Actual Census Date</th>
                     <th>Stored Census Date</th>
                     <th>Day Status</th>
                     <th>Validation Status</th>
@@ -233,7 +242,10 @@
                         <td>@item.ValidationNumber</td>
                         <td>@item.FirstDayValue</td>
                         <td>@item.LastDayValue</td>
+                        <td>@(item.CurrentDays?.ToString() ?? "NULL")</td>
+                        <td>@(item.CurrentDaysHalf?.ToString() ?? "NULL")</td>
                         <td>@item.ComputedCensusDate</td>
+                        <td>@item.ActualCensusDate</td>
                         <td>@item.CensusDateValue</td>
                         <td>@item.DayStatus</td>
                         <td><span class="badge badge--fail">@item.ValidationStatus</span></td>

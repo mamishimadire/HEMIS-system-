@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using HemisAudit.Helpers;
 using HemisAudit.Models;
 using HemisAudit.Services;
 using HemisAudit.ViewModels;
@@ -67,6 +68,7 @@ namespace HemisAudit.Controllers
                 .ToList();
             ViewBag.ClientId = clientId;
             ViewBag.CurrentSystemRole = role;
+            ViewBag.ModuleNavigation = ModuleSequenceNavigationHelper.BuildForWorkspace(36, clientId);
             return View();
         }
 
@@ -155,6 +157,12 @@ namespace HemisAudit.Controllers
             var clientDetail = await _systemDb.GetClientDetailAsync(review.ClientId, user, role);
             var isArchived = clientDetail?.IsArchived == true;
             ViewBag.IsArchived = isArchived;
+            ViewBag.ModuleNavigation = ModuleSequenceNavigationHelper.BuildForSavedRun(
+                36,
+                review.ClientId,
+                clientDetail?.ValidationRuns,
+                role,
+                review.CurrentUserEngagementRole);
             ViewBag.CanOpenWorkspace =
                 !isArchived &&
                 await _systemDb.CanAccessClientModuleAsync(review.ClientId, user, role) &&

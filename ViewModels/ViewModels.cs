@@ -326,6 +326,24 @@ namespace HemisAudit.ViewModels
             HasDirectorSignoff;
     }
 
+    public class ModuleSequenceLinkViewModel
+    {
+        public int RuleNumber { get; set; }
+        public string RuleLabel { get; set; } = "";
+        public string RuleTitle { get; set; } = "";
+        public string Url { get; set; } = "";
+        public bool OpensSavedRun { get; set; }
+    }
+
+    public class ModuleSequenceNavigationViewModel
+    {
+        public int CurrentRuleNumber { get; set; }
+        public string CurrentRuleLabel { get; set; } = "";
+        public string CurrentRuleTitle { get; set; } = "";
+        public ModuleSequenceLinkViewModel? Previous { get; set; }
+        public ModuleSequenceLinkViewModel? Next { get; set; }
+    }
+
     public class RunSignoffViewModel
     {
         public int Id { get; set; }
