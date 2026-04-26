@@ -263,6 +263,7 @@ const state = {
     hasDataAnalystSignoff: false,
     resultsVisible: false,
     editWarningAccepted: false,
+    isBeginningWorkspaceEdit: false,
     isHydrating: false,
     isDirty: false,
     chartInstances: {}
@@ -377,6 +378,12 @@ async function markWorkspaceDirty() {
     if (isArchivedWorkspace()) return;
 
     if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+        if (state.isBeginningWorkspaceEdit) {
+            state.isDirty = true;
+            renderWorkspaceState();
+            return;
+        }
+
         const confirmEdit = window.confirm(
             'Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.'
         );
@@ -386,30 +393,40 @@ async function markWorkspaceDirty() {
             return;
         }
 
+        state.isBeginningWorkspaceEdit = true;
+        state.editWarningAccepted = true;
         showSpinner('Clearing signoffs for the edited workspace...');
 
         try {
             const result = await post('/Rule36/BeginWorkspaceEdit', buildRequest());
             if (!result.success) {
+                state.editWarningAccepted = false;
                 setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
                 await loadWorkspaceState();
                 return;
             }
 
-            state.editWarningAccepted = true;
             state.currentUserHasSignedOff = false;
             state.hasDataAnalystSignoff = false;
 
             if (result.workspace) {
                 state.currentRunId = result.workspace.runId || state.currentRunId;
                 state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+                state.currentStatus = result.workspace.currentStatus || state.currentStatus;
+                state.resultsVisible = !!result.workspace.resultsVisible;
+                document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || '';
                 if (result.workspace.summary) {
                     applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
                 }
             }
 
             setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+        } catch (error) {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo(`Error: ${escapeHtml(error?.message || 'Failed to begin editing.')}`, 'error');
+            await loadWorkspaceState();
         } finally {
+            state.isBeginningWorkspaceEdit = false;
             hideSpinner();
         }
     }

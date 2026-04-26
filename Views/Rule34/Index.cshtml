@@ -230,6 +230,7 @@ const state = {
     hasDataAnalystSignoff: false,
     resultsVisible: false,
     editWarningAccepted: false,
+    isBeginningWorkspaceEdit: false,
     isHydrating: false,
     isDirty: false,
     chartInstances: {}
@@ -400,27 +401,40 @@ async function markWorkspaceDirty() {
     if (state.isHydrating || currentSystemRole === 'Admin' || isArchivedWorkspace()) return;
 
     if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+        if (state.isBeginningWorkspaceEdit) {
+            state.isDirty = true;
+            renderWorkspaceState();
+            return;
+        }
+
         const confirmed = window.confirm('Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.');
         if (!confirmed) {
             await loadWorkspaceState();
             return;
         }
 
+        state.isBeginningWorkspaceEdit = true;
+        state.editWarningAccepted = true;
         showSpinner('Clearing signoffs for the edited workspace...');
         try {
             const result = await post('/Rule34/BeginWorkspaceEdit', buildRequest());
             if (!result.success) {
+                state.editWarningAccepted = false;
                 setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
                 await loadWorkspaceState();
                 return;
             }
 
-            state.editWarningAccepted = true;
             state.currentUserHasSignedOff = false;
             state.hasDataAnalystSignoff = false;
             if (result.workspace) applyWorkspaceReviewState(result.workspace);
             setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+        } catch (error) {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo(`Error: ${escapeHtml(error?.message || 'Failed to begin editing.')}`, 'error');
+            await loadWorkspaceState();
         } finally {
+            state.isBeginningWorkspaceEdit = false;
             hideSpinner();
         }
     }
