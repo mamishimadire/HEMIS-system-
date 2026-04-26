@@ -132,7 +132,8 @@
                 <div class="form-grid">
                     <div class="field-group">
                         <label for="errorTypeValue">Filter Value</label>
-                        <select id="errorTypeValue"></select>
+                        <input id="errorTypeValue" type="text" list="errorTypeValueOptions" placeholder="Type or pick a detected value" />
+                        <datalist id="errorTypeValueOptions"></datalist>
                     </div>
                     <div class="field-group">
                         <label>&nbsp;</label>
@@ -302,6 +303,7 @@
         errorTypeColumn: document.getElementById('errorTypeColumn'),
         errorColumn: document.getElementById('errorColumn'),
         errorTypeValue: document.getElementById('errorTypeValue'),
+        errorTypeValueOptions: document.getElementById('errorTypeValueOptions'),
         exclusionCodes: document.getElementById('exclusionCodes'),
         connectionOutput: document.getElementById('connectionOutput'),
         workspaceInfo: document.getElementById('workspaceInfo'),
@@ -524,6 +526,20 @@
             }
             select.appendChild(option);
         });
+    }
+
+    function populateDatalist(list, values, selectedValue, input) {
+        list.innerHTML = '';
+        (values || []).forEach(function (item) {
+            const option = document.createElement('option');
+            option.value = typeof item === 'string' ? item : item.value;
+            option.label = typeof item === 'string' ? item : item.label;
+            list.appendChild(option);
+        });
+
+        if (input && selectedValue) {
+            input.value = selectedValue;
+        }
     }
 
     function findExactValue(values, expectedValue) {
@@ -798,7 +814,8 @@
         els.tableName.innerHTML = '';
         els.errorTypeColumn.innerHTML = '';
         els.errorColumn.innerHTML = '';
-        els.errorTypeValue.innerHTML = '';
+        els.errorTypeValue.value = '';
+        els.errorTypeValueOptions.innerHTML = '';
         els.exclusionCodes.value = defaultExclusionCodes;
         els.workspaceRunLabel.textContent = 'No saved run yet';
         els.workspaceStatusLabel.textContent = '-';
@@ -1079,7 +1096,7 @@
                 tableName: els.tableName.value,
                 errorTypeColumn: els.errorTypeColumn.value
             });
-            if (values.success) populateSelect(els.errorTypeValue, values.options || [], values.defaultValue || workspace.errorTypeValue);
+            if (values.success) populateDatalist(els.errorTypeValueOptions, values.options || [], values.defaultValue || workspace.errorTypeValue, els.errorTypeValue);
         }
     }
 
@@ -1188,7 +1205,7 @@
             return;
         }
 
-        populateSelect(els.errorTypeValue, result.options || [], result.defaultValue || null);
+        populateDatalist(els.errorTypeValueOptions, result.options || [], result.defaultValue || els.errorTypeValue.value || null, els.errorTypeValue);
         setConnectionText(
             `Auto-detected filter value: ${els.errorTypeValue.value || 'Fatal'}`,
             'info');
@@ -1448,6 +1465,9 @@
         await markWorkspaceDirty();
     });
     els.errorTypeValue.addEventListener('change', async function () {
+        await markWorkspaceDirty();
+    });
+    els.errorTypeValue.addEventListener('input', async function () {
         await markWorkspaceDirty();
     });
 

@@ -561,6 +561,12 @@ namespace HemisAudit.Controllers
                 return RedirectToAction("Index", "Dashboard");
             }
 
+            if (!review.IsCurrentRun)
+            {
+                TempData["Error"] = "History results are read-only. Signoff is only available on the current run.";
+                return RedirectToAction(nameof(Run), new { id = model.RunId });
+            }
+
             if (!review.CanCurrentUserSignOff)
             {
                 TempData["Error"] = "Only the assigned data analyst, manager, or director can sign off this run.";
@@ -604,6 +610,12 @@ namespace HemisAudit.Controllers
             {
                 TempData["Error"] = "You do not have access to remove this signoff.";
                 return RedirectToAction("Index", "Dashboard");
+            }
+
+            if (!review.IsCurrentRun)
+            {
+                TempData["Error"] = "History results are read-only. Signoff cannot be removed from a history run.";
+                return RedirectToAction(nameof(Run), new { id = runId });
             }
 
             if (!review.CurrentUserHasSignedOff)

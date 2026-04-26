@@ -361,6 +361,7 @@ namespace HemisAudit.ViewModels
     {
         public int RunId { get; set; }
         public int ClientId { get; set; }
+        public bool IsCurrentRun { get; set; }
         public string EngagementName { get; set; } = "";
         public string MaconomyNumber { get; set; } = "";
         public string SourceServer { get; set; } = "";
@@ -374,7 +375,8 @@ namespace HemisAudit.ViewModels
             Signoffs.Any(s =>
                 s.IsCurrentUser &&
                 string.Equals(s.SignoffRole, CurrentUserEngagementRole, StringComparison.OrdinalIgnoreCase));
-        public bool CanCurrentUserSignOff => ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
         public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
     }
 

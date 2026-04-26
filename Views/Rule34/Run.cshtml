@@ -62,6 +62,7 @@
             <a asp-action="Index" asp-route-clientId="@Model.ClientId" class="btn btn-secondary">Back to Workspace</a>
         }
         <a asp-controller="Dashboard" asp-action="Index" class="btn btn-secondary">Back to Dashboard</a>
+        <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" asp-fragment="validation-runs-panel" class="btn btn-secondary">Back to Validation Runs</a>
         @if (canManageEngagement)
         {
             <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" class="btn btn-secondary">Back to Engagement</a>
@@ -100,7 +101,7 @@
             </button>
         </form>
 
-        @if (Model.CurrentUserHasSignedOff)
+        @if (Model.CanCurrentUserRemoveSignoff)
         {
             <form asp-action="RemoveSignoff" method="post" style="margin-bottom:16px">
                 @Html.AntiForgeryToken()
@@ -110,6 +111,10 @@
                 </button>
             </form>
         }
+    }
+    else if (!Model.IsCurrentRun && !isArchived)
+    {
+        <div class="alert alert--info" style="margin-bottom:16px">History results are read-only for signoff. Signoff is only available on the current run.</div>
     }
 
     @if (Model.Signoffs.Any())

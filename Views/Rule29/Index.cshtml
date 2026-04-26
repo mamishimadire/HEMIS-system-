@@ -405,8 +405,12 @@
     }
 
     function updateWorkspaceButtons() {
-        const canEdit = currentSystemRole === 'DataAnalyst' && state.currentUserEngagementRole === 'DataAnalyst';
-        const canSign = ['DataAnalyst', 'Manager', 'Director'].includes(state.currentUserEngagementRole);
+        const role = state.currentUserEngagementRole || currentSystemRole;
+        const canEdit = currentSystemRole === 'DataAnalyst';
+        const canSign = !!state.currentRunId && (
+            currentSystemRole === 'DataAnalyst' ||
+            (state.resultsVisible && (role === 'Manager' || role === 'Director'))
+        );
         const signedOffLock = !!state.currentUserHasSignedOff;
         const removeBtn = document.getElementById('removeSignoffBtn');
         const rootShell = document.getElementById('app');
@@ -434,8 +438,8 @@
         if (runBtn) runBtn.disabled = !canEdit || signedOffLock;
         if (sqlBtn) sqlBtn.disabled = !canEdit || signedOffLock;
         if (removeBtn) {
-            removeBtn.style.display = state.currentUserHasSignedOff ? 'inline-flex' : 'none';
-            removeBtn.disabled = !state.currentUserHasSignedOff;
+            removeBtn.style.display = canSign && state.currentUserHasSignedOff ? 'inline-flex' : 'none';
+            removeBtn.disabled = !canSign || !state.currentUserHasSignedOff;
         }
 
         if (els.workspaceSignoffComment) {
