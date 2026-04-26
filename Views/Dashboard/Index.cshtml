@@ -16,7 +16,7 @@
     {
         "archived" => "Archived engagements remain available for review and downloads only.",
         "favorites" => "Starred engagements you return to most often.",
-        _ when isDataAnalyst => "These are the active engagements assigned to you. Open the workspace to run and sign off Rule 36.",
+        _ when isDataAnalyst => "These are the active engagements assigned to you. Open a workspace to run and sign off the validation modules.",
         _ => "Showing active engagements first. Use the tabs to switch to archived or favourited engagements."
     };
     var reviewedAndCompletedRuns = Model.ReviewedAndCompletedRuns;
@@ -62,6 +62,7 @@
 
 <div class="dashboard-tabs">
     <a class="dashboard-tab is-active" href="#engagements" data-dashboard-tab="engagements">Engagements</a>
+    <a class="dashboard-tab" href="#modules" data-dashboard-tab="modules">Modules</a>
     <a class="dashboard-tab" href="#insights" data-dashboard-tab="insights">Insights</a>
     <a class="dashboard-tab" href="#recent-runs" data-dashboard-tab="recent-runs">Recent Validation Runs</a>
 </div>
@@ -301,6 +302,41 @@
     }
 </div>
 
+</div>
+
+<div class="dashboard-panel" data-dashboard-panel="modules">
+<div class="dashboard-band">
+    <div class="dashboard-band__header">
+        <div>
+            <h3 class="section-title" style="margin-bottom:6px">Modules</h3>
+            <p class="dashboard-band__subtitle">Open a validation module only when you need it. Each workspace lets you pick an engagement and then applies your current role permissions automatically.</p>
+        </div>
+    </div>
+
+    <div class="module-card-grid">
+        <article class="module-card">
+            <div class="module-card__eyebrow">Rule 34</div>
+            <h4 class="module-card__title">Census Date Validation</h4>
+            <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it to the stored census date, and evaluate weekends and South African public holidays.</p>
+            <div class="module-card__actions">
+                <a href="/Rule34" class="btn btn-success">Open Rule 34</a>
+            </div>
+        </article>
+
+        <article class="module-card">
+            <div class="module-card__eyebrow">Rule 36</div>
+            <h4 class="module-card__title">Deceased Students Validation</h4>
+            <p class="module-card__text">Cross-check student records against the deceased students reference table and save exceptions for analyst review and signoff.</p>
+            <div class="module-card__actions">
+                <a href="/Rule36" class="btn btn-success">Open Rule 36</a>
+            </div>
+        </article>
+    </div>
+
+    <div class="empty-card" style="margin-top:16px">
+        <p>Choose a module first, then select the engagement inside the workspace. Read-only and signoff access still follow your assigned role on that engagement.</p>
+    </div>
+</div>
 </div>
 
 <div class="dashboard-panel" data-dashboard-panel="recent-runs">

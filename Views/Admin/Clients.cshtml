@@ -79,7 +79,10 @@
 
                             @if (c.LatestRunId.HasValue)
                             {
-                                <a asp-controller="Rule36" asp-action="Run" asp-route-id="@c.LatestRunId" class="btn btn-sm btn-secondary">Review</a>
+                                <a asp-controller="@(c.LatestRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                                   asp-action="Run"
+                                   asp-route-id="@c.LatestRunId"
+                                   class="btn btn-sm btn-secondary">Review</a>
                             }
                             else
                             {

@@ -1,0 +1,1167 @@
+@using HemisAudit.Models
+@{
+    ViewData["Title"] = "Rule 34 - Census Date Validation";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
+    var selectedClientId = (int)(ViewBag.ClientId ?? 0);
+}
+
+<div id="app" class="rule-page-shell">
+    <div class="engagement-selector">
+        <label>Engagement</label>
+        <select id="clientIdSelect" onchange="handleClientChange(this.value)">
+            <option value="0">Select engagement (results saved here)</option>
+            @foreach (var c in clients)
+            {
+                <option value="@c.Id" selected="@(c.Id == selectedClientId ? "selected" : null)">@c.Name - @c.FiscalYear</option>
+            }
+        </select>
+        <small id="workspaceSavedHint">Saved runs reload the last analyst configuration for this engagement.</small>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R34</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 34: Census Date Validation</h1>
+            <p class="rule-header__sub">Prepared midpoint vs stored census date | Dynamic South African holidays</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="accordion-stack">
+        <div class="accordion-item" id="acc-holidays">
+            <button class="accordion-toggle" onclick="toggleAccordion('holidays')">
+                <span class="acc-icon">HL</span>
+                <span>Holiday Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-holidays">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Start Year</label>
+                        <input type="number" id="startYearInput" value="@DateTime.Now.Year" min="2000" max="2100" />
+                    </div>
+                    <div class="field-group">
+                        <label>End Year</label>
+                        <input type="number" id="endYearInput" value="@DateTime.Now.Year" min="2000" max="2100" />
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="loadHolidays()">Load Holidays</button>
+                <div class="status-output" id="holidayStatus"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item" id="acc-connection">
+            <button class="accordion-toggle" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection" style="display:none">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Server Name</label>
+                        <input type="text" id="serverInput" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                    </div>
+                    <div class="field-group">
+                        <label>Driver</label>
+                        <select id="driverSelect">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group" id="dbFieldGroup" style="display:none">
+                        <label>Database</label>
+                        <select id="databaseSelect">
+                            <option value="">Select database</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="connectServer()">Connect</button>
+                <div class="status-output" id="connectionStatus"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item" id="acc-config">
+            <button class="accordion-toggle" onclick="toggleAccordion('config')">
+                <span class="acc-icon">CF</span>
+                <span>Rule Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-config" style="display:none">
+                <div class="info-box info-box--red">
+                    <strong>Rule 34 Requirement:</strong> Calculate the midpoint between the first day and last day, then compare it with the stored census date.
+                    <br />
+                    FALSE (dates match) = PASS. TRUE (dates do not match) = FAIL.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Source Table</label>
+                        <select id="tableSelect">
+                            <option value="">Select table</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>First Day Column</label>
+                        <select id="firstDaySelect">
+                            <option value="">Select column</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>Last Day Column</label>
+                        <select id="lastDaySelect">
+                            <option value="">Select column</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>Census Date Column</label>
+                        <select id="censusDateSelect">
+                            <option value="">Select column</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="status-output" id="configStatus"></div>
+                <div id="verifyPreview" class="validation-preview" style="display:none"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item" id="acc-downloads">
+            <button class="accordion-toggle" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Download Formats</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV (full results)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkExceptionsCsv" checked /> CSV (exceptions only)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL script</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 34 connection, configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the last saved Rule 34 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div class="field-group">
+                <label>Signoff Comment</label>
+                <textarea id="signoffComment" placeholder="Add the final review note that confirms this validation is complete."></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            <button class="btn btn-success" id="saveWorkspaceBtn" onclick="saveWorkspace()">Save Workspace</button>
+            <button class="btn btn-primary" id="signOffBtn" onclick="signOffWorkspace()">Sign Off</button>
+            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove My Signoff</button>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button class="btn btn-info" onclick="verifyTable()">Verify Table</button>
+        <button class="btn btn-success" onclick="runValidation()">Run Validation</button>
+        <button class="btn btn-primary" onclick="generateSql()">Generate SQL</button>
+        <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
+    </div>
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" onclick="switchTab('validation')">Validation Results</button>
+            <button class="tab-btn" onclick="switchTab('exceptions')">Exceptions List</button>
+            <button class="tab-btn" onclick="switchTab('charts')">Visualizations</button>
+            <button class="tab-btn" onclick="switchTab('sql')">SQL Code</button>
+            <button class="tab-btn" onclick="switchTab('downloads')">Downloads</button>
+        </div>
+
+        <div class="tab-pane active" id="tab-validation">
+            <div id="validationContent" class="empty-state"><p>Run validation to see results here.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-exceptions">
+            <div id="exceptionsContent" class="empty-state"><p>No exceptions data yet. Run validation first.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-charts">
+            <div id="chartsContent" class="empty-state"><p>Charts will appear after running validation.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-sql">
+            <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-downloads">
+            <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or the individual download buttons.</p></div>
+        </div>
+    </div>
+
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const currentSystemRole = '@(ViewBag.CurrentSystemRole ?? "")';
+const state = {
+    clientId: parseInt(document.getElementById('clientIdSelect')?.value || '0') || 0,
+    server: '',
+    database: '',
+    driver: 'ODBC Driver 17 for SQL Server',
+    tableName: '',
+    firstDayColumn: '',
+    lastDayColumn: '',
+    censusDateColumn: '',
+    startYear: parseInt(document.getElementById('startYearInput').value || '0') || new Date().getFullYear(),
+    endYear: parseInt(document.getElementById('endYearInput').value || '0') || new Date().getFullYear(),
+    currentRunId: null,
+    validationResult: null,
+    currentUserEngagementRole: '',
+    currentStatus: '',
+    currentUserHasSignedOff: false,
+    hasDataAnalystSignoff: false,
+    resultsVisible: false,
+    editWarningAccepted: false,
+    isHydrating: false,
+    isDirty: false,
+    chartInstances: {}
+};
+
+function toggleAccordion(name) {
+    const body = document.getElementById(`body-${name}`);
+    const chevron = document.querySelector(`#acc-${name} .acc-chevron`);
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.textContent = open ? '^' : 'v';
+}
+
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelector(`[onclick="switchTab('${name}')"]`).classList.add('active');
+    document.getElementById(`tab-${name}`).classList.add('active');
+}
+
+function showSpinner(msg) {
+    document.getElementById('spinnerMsg').textContent = msg || 'Processing...';
+    document.getElementById('spinner').style.display = 'flex';
+}
+
+function hideSpinner() {
+    document.getElementById('spinner').style.display = 'none';
+}
+
+function setStatus(elId, msg, type) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.innerHTML = `<div class="alert alert--${type || 'info'}">${msg}</div>`;
+}
+
+function setWorkspaceInfo(msg, type) {
+    const el = document.getElementById('workspaceInfo');
+    el.className = `alert alert--${type || 'info'}`;
+    el.innerHTML = msg;
+}
+
+function setWorkspaceRunState(text, type) {
+    const el = document.getElementById('workspaceRunState');
+    el.className = `badge badge--${type || 'neutral'} badge--sm`;
+    el.textContent = text;
+}
+
+function updateHeaderBadge(status) {
+    const badge = document.getElementById('statusBadge');
+    if (!status) {
+        badge.style.display = 'none';
+        badge.textContent = '';
+        return;
+    }
+
+    badge.style.display = 'inline-block';
+    badge.className = `rule-header__badge ${String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail'}`;
+    badge.textContent = String(status).toUpperCase();
+}
+
+function isArchivedWorkspace() {
+    return String(state.currentStatus || '').toLowerCase() === 'archived';
+}
+
+async function post(url, data) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+async function getJson(url) {
+    const response = await fetch(url, { method: 'GET' });
+    return response.json();
+}
+
+async function downloadPost(url, data, filename) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+        alert('Download failed');
+        return;
+    }
+
+    const blob = await response.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+}
+
+function resetWorkspaceState(clearClient) {
+    state.server = '';
+    state.database = '';
+    state.driver = 'ODBC Driver 17 for SQL Server';
+    state.tableName = '';
+    state.firstDayColumn = '';
+    state.lastDayColumn = '';
+    state.censusDateColumn = '';
+    state.currentRunId = null;
+    state.validationResult = null;
+    state.currentUserEngagementRole = '';
+    state.currentStatus = '';
+    state.currentUserHasSignedOff = false;
+    state.hasDataAnalystSignoff = false;
+    state.resultsVisible = false;
+    state.editWarningAccepted = false;
+    state.isDirty = false;
+    if (clearClient) state.clientId = 0;
+
+    document.getElementById('serverInput').value = '';
+    document.getElementById('driverSelect').value = 'ODBC Driver 17 for SQL Server';
+    document.getElementById('databaseSelect').innerHTML = '<option value="">Select database</option>';
+    document.getElementById('tableSelect').innerHTML = '<option value="">Select table</option>';
+    document.getElementById('firstDaySelect').innerHTML = '<option value="">Select column</option>';
+    document.getElementById('lastDaySelect').innerHTML = '<option value="">Select column</option>';
+    document.getElementById('censusDateSelect').innerHTML = '<option value="">Select column</option>';
+    document.getElementById('dbFieldGroup').style.display = 'none';
+    document.getElementById('signoffComment').value = '';
+    document.getElementById('verifyPreview').style.display = 'none';
+    document.getElementById('downloadAllBtn').disabled = true;
+    document.getElementById('connectionStatus').innerHTML = '';
+    document.getElementById('configStatus').innerHTML = '';
+    document.getElementById('validationContent').className = 'empty-state';
+    document.getElementById('validationContent').innerHTML = '<p>Run validation to see results here.</p>';
+    document.getElementById('exceptionsContent').className = 'empty-state';
+    document.getElementById('exceptionsContent').innerHTML = '<p>No exceptions data yet. Run validation first.</p>';
+    document.getElementById('chartsContent').className = 'empty-state';
+    document.getElementById('chartsContent').innerHTML = '<p>Charts will appear after running validation.</p>';
+    document.getElementById('sqlContent').className = 'empty-state';
+    document.getElementById('sqlContent').innerHTML = '<p>Click "Generate SQL" or run validation to generate the SQL script.</p>';
+    document.getElementById('downloadsContent').className = 'empty-state';
+    document.getElementById('downloadsContent').innerHTML = '<p>Run validation first, then use "Download All" or the individual download buttons.</p>';
+    updateHeaderBadge('');
+    renderWorkspaceState();
+}
+
+function renderWorkspaceState() {
+    const currentRole = state.currentUserEngagementRole || currentSystemRole;
+    const canEdit = currentSystemRole === 'DataAnalyst' && !isArchivedWorkspace();
+    const canSign = state.currentRunId && !isArchivedWorkspace() && (
+        currentSystemRole === 'DataAnalyst' ||
+        ((currentRole === 'Manager' || currentRole === 'Director') && state.resultsVisible)
+    );
+
+    document.getElementById('saveWorkspaceBtn').style.display = canEdit ? 'inline-flex' : 'none';
+    document.getElementById('signOffBtn').style.display = canSign ? 'inline-flex' : 'none';
+    document.getElementById('removeWorkspaceSignoffBtn').style.display = canSign && state.currentUserHasSignedOff ? 'inline-flex' : 'none';
+
+    if (!state.currentRunId) {
+        setWorkspaceRunState('No saved run loaded', 'neutral');
+        return;
+    }
+
+    const badgeType = String(state.currentStatus || '').toUpperCase() === 'PASS' ? 'pass' :
+        String(state.currentStatus || '').toLowerCase().includes('review') ? 'warning' :
+        String(state.currentStatus || '').toUpperCase() === 'FAIL' ? 'fail' : 'neutral';
+    setWorkspaceRunState(`Run #${state.currentRunId} | ${state.currentStatus || 'Saved'}`, badgeType);
+}
+
+async function markWorkspaceDirty() {
+    if (state.isHydrating || currentSystemRole === 'Admin' || isArchivedWorkspace()) return;
+
+    if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+        const confirmed = window.confirm('Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.');
+        if (!confirmed) {
+            await loadWorkspaceState();
+            return;
+        }
+
+        showSpinner('Clearing signoffs for the edited workspace...');
+        try {
+            const result = await post('/Rule34/BeginWorkspaceEdit', buildRequest());
+            if (!result.success) {
+                setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
+                await loadWorkspaceState();
+                return;
+            }
+
+            state.editWarningAccepted = true;
+            state.currentUserHasSignedOff = false;
+            state.hasDataAnalystSignoff = false;
+            if (result.workspace) applyWorkspace(result.workspace, true);
+            setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    state.isDirty = true;
+    renderWorkspaceState();
+}
+
+async function handleClientChange(value) {
+    state.clientId = parseInt(value || '0') || 0;
+    resetWorkspaceState(false);
+
+    if (!state.clientId) {
+        setWorkspaceInfo('Select an engagement to load the last saved Rule 34 workspace.', 'info');
+        return;
+    }
+
+    await loadWorkspaceState();
+}
+
+function applyWorkspace(workspace, preserveMessage) {
+    state.isHydrating = true;
+    state.currentRunId = workspace.runId || null;
+    state.server = workspace.server || '';
+    state.database = workspace.database || '';
+    state.driver = workspace.driver || 'ODBC Driver 17 for SQL Server';
+    state.tableName = workspace.tableName || '';
+    state.firstDayColumn = workspace.firstDayColumn || '';
+    state.lastDayColumn = workspace.lastDayColumn || '';
+    state.censusDateColumn = workspace.censusDateColumn || '';
+    state.startYear = workspace.startYear || state.startYear;
+    state.endYear = workspace.endYear || state.endYear;
+    state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
+    state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+    state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
+    state.currentStatus = workspace.currentStatus || '';
+    state.resultsVisible = !!workspace.resultsVisible;
+    state.editWarningAccepted = false;
+    state.isDirty = false;
+
+    document.getElementById('serverInput').value = state.server;
+    document.getElementById('driverSelect').value = state.driver;
+    document.getElementById('startYearInput').value = state.startYear;
+    document.getElementById('endYearInput').value = state.endYear;
+    document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
+    if (state.database) {
+        document.getElementById('dbFieldGroup').style.display = 'block';
+        document.getElementById('databaseSelect').innerHTML = `<option value="${escapeHtml(state.database)}">${escapeHtml(state.database)}</option>`;
+        document.getElementById('databaseSelect').value = state.database;
+    }
+    if (state.tableName) {
+        document.getElementById('tableSelect').innerHTML = `<option value="${escapeHtml(state.tableName)}">${escapeHtml(state.tableName)}</option>`;
+        document.getElementById('tableSelect').value = state.tableName;
+    }
+    if (state.firstDayColumn) {
+        document.getElementById('firstDaySelect').innerHTML = `<option value="${escapeHtml(state.firstDayColumn)}">${escapeHtml(state.firstDayColumn)}</option>`;
+        document.getElementById('firstDaySelect').value = state.firstDayColumn;
+    }
+    if (state.lastDayColumn) {
+        document.getElementById('lastDaySelect').innerHTML = `<option value="${escapeHtml(state.lastDayColumn)}">${escapeHtml(state.lastDayColumn)}</option>`;
+        document.getElementById('lastDaySelect').value = state.lastDayColumn;
+    }
+    if (state.censusDateColumn) {
+        document.getElementById('censusDateSelect').innerHTML = `<option value="${escapeHtml(state.censusDateColumn)}">${escapeHtml(state.censusDateColumn)}</option>`;
+        document.getElementById('censusDateSelect').value = state.censusDateColumn;
+    }
+
+    if (workspace.summary) {
+        applyValidationResult(workspace.summary, false);
+    }
+
+    state.isHydrating = false;
+    renderWorkspaceState();
+
+    if (!preserveMessage) {
+        setWorkspaceInfo(
+            workspace.summary
+                ? 'Loaded the saved Rule 34 workspace for this engagement.'
+                : 'Saved configuration loaded. Run validation to refresh the results.',
+            'success');
+    }
+}
+
+async function loadWorkspaceState() {
+    if (!state.clientId) return;
+    showSpinner('Loading saved workspace...');
+    try {
+        const result = await getJson(`/Rule34/GetWorkspaceState?clientId=${state.clientId}`);
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to load workspace.')}`, 'error');
+            return;
+        }
+
+        if (!result.hasWorkspace) {
+            setWorkspaceInfo(
+                currentSystemRole === 'DataAnalyst'
+                    ? 'No saved Rule 34 workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.'
+                    : 'No saved Rule 34 workspace exists for this engagement yet. This module is read-only for your role.',
+                'info');
+            renderWorkspaceState();
+            return;
+        }
+
+        applyWorkspace(result.workspace, false);
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function loadHolidays() {
+    state.startYear = parseInt(document.getElementById('startYearInput').value || '0') || 0;
+    state.endYear = parseInt(document.getElementById('endYearInput').value || '0') || 0;
+    if (state.startYear > state.endYear) {
+        setStatus('holidayStatus', 'Start year must be less than or equal to end year.', 'error');
+        return;
+    }
+
+    showSpinner('Loading South African public holidays...');
+    try {
+        const result = await post('/Rule34/LoadHolidays', { startYear: state.startYear, endYear: state.endYear });
+        if (!result.success) {
+            setStatus('holidayStatus', escapeHtml(result.error || 'Failed to load holidays.'), 'error');
+            return;
+        }
+
+        const preview = (result.holidays || []).slice(0, 8).map(h => `${escapeHtml(h.date)} - ${escapeHtml(h.name)}`).join('<br>');
+        setStatus('holidayStatus', `Loaded <strong>${result.totalCount}</strong> holidays for ${result.startYear}-${result.endYear}.${preview ? `<br><br>${preview}` : ''}`, 'success');
+        await markWorkspaceDirty();
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function connectServer() {
+    state.server = document.getElementById('serverInput').value.trim();
+    state.driver = document.getElementById('driverSelect').value;
+    if (!state.server) {
+        setStatus('connectionStatus', 'Enter a server name first.', 'warning');
+        return;
+    }
+
+    showSpinner('Connecting to SQL Server...');
+    try {
+        const result = await post('/Rule34/GetDatabases', { server: state.server, driver: state.driver });
+        if (!result.success) {
+            setStatus('connectionStatus', escapeHtml(result.error || 'Connection failed.'), 'error');
+            return;
+        }
+
+        document.getElementById('dbFieldGroup').style.display = 'block';
+        const select = document.getElementById('databaseSelect');
+        select.innerHTML = '<option value="">Select database</option>' +
+            (result.databases || []).map(db => `<option value="${escapeHtml(db)}">${escapeHtml(db)}</option>`).join('');
+        setStatus('connectionStatus', `Found ${result.databases.length} databases. Select one to continue.`, 'success');
+        await markWorkspaceDirty();
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function loadTables() {
+    if (!state.server || !state.database) return;
+    showSpinner('Loading tables...');
+    try {
+        const result = await post('/Rule34/GetTables', { server: state.server, database: state.database, driver: state.driver });
+        if (!result.success) {
+            setStatus('configStatus', escapeHtml(result.error || 'Failed to load tables.'), 'error');
+            return;
+        }
+
+        const select = document.getElementById('tableSelect');
+        select.innerHTML = '<option value="">Select table</option>' +
+            (result.tables || []).map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+        if (result.autoStudTable) {
+            select.value = result.autoStudTable;
+            state.tableName = result.autoStudTable;
+            await loadColumns();
+        }
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function loadColumns() {
+    if (!state.tableName) return;
+    showSpinner('Loading columns...');
+    try {
+        const result = await post('/Rule34/GetColumns', {
+            server: state.server,
+            database: state.database,
+            driver: state.driver,
+            tableName: state.tableName
+        });
+
+        if (!result.success) {
+            setStatus('configStatus', escapeHtml(result.error || 'Failed to load columns.'), 'error');
+            return;
+        }
+
+        const options = '<option value="">Select column</option>' +
+            (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+        document.getElementById('firstDaySelect').innerHTML = options;
+        document.getElementById('lastDaySelect').innerHTML = options;
+        document.getElementById('censusDateSelect').innerHTML = options;
+
+        if (result.autoFirstDayColumn) {
+            document.getElementById('firstDaySelect').value = result.autoFirstDayColumn;
+            state.firstDayColumn = result.autoFirstDayColumn;
+        }
+        if (result.autoLastDayColumn) {
+            document.getElementById('lastDaySelect').value = result.autoLastDayColumn;
+            state.lastDayColumn = result.autoLastDayColumn;
+        }
+        if (result.autoCensusDateColumn) {
+            document.getElementById('censusDateSelect').value = result.autoCensusDateColumn;
+            state.censusDateColumn = result.autoCensusDateColumn;
+        }
+
+        setStatus('configStatus', 'Columns loaded. Review the auto-selected date fields before running validation.', 'success');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function verifyTable() {
+    if (!state.server || !state.database || !state.tableName) {
+        setStatus('configStatus', 'Select the server, database, and table first.', 'warning');
+        return;
+    }
+
+    showSpinner('Verifying table...');
+    try {
+        const result = await post('/Rule34/VerifyTable', {
+            server: state.server,
+            database: state.database,
+            driver: state.driver,
+            tableName: state.tableName,
+            firstDayColumn: state.firstDayColumn,
+            lastDayColumn: state.lastDayColumn,
+            censusDateColumn: state.censusDateColumn
+        });
+
+        if (!result.success) {
+            setStatus('configStatus', escapeHtml(result.error || 'Verification failed.'), 'error');
+            return;
+        }
+
+        const rows = (result.sampleRows || []).map(r => {
+            const values = r.values || {};
+            return `<tr>
+                <td>${escapeHtml(values[state.firstDayColumn] || '')}</td>
+                <td>${escapeHtml(values[state.lastDayColumn] || '')}</td>
+                <td>${escapeHtml(values[state.censusDateColumn] || '')}</td>
+            </tr>`;
+        }).join('');
+
+        const preview = document.getElementById('verifyPreview');
+        preview.style.display = 'block';
+        preview.innerHTML = `
+            <div class="alert alert--success">Total records: <strong>${result.totalRecords.toLocaleString()}</strong></div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>${escapeHtml(state.firstDayColumn)}</th>
+                            <th>${escapeHtml(state.lastDayColumn)}</th>
+                            <th>${escapeHtml(state.censusDateColumn)}</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows || '<tr><td colspan="3">No sample rows returned.</td></tr>'}</tbody>
+                </table>
+            </div>`;
+    } finally {
+        hideSpinner();
+    }
+}
+
+function validateConfig() {
+    const missing = [];
+    if (!state.clientId) missing.push('engagement');
+    if (!state.server) missing.push('server');
+    if (!state.database) missing.push('database');
+    if (!state.tableName) missing.push('table');
+    if (!state.firstDayColumn) missing.push('first day column');
+    if (!state.lastDayColumn) missing.push('last day column');
+    if (!state.censusDateColumn) missing.push('census date column');
+    if (!state.startYear || !state.endYear) missing.push('holiday year range');
+
+    if (missing.length) {
+        setStatus('validationContent', `Please select ${missing.join(', ')} first.`, 'warning');
+        switchTab('validation');
+        return false;
+    }
+
+    return true;
+}
+
+function buildRequest() {
+    return {
+        clientId: state.clientId,
+        runId: state.currentRunId,
+        server: state.server,
+        database: state.database,
+        driver: state.driver,
+        tableName: state.tableName,
+        firstDayColumn: state.firstDayColumn,
+        lastDayColumn: state.lastDayColumn,
+        censusDateColumn: state.censusDateColumn,
+        startYear: state.startYear,
+        endYear: state.endYear
+    };
+}
+
+async function runValidation() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can run Rule 34.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Validation is disabled.', 'error');
+        return;
+    }
+    if (!validateConfig()) return;
+
+    showSpinner('Running Rule 34 validation...');
+    try {
+        const result = await post('/Rule34/RunValidation', buildRequest());
+        if (!result.success) {
+            setStatus('validationContent', escapeHtml(result.error || 'Validation failed.'), 'error');
+            switchTab('validation');
+            return;
+        }
+
+        applyValidationResult(result, true);
+        state.currentRunId = result.savedRunId || state.currentRunId;
+        state.currentStatus = result.status || '';
+        state.isDirty = false;
+        setWorkspaceInfo('Validation completed. Save the workspace to confirm the current configuration, then sign off when the review is complete.', 'success');
+        renderWorkspaceState();
+    } finally {
+        hideSpinner();
+    }
+}
+
+function applyValidationResult(result, switchToValidationTab) {
+    state.validationResult = result;
+    if (result.savedRunId) state.currentRunId = result.savedRunId;
+    if (result.status) state.currentStatus = result.status;
+    updateHeaderBadge(result.status);
+    document.getElementById('downloadAllBtn').disabled = false;
+    renderValidationResults(result);
+    renderExceptions(result);
+    renderCharts(result);
+    renderDownloads(result);
+    if (switchToValidationTab) switchTab('validation');
+}
+
+function renderValidationResults(r) {
+    const rows = (r.validationRows || []).slice(0, 150).map(row => `
+        <tr>
+            <td>${row.validationNumber}</td>
+            <td>${escapeHtml(row.firstDayValue)}</td>
+            <td>${escapeHtml(row.lastDayValue)}</td>
+            <td>${escapeHtml(row.computedCensusDate)}</td>
+            <td>${escapeHtml(row.censusDateValue)}</td>
+            <td>${escapeHtml(row.dayStatus)}</td>
+            <td><span class="badge ${row.dateMatch ? 'badge--pass' : 'badge--fail'}">${escapeHtml(row.validationStatus)}</span></td>
+        </tr>`).join('');
+
+    const content = document.getElementById('validationContent');
+    content.classList.remove('empty-state');
+    content.innerHTML = `
+        <div class="stats-grid" style="margin-bottom:18px">
+            <div class="stat-card"><div class="stat-card__label">Validated</div><div class="stat-card__value">${r.totalValidated.toLocaleString()}</div></div>
+            <div class="stat-card stat-card--pass"><div class="stat-card__label">Pass</div><div class="stat-card__value">${r.passCount.toLocaleString()}</div></div>
+            <div class="stat-card stat-card--fail"><div class="stat-card__label">Fail</div><div class="stat-card__value">${r.failCount.toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-card__label">Mismatch Rate</div><div class="stat-card__value">${parseFloat(r.exceptionRate).toFixed(2)}%</div></div>
+        </div>
+        <div class="card" style="padding:18px;margin-bottom:18px">
+            <strong>Holiday Years:</strong> ${escapeHtml(r.holidayYearRange)}<br>
+            <strong>Computed Holidays:</strong> ${r.holidayCount.toLocaleString()}<br>
+            <strong>Computed Weekends:</strong> ${r.weekendCount.toLocaleString()}
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>First Day</th>
+                        <th>Last Day</th>
+                        <th>Prepared Census Date</th>
+                        <th>Stored Census Date</th>
+                        <th>Day Status</th>
+                        <th>Validation Status</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        ${(r.validationRows || []).length > 150 ? '<div style="margin-top:12px;color:#757575">Showing the first 150 rows here. Use the downloads for the full result set.</div>' : ''}`;
+}
+
+function renderExceptions(r) {
+    const rows = (r.exceptions || []).map(row => `
+        <tr>
+            <td>${row.validationNumber}</td>
+            <td>${escapeHtml(row.firstDayValue)}</td>
+            <td>${escapeHtml(row.lastDayValue)}</td>
+            <td>${escapeHtml(row.computedCensusDate)}</td>
+            <td>${escapeHtml(row.censusDateValue)}</td>
+            <td>${escapeHtml(row.dayStatus)}</td>
+            <td><span class="badge badge--fail">${escapeHtml(row.validationStatus)}</span></td>
+        </tr>`).join('');
+
+    const content = document.getElementById('exceptionsContent');
+    content.classList.remove('empty-state');
+    content.innerHTML = `
+        <div class="card" style="padding:18px;margin-bottom:18px">
+            <strong>Exceptions:</strong> ${r.failCount.toLocaleString()}<br>
+            <strong>Completed:</strong> ${escapeHtml(r.timestamp)}
+        </div>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>First Day</th>
+                        <th>Last Day</th>
+                        <th>Prepared Census Date</th>
+                        <th>Stored Census Date</th>
+                        <th>Day Status</th>
+                        <th>Validation Status</th>
+                    </tr>
+                </thead>
+                <tbody>${rows || '<tr><td colspan="7">No exceptions found.</td></tr>'}</tbody>
+            </table>
+        </div>`;
+}
+
+function renderCharts(r) {
+    Object.values(state.chartInstances).forEach(chart => chart.destroy());
+    state.chartInstances = {};
+
+    const content = document.getElementById('chartsContent');
+    content.classList.remove('empty-state');
+    content.innerHTML = `
+        <div class="charts-grid">
+            <div class="chart-card"><h4>Pass vs Fail</h4><canvas id="chartPassFail"></canvas></div>
+            <div class="chart-card"><h4>Holiday vs Weekend</h4><canvas id="chartHolidayWeekend"></canvas></div>
+            <div class="chart-card chart-card--status ${r.status === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                <h4>Validation Status</h4>
+                <div class="big-status">${escapeHtml(r.status)}</div>
+            </div>
+            <div class="chart-card">
+                <h4>Summary</h4>
+                <div class="summary-text">
+                    <div><span>Total Records</span><strong>${r.totalValidated.toLocaleString()}</strong></div>
+                    <div><span>PASS</span><strong class="text-success">${r.passCount.toLocaleString()}</strong></div>
+                    <div><span>FAIL</span><strong class="text-danger">${r.failCount.toLocaleString()}</strong></div>
+                    <div><span>Mismatch Rate</span><strong>${parseFloat(r.exceptionRate).toFixed(2)}%</strong></div>
+                    <div><span>Holidays</span><strong>${r.holidayCount.toLocaleString()}</strong></div>
+                    <div><span>Weekends</span><strong>${r.weekendCount.toLocaleString()}</strong></div>
+                </div>
+            </div>
+        </div>`;
+
+    state.chartInstances.passFail = new Chart(document.getElementById('chartPassFail'), {
+        type: 'bar',
+        data: {
+            labels: ['PASS', 'FAIL'],
+            datasets: [{ data: [r.passCount, r.failCount], backgroundColor: ['#4CAF50', '#F44336'], borderWidth: 0 }]
+        },
+        options: { maintainAspectRatio: false, responsive: true, plugins: { legend: { display: false } } }
+    });
+
+    state.chartInstances.holidayWeekend = new Chart(document.getElementById('chartHolidayWeekend'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Holiday', 'Weekend'],
+            datasets: [{ data: [r.holidayCount, r.weekendCount], backgroundColor: ['#1E88E5', '#FB8C00'] }]
+        },
+        options: { maintainAspectRatio: false, responsive: true }
+    });
+}
+
+function renderDownloads(r) {
+    const canUseSql = currentSystemRole === 'DataAnalyst' && !isArchivedWorkspace();
+    const content = document.getElementById('downloadsContent');
+    content.classList.remove('empty-state');
+    content.innerHTML = `
+        <div class="downloads-panel">
+            <div class="download-buttons download-buttons--wide">
+                <button class="btn btn-success" onclick="downloadExcel()">Excel</button>
+                <button class="btn btn-info" onclick="downloadCsv()">Full CSV</button>
+                <button class="btn btn-info" onclick="downloadExceptionsCsv()">Exceptions CSV</button>
+                ${canUseSql ? '<button class="btn btn-primary" onclick="downloadSql()">SQL Script</button>' : ''}
+                ${r.savedRunId ? `<a href="/Rule34/Run/${r.savedRunId}" class="btn btn-secondary">${canUseSql ? 'Open Saved Run and Sign Off' : 'Open Saved Run'}</a>` : ''}
+            </div>
+            <div class="download-summary-grid">
+                <div class="download-summary-card"><span>Validated</span><strong>${r.totalValidated.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>PASS</span><strong class="text-success">${r.passCount.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>FAIL</span><strong class="text-danger">${r.failCount.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>Mismatch Rate</span><strong>${parseFloat(r.exceptionRate).toFixed(2)}%</strong></div>
+            </div>
+        </div>`;
+}
+
+async function generateSql() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can generate SQL.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. SQL generation is disabled.', 'error');
+        return;
+    }
+    if (!validateConfig()) return;
+
+    showSpinner('Generating SQL...');
+    try {
+        const result = await post('/Rule34/GenerateSql', buildRequest());
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to generate SQL.')}`, 'error');
+            return;
+        }
+
+        const content = document.getElementById('sqlContent');
+        content.classList.remove('empty-state');
+        content.innerHTML = `
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('sqlCode')">Copy</button>
+                <button class="btn btn-sm btn-info" onclick="downloadSql()">Download SQL</button>
+            </div>
+            <div class="sql-panel"><pre id="sqlCode" class="sql-block">${escapeHtml(result.sql)}</pre></div>`;
+        switchTab('sql');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function saveWorkspace() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can save this workspace.', 'error');
+        return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Saving is disabled.', 'error');
+        return;
+    }
+    if (!state.currentRunId) {
+        setWorkspaceInfo('Run validation first so the workspace can be saved.', 'error');
+        return;
+    }
+
+    showSpinner('Saving workspace...');
+    try {
+        const result = await post('/Rule34/SaveWorkspace', buildRequest());
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to save workspace.')}`, 'error');
+            return;
+        }
+
+        state.editWarningAccepted = true;
+        state.isDirty = false;
+        if (result.workspace) applyWorkspace(result.workspace, true);
+        setWorkspaceInfo(result.message || 'Workspace saved.', result.signoffsCleared ? 'warning' : 'success');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function signOffWorkspace() {
+    const currentRole = state.currentUserEngagementRole || currentSystemRole;
+    const canSign = state.currentRunId && !isArchivedWorkspace() &&
+        (currentSystemRole === 'DataAnalyst' || ((currentRole === 'Manager' || currentRole === 'Director') && state.resultsVisible));
+
+    if (!canSign) {
+        setWorkspaceInfo('This workspace can only be signed off by the assigned analyst, manager, or director after the analyst review is available.', 'error');
+        return;
+    }
+    if (state.isDirty) {
+        setWorkspaceInfo('Save the workspace first. Editing removes signoffs and requires a fresh review.', 'warning');
+        return;
+    }
+
+    showSpinner('Saving signoff...');
+    try {
+        const result = await post('/Rule34/SignOffWorkspace', {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: document.getElementById('signoffComment').value.trim()
+        });
+
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to save signoff.')}`, 'error');
+            return;
+        }
+
+        if (result.workspace) applyWorkspace(result.workspace, true);
+        state.isDirty = false;
+        setWorkspaceInfo('Workspace signoff saved. Other assigned users can now review this signed run.', 'success');
+        switchTab('downloads');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function removeWorkspaceSignoff() {
+    if (!state.currentRunId || !state.currentUserHasSignedOff) {
+        setWorkspaceInfo('You can only remove your own signoff.', 'error');
+        return;
+    }
+
+    showSpinner('Removing signoff...');
+    try {
+        const result = await post('/Rule34/RemoveWorkspaceSignoff', {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: ''
+        });
+
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to remove signoff.')}`, 'error');
+            return;
+        }
+
+        if (result.workspace) applyWorkspace(result.workspace, true);
+        setWorkspaceInfo('Your signoff was removed.', 'warning');
+    } finally {
+        hideSpinner();
+    }
+}
+
+function fileStamp() {
+    return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '');
+}
+
+async function downloadExcel() {
+    if (!state.validationResult) return alert('Run validation first.');
+    await downloadPost('/Rule34/DownloadExcel', state.validationResult, `Rule34_Census_Date_Validation_${fileStamp()}.xlsx`);
+}
+
+async function downloadCsv() {
+    if (!state.validationResult) return alert('Run validation first.');
+    await downloadPost('/Rule34/DownloadCsv', state.validationResult, `Rule34_Validation_Results_${fileStamp()}.csv`);
+}
+
+async function downloadExceptionsCsv() {
+    if (!state.validationResult) return alert('Run validation first.');
+    await downloadPost('/Rule34/DownloadExceptionsCsv', state.validationResult, `Rule34_Census_Date_Exceptions_${fileStamp()}.csv`);
+}
+
+async function downloadSql() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can download the SQL script.', 'error');
+        return;
+    }
+    if (!validateConfig()) return;
+    await downloadPost('/Rule34/DownloadSql', buildRequest(), `Rule34_Census_Date_Validation_${fileStamp()}.sql`);
+}
+
+async function downloadAll() {
+    if (!state.validationResult) return alert('Run validation first.');
+
+    const tasks = [];
+    if (document.getElementById('chkExcel').checked) tasks.push(downloadExcel());
+    if (document.getElementById('chkCsv').checked) tasks.push(downloadCsv());
+    if (document.getElementById('chkExceptionsCsv').checked) tasks.push(downloadExceptionsCsv());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql').checked) tasks.push(downloadSql());
+
+    if (!tasks.length) {
+        alert('Select at least one download format.');
+        return;
+    }
+
+    for (const task of tasks) await task;
+}
+
+function copyToClipboard(id) {
+    const text = document.getElementById(id).textContent;
+    navigator.clipboard.writeText(text).then(() => alert('Copied to clipboard!'));
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    document.getElementById('serverInput').addEventListener('input', async e => {
+        state.server = e.target.value.trim();
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('driverSelect').addEventListener('change', async e => {
+        state.driver = e.target.value;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('databaseSelect').addEventListener('change', async e => {
+        state.database = e.target.value;
+        await markWorkspaceDirty();
+        await loadTables();
+    });
+
+    document.getElementById('tableSelect').addEventListener('change', async e => {
+        state.tableName = e.target.value;
+        await markWorkspaceDirty();
+        await loadColumns();
+    });
+
+    document.getElementById('firstDaySelect').addEventListener('change', async e => {
+        state.firstDayColumn = e.target.value;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('lastDaySelect').addEventListener('change', async e => {
+        state.lastDayColumn = e.target.value;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('censusDateSelect').addEventListener('change', async e => {
+        state.censusDateColumn = e.target.value;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('startYearInput').addEventListener('change', async e => {
+        state.startYear = parseInt(e.target.value || '0') || 0;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('endYearInput').addEventListener('change', async e => {
+        state.endYear = parseInt(e.target.value || '0') || 0;
+        await markWorkspaceDirty();
+    });
+
+    renderWorkspaceState();
+    if (state.clientId > 0) await loadWorkspaceState();
+});
+</script>

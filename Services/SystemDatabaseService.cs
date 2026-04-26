@@ -49,8 +49,12 @@ namespace HemisAudit.Services
         Task<List<MessageSummaryViewModel>> GetInboxThreadsAsync(ApplicationUser? user, string role, int take = 20);
         Task<MessageThreadViewModel?> GetMessageThreadAsync(int threadId, ApplicationUser? user, string role);
         Task<List<MessageRecipientOptionViewModel>> GetMessageRecipientsAsync(ApplicationUser? user, string role, int? clientId = null);
-        Task<int> CreateMessageThreadAsync(ApplicationUser sender, string senderRole, IEnumerable<int> recipientUserIds, string subject, string body, int? clientId = null);
-        Task<int> ReplyToThreadAsync(int threadId, ApplicationUser sender, string senderRole, string body);
+        Task<int> CreateMessageThreadAsync(ApplicationUser sender, string senderRole, IEnumerable<int> recipientUserIds, string subject, string body, int? clientId = null, IEnumerable<MessageAttachmentInput>? attachments = null);
+        Task<int> ReplyToThreadAsync(int threadId, ApplicationUser sender, string senderRole, string body, IEnumerable<MessageAttachmentInput>? attachments = null);
+        Task UpdateThreadSubjectAsync(int threadId, ApplicationUser user, string role, string subject);
+        Task DeleteThreadForUserAsync(int threadId, ApplicationUser user, string role);
+        Task UpdateMessageAsync(int messageId, int threadId, ApplicationUser user, string role, string body);
+        Task DeleteMessageAsync(int messageId, int threadId, ApplicationUser user, string role);
         Task MarkThreadReadAsync(int threadId, ApplicationUser user, string role);
     }
 
@@ -512,6 +516,7 @@ WHERE ClientID = @ClientID
 SELECT TOP 1
     c.Status,
     vr.RunID,
+    vr.RuleNumber,
     CASE WHEN EXISTS (
         SELECT 1 FROM dbo.ReviewSignoffs rs
         WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
@@ -544,9 +549,10 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
 
             var status = reader.IsDBNull(0) ? "" : reader.GetString(0);
             var runId = reader.IsDBNull(1) ? (int?)null : reader.GetInt32(1);
-            var hasDataAnalystSignoff = !reader.IsDBNull(2) && reader.GetBoolean(2);
-            var hasManagerSignoff = !reader.IsDBNull(3) && reader.GetBoolean(3);
-            var hasDirectorSignoff = !reader.IsDBNull(4) && reader.GetBoolean(4);
+            var runRuleNumber = reader.IsDBNull(2) ? (int?)null : reader.GetInt32(2);
+            var hasDataAnalystSignoff = !reader.IsDBNull(3) && reader.GetBoolean(3);
+            var hasManagerSignoff = !reader.IsDBNull(4) && reader.GetBoolean(4);
+            var hasDirectorSignoff = !reader.IsDBNull(5) && reader.GetBoolean(5);
             var missing = new List<string>();
             if (!hasDataAnalystSignoff) missing.Add("data analyst");
             if (!hasManagerSignoff) missing.Add("manager");
@@ -558,6 +564,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 {
                     CanArchive = false,
                     CurrentRunId = runId,
+                    CurrentRunRuleNumber = runRuleNumber,
                     Message = "This engagement is already archived."
                 };
             }
@@ -569,6 +576,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 {
                     CanArchive = false,
                     CurrentRunId = runId,
+                    CurrentRunRuleNumber = runRuleNumber,
                     Message = "Only active approved engagements can be archived."
                 };
             }
@@ -578,7 +586,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 return new ArchiveEligibilityViewModel
                 {
                     CanArchive = false,
-                    Message = "Run Rule 36 and complete the review signoffs before archiving."
+                    Message = "Run a validation module and complete the review signoffs before archiving."
                 };
             }
 
@@ -587,6 +595,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             {
                 CanArchive = canArchive,
                 CurrentRunId = runId,
+                CurrentRunRuleNumber = runRuleNumber,
                 Message = canArchive
                     ? "All required signoffs are complete. The director can archive this engagement."
                     : $"The current validation run still needs {FormatMissingSignoffMessage(missing)} before archiving.",
@@ -812,23 +821,20 @@ ORDER BY al.Timestamp DESC, al.LogID DESC;";
 
         public async Task<int> GetUnreadMessageCountAsync(ApplicationUser? user, string role)
         {
-            var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
-            if (isAdmin)
-            {
-                await using var allConnection = await OpenConnectionAsync();
-                await using var allCommand = allConnection.CreateCommand();
-                allCommand.CommandText = @"SELECT COUNT(1)
-                                           FROM dbo.ThreadMessageRecipients
-                                           WHERE IsRead = 0;";
-                return Convert.ToInt32(await allCommand.ExecuteScalarAsync());
-            }
+            var (userId, _) = await ResolveUserScopeAsync(user, role);
+            if (userId <= 0)
+                return 0;
 
             await using var connection = await OpenConnectionAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = @"SELECT COUNT(1)
                                     FROM dbo.ThreadMessageRecipients r
+                                    INNER JOIN dbo.ThreadMessages tm ON tm.MessageID = r.MessageID
+                                    LEFT JOIN dbo.ThreadUserStates tus ON tus.ThreadID = tm.ThreadID AND tus.UserID = @UserID
                                     WHERE r.UserID = @UserID
-                                      AND r.IsRead = 0;";
+                                      AND r.IsRead = 0
+                                      AND ISNULL(tm.IsDeleted, 0) = 0
+                                      AND ISNULL(tus.IsDeleted, 0) = 0;";
             command.Parameters.AddWithValue("@UserID", userId);
             return Convert.ToInt32(await command.ExecuteScalarAsync());
         }
@@ -844,26 +850,16 @@ SELECT TOP ({take})
        th.ThreadID,
        ISNULL(th.Subject,'') AS Subject,
        ISNULL(c.EngagementName,'General') AS ClientName,
-       ISNULL(lastMsg.Body,'') AS Preview,
-       ISNULL(lastMsg.SentAt, th.LastMessageAt) AS LastMessageAt,
-       ISNULL(sender.FirstName + ' ' + sender.LastName, '') AS LastSenderName,
-       0 AS UnreadCount
-FROM dbo.MessageThreads th
-LEFT JOIN dbo.Clients c ON c.ClientID = th.ClientID
-LEFT JOIN dbo.ThreadMessages lastMsg ON lastMsg.MessageID = (
-    SELECT TOP 1 tm.MessageID
-    FROM dbo.ThreadMessages tm
-    WHERE tm.ThreadID = th.ThreadID
-    ORDER BY tm.SentAt DESC, tm.MessageID DESC
-)
-LEFT JOIN dbo.Users sender ON sender.UserID = lastMsg.SenderUserID
-ORDER BY th.LastMessageAt DESC, th.ThreadID DESC;"
-                : $@"
-SELECT TOP ({take})
-       th.ThreadID,
-       ISNULL(th.Subject,'') AS Subject,
-       ISNULL(c.EngagementName,'General') AS ClientName,
-       ISNULL(lastMsg.Body,'') AS Preview,
+       CASE
+           WHEN lastMsg.MessageID IS NULL THEN ''
+           WHEN ISNULL(lastMsg.IsDeleted, 0) = 1 THEN 'Message deleted'
+           WHEN NULLIF(ISNULL(lastMsg.Body,''), '') IS NOT NULL THEN lastMsg.Body
+           WHEN EXISTS (
+               SELECT 1 FROM dbo.ThreadMessageAttachments att
+               WHERE att.MessageID = lastMsg.MessageID
+           ) THEN '[Attachment]'
+           ELSE ''
+       END AS Preview,
        ISNULL(lastMsg.SentAt, th.LastMessageAt) AS LastMessageAt,
        ISNULL(sender.FirstName + ' ' + sender.LastName, '') AS LastSenderName,
        (
@@ -873,6 +869,66 @@ SELECT TOP ({take})
          WHERE tm.ThreadID = th.ThreadID
            AND r.UserID = @UserID
            AND r.IsRead = 0
+           AND ISNULL(tm.IsDeleted, 0) = 0
+       ) AS UnreadCount
+FROM dbo.MessageThreads th
+LEFT JOIN dbo.Clients c ON c.ClientID = th.ClientID
+LEFT JOIN dbo.ThreadMessages lastMsg ON lastMsg.MessageID = (
+    SELECT TOP 1 tm.MessageID
+    FROM dbo.ThreadMessages tm
+    WHERE tm.ThreadID = th.ThreadID
+    ORDER BY tm.SentAt DESC, tm.MessageID DESC
+)
+LEFT JOIN dbo.Users sender ON sender.UserID = lastMsg.SenderUserID
+WHERE (
+    th.CreatedByUserID = @UserID
+    OR EXISTS (
+        SELECT 1
+        FROM dbo.ThreadMessages tm
+        INNER JOIN dbo.ThreadMessageRecipients r ON r.MessageID = tm.MessageID
+        WHERE tm.ThreadID = th.ThreadID
+          AND r.UserID = @UserID
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM dbo.ThreadMessages tm
+        WHERE tm.ThreadID = th.ThreadID
+          AND tm.SenderUserID = @UserID
+    )
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM dbo.ThreadUserStates tus
+    WHERE tus.ThreadID = th.ThreadID
+      AND tus.UserID = @UserID
+      AND tus.IsDeleted = 1
+)
+ORDER BY th.LastMessageAt DESC, th.ThreadID DESC;"
+                : $@"
+SELECT TOP ({take})
+       th.ThreadID,
+       ISNULL(th.Subject,'') AS Subject,
+       ISNULL(c.EngagementName,'General') AS ClientName,
+       CASE
+           WHEN lastMsg.MessageID IS NULL THEN ''
+           WHEN ISNULL(lastMsg.IsDeleted, 0) = 1 THEN 'Message deleted'
+           WHEN NULLIF(ISNULL(lastMsg.Body,''), '') IS NOT NULL THEN lastMsg.Body
+           WHEN EXISTS (
+               SELECT 1 FROM dbo.ThreadMessageAttachments att
+               WHERE att.MessageID = lastMsg.MessageID
+           ) THEN '[Attachment]'
+           ELSE ''
+       END AS Preview,
+       ISNULL(lastMsg.SentAt, th.LastMessageAt) AS LastMessageAt,
+       ISNULL(sender.FirstName + ' ' + sender.LastName, '') AS LastSenderName,
+       (
+         SELECT COUNT(1)
+         FROM dbo.ThreadMessages tm
+         INNER JOIN dbo.ThreadMessageRecipients r ON r.MessageID = tm.MessageID
+         WHERE tm.ThreadID = th.ThreadID
+           AND r.UserID = @UserID
+           AND r.IsRead = 0
+           AND ISNULL(tm.IsDeleted, 0) = 0
        ) AS UnreadCount
 FROM dbo.MessageThreads th
 LEFT JOIN dbo.Clients c ON c.ClientID = th.ClientID
@@ -896,9 +952,15 @@ OR EXISTS (
     WHERE tm.ThreadID = th.ThreadID
       AND tm.SenderUserID = @UserID
 )
+AND NOT EXISTS (
+    SELECT 1
+    FROM dbo.ThreadUserStates tus
+    WHERE tus.ThreadID = th.ThreadID
+      AND tus.UserID = @UserID
+      AND tus.IsDeleted = 1
+)
 ORDER BY th.LastMessageAt DESC, th.ThreadID DESC;";
-            if (!isAdmin)
-                command.Parameters.AddWithValue("@UserID", userId);
+            command.Parameters.AddWithValue("@UserID", userId);
 
             await using var reader = await command.ExecuteReaderAsync();
             var list = new List<MessageSummaryViewModel>();
@@ -921,14 +983,19 @@ ORDER BY th.LastMessageAt DESC, th.ThreadID DESC;";
 
         public async Task<MessageThreadViewModel?> GetMessageThreadAsync(int threadId, ApplicationUser? user, string role)
         {
-            var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
+            var (userId, _) = await ResolveUserScopeAsync(user, role);
             await using var connection = await OpenConnectionAsync();
             await using var check = connection.CreateCommand();
-            check.CommandText = isAdmin
-                ? "SELECT COUNT(1) FROM dbo.MessageThreads WHERE ThreadID = @ThreadID;"
-                : @"SELECT COUNT(1)
+            check.CommandText = @"SELECT COUNT(1)
                     FROM dbo.MessageThreads th
                     WHERE th.ThreadID = @ThreadID
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM dbo.ThreadUserStates tus
+                          WHERE tus.ThreadID = th.ThreadID
+                            AND tus.UserID = @UserID
+                            AND tus.IsDeleted = 1
+                      )
                       AND (
                           EXISTS (
                               SELECT 1 FROM dbo.ThreadMessages tm
@@ -941,8 +1008,7 @@ ORDER BY th.LastMessageAt DESC, th.ThreadID DESC;";
                           )
                       );";
             check.Parameters.AddWithValue("@ThreadID", threadId);
-            if (!isAdmin)
-                check.Parameters.AddWithValue("@UserID", userId);
+            check.Parameters.AddWithValue("@UserID", userId);
             if (Convert.ToInt32(await check.ExecuteScalarAsync()) == 0)
                 return null;
 
@@ -967,7 +1033,9 @@ WHERE th.ThreadID = @ThreadID;";
                 ClientName = reader.IsDBNull(3) ? "" : reader.GetString(3),
                 CreatedByName = reader.IsDBNull(4) ? "" : reader.GetString(4),
                 CreatedAt = reader.IsDBNull(5) ? DateTime.UtcNow : reader.GetDateTime(5),
-                LastMessageAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6)
+                LastMessageAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6),
+                CanEdit = true,
+                CanDelete = true
             };
             await reader.CloseAsync();
 
@@ -1038,7 +1106,7 @@ ORDER BY FullName;";
             return options;
         }
 
-        public async Task<int> CreateMessageThreadAsync(ApplicationUser sender, string senderRole, IEnumerable<int> recipientUserIds, string subject, string body, int? clientId = null)
+        public async Task<int> CreateMessageThreadAsync(ApplicationUser sender, string senderRole, IEnumerable<int> recipientUserIds, string subject, string body, int? clientId = null, IEnumerable<MessageAttachmentInput>? attachments = null)
         {
             await using var connection = await OpenConnectionAsync();
             var senderUserId = await EnsureUserMirrorAsync(sender, senderRole);
@@ -1067,23 +1135,114 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 await updateThread.ExecuteNonQueryAsync();
             }
 
-            await InsertThreadMessageAsync(connection, threadId, senderUserId, body, null, recipientUserIds, timestamp);
+            var participantIds = recipientUserIds
+                .Append(senderUserId)
+                .Distinct()
+                .ToList();
+
+            await RestoreThreadForUsersAsync(connection, threadId, participantIds);
+            await InsertThreadMessageAsync(connection, threadId, senderUserId, body, null, recipientUserIds, timestamp, attachments);
             return threadId;
         }
 
-        public async Task<int> ReplyToThreadAsync(int threadId, ApplicationUser sender, string senderRole, string body)
+        public async Task<int> ReplyToThreadAsync(int threadId, ApplicationUser sender, string senderRole, string body, IEnumerable<MessageAttachmentInput>? attachments = null)
         {
             await using var connection = await OpenConnectionAsync();
             var senderUserId = await EnsureUserMirrorAsync(sender, senderRole);
             var participants = await GetThreadParticipantIdsAsync(connection, threadId);
+            await RestoreThreadForUsersAsync(connection, threadId, participants.Append(senderUserId));
             participants.Remove(senderUserId);
-            await InsertThreadMessageAsync(connection, threadId, senderUserId, body, null, participants, DateTime.UtcNow);
+            await InsertThreadMessageAsync(connection, threadId, senderUserId, body, null, participants, DateTime.UtcNow, attachments);
 
             await using var update = connection.CreateCommand();
             update.CommandText = "UPDATE dbo.MessageThreads SET LastMessageAt = GETDATE() WHERE ThreadID = @ThreadID;";
             update.Parameters.AddWithValue("@ThreadID", threadId);
             await update.ExecuteNonQueryAsync();
             return threadId;
+        }
+
+        public async Task UpdateThreadSubjectAsync(int threadId, ApplicationUser user, string role, string subject)
+        {
+            var userId = await EnsureUserMirrorAsync(user, role);
+            await using var connection = await OpenConnectionAsync();
+
+            if (!await CanAccessThreadAsync(connection, threadId, userId))
+                throw new InvalidOperationException("You cannot edit this chat.");
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+UPDATE dbo.MessageThreads
+SET Subject = @Subject
+WHERE ThreadID = @ThreadID;";
+            command.Parameters.AddWithValue("@Subject", subject);
+            command.Parameters.AddWithValue("@ThreadID", threadId);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task DeleteThreadForUserAsync(int threadId, ApplicationUser user, string role)
+        {
+            var userId = await EnsureUserMirrorAsync(user, role);
+            await using var connection = await OpenConnectionAsync();
+
+            if (!await CanAccessThreadAsync(connection, threadId, userId))
+                throw new InvalidOperationException("You cannot delete this chat.");
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+MERGE dbo.ThreadUserStates AS target
+USING (SELECT @ThreadID AS ThreadID, @UserID AS UserID) AS source
+    ON target.ThreadID = source.ThreadID AND target.UserID = source.UserID
+WHEN MATCHED THEN
+    UPDATE SET IsDeleted = 1, DeletedAt = GETDATE()
+WHEN NOT MATCHED THEN
+    INSERT (ThreadID, UserID, IsDeleted, DeletedAt)
+    VALUES (@ThreadID, @UserID, 1, GETDATE());";
+            command.Parameters.AddWithValue("@ThreadID", threadId);
+            command.Parameters.AddWithValue("@UserID", userId);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task UpdateMessageAsync(int messageId, int threadId, ApplicationUser user, string role, string body)
+        {
+            var userId = await EnsureUserMirrorAsync(user, role);
+            await using var connection = await OpenConnectionAsync();
+
+            if (!await CanAccessMessageAsync(connection, messageId, threadId, userId))
+                throw new InvalidOperationException("You can only edit your own messages.");
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+UPDATE dbo.ThreadMessages
+SET Body = @Body,
+    EditedAt = GETDATE()
+WHERE MessageID = @MessageID
+  AND ThreadID = @ThreadID;";
+            command.Parameters.AddWithValue("@Body", body);
+            command.Parameters.AddWithValue("@MessageID", messageId);
+            command.Parameters.AddWithValue("@ThreadID", threadId);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task DeleteMessageAsync(int messageId, int threadId, ApplicationUser user, string role)
+        {
+            var userId = await EnsureUserMirrorAsync(user, role);
+            await using var connection = await OpenConnectionAsync();
+
+            if (!await CanAccessMessageAsync(connection, messageId, threadId, userId))
+                throw new InvalidOperationException("You can only delete your own messages.");
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+UPDATE dbo.ThreadMessages
+SET Body = '',
+    IsDeleted = 1,
+    DeletedAt = GETDATE(),
+    EditedAt = GETDATE()
+WHERE MessageID = @MessageID
+  AND ThreadID = @ThreadID;";
+            command.Parameters.AddWithValue("@MessageID", messageId);
+            command.Parameters.AddWithValue("@ThreadID", threadId);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task MarkThreadReadAsync(int threadId, ApplicationUser user, string role)
@@ -1165,6 +1324,7 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
        (SELECT COUNT(1) FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID) AS AssignedUsersCount,
        (SELECT COUNT(1) FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID) AS ValidationRunsCount,
        (SELECT TOP 1 vr.RunID FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunId,
+       (SELECT TOP 1 vr.RuleNumber FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunRuleNumber,
        (SELECT TOP 1 vr.RunID
         FROM dbo.ValidationRuns vr
         WHERE vr.ClientID = c.ClientID
@@ -1173,6 +1333,14 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
               WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
           )
         ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunId,
+       (SELECT TOP 1 vr.RuleNumber
+        FROM dbo.ValidationRuns vr
+        WHERE vr.ClientID = c.ClientID
+          AND EXISTS (
+              SELECT 1 FROM dbo.ReviewSignoffs rs
+              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
+          )
+        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunRuleNumber,
        (SELECT TOP 1 vr.Status FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunStatus,
        (SELECT TOP 1 vr.RunTimestamp FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunAt,
        (SELECT TOP 1 vr.Status
@@ -1228,6 +1396,7 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
        (SELECT COUNT(1) FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID) AS AssignedUsersCount,
        (SELECT COUNT(1) FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID) AS ValidationRunsCount,
        (SELECT TOP 1 vr.RunID FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunId,
+       (SELECT TOP 1 vr.RuleNumber FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunRuleNumber,
        (SELECT TOP 1 vr.RunID
         FROM dbo.ValidationRuns vr
         WHERE vr.ClientID = c.ClientID
@@ -1236,6 +1405,14 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
               WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
           )
         ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunId,
+       (SELECT TOP 1 vr.RuleNumber
+        FROM dbo.ValidationRuns vr
+        WHERE vr.ClientID = c.ClientID
+          AND EXISTS (
+              SELECT 1 FROM dbo.ReviewSignoffs rs
+              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
+          )
+        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunRuleNumber,
        (SELECT TOP 1 vr.Status FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunStatus,
        (SELECT TOP 1 vr.RunTimestamp FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunAt,
        (SELECT TOP 1 vr.Status
@@ -1297,6 +1474,7 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
        (SELECT COUNT(1) FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID) AS AssignedUsersCount,
        (SELECT COUNT(1) FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID) AS ValidationRunsCount,
        (SELECT TOP 1 vr.RunID FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunId,
+       (SELECT TOP 1 vr.RuleNumber FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunRuleNumber,
        (SELECT TOP 1 vr.RunID
         FROM dbo.ValidationRuns vr
         WHERE vr.ClientID = c.ClientID
@@ -1305,6 +1483,14 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
               WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
           )
         ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunId,
+       (SELECT TOP 1 vr.RuleNumber
+        FROM dbo.ValidationRuns vr
+        WHERE vr.ClientID = c.ClientID
+          AND EXISTS (
+              SELECT 1 FROM dbo.ReviewSignoffs rs
+              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
+          )
+        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunRuleNumber,
        (SELECT TOP 1 vr.Status FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunStatus,
        (SELECT TOP 1 vr.RunTimestamp FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunAt,
        (SELECT TOP 1 vr.Status
@@ -1379,13 +1565,15 @@ ORDER BY c.CreatedAt DESC, c.ClientID DESC;";
                 var assignedUsersCount = reader.IsDBNull(7) ? 0 : reader.GetInt32(7);
                 var validationRunsCount = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
                 var latestRunId = reader.IsDBNull(9) ? (int?)null : reader.GetInt32(9);
-                var latestSignedOffRunId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
-                var lastRunStatus = reader.IsDBNull(11) ? null : reader.GetString(11);
-                DateTime? lastRunAt = reader.IsDBNull(12) ? (DateTime?)null : reader.GetDateTime(12);
-                var latestSignedOffStatus = reader.IsDBNull(13) ? null : reader.GetString(13);
-                DateTime? latestSignedOffAt = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14);
-                var isFavorite = !reader.IsDBNull(15) && reader.GetBoolean(15);
-                var currentUserEngagementRole = reader.IsDBNull(16) ? "" : reader.GetString(16);
+                var latestRunRuleNumber = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
+                var latestSignedOffRunId = reader.IsDBNull(11) ? (int?)null : reader.GetInt32(11);
+                var latestSignedOffRunRuleNumber = reader.IsDBNull(12) ? (int?)null : reader.GetInt32(12);
+                var lastRunStatus = reader.IsDBNull(13) ? null : reader.GetString(13);
+                DateTime? lastRunAt = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14);
+                var latestSignedOffStatus = reader.IsDBNull(15) ? null : reader.GetString(15);
+                DateTime? latestSignedOffAt = reader.IsDBNull(16) ? (DateTime?)null : reader.GetDateTime(16);
+                var isFavorite = !reader.IsDBNull(17) && reader.GetBoolean(17);
+                var currentUserEngagementRole = reader.IsDBNull(18) ? "" : reader.GetString(18);
 
                 list.Add(new ClientListViewModel
                 {
@@ -1401,7 +1589,9 @@ ORDER BY c.CreatedAt DESC, c.ClientID DESC;";
                     AssignedUsersCount = assignedUsersCount,
                     ValidationRunsCount = validationRunsCount,
                     LatestRunId = latestRunId,
+                    LatestRunRuleNumber = latestRunRuleNumber,
                     LatestSignedOffRunId = latestSignedOffRunId,
+                    LatestSignedOffRunRuleNumber = latestSignedOffRunRuleNumber,
                     LastRunStatus = lastRunStatus,
                     LastRunAt = lastRunAt,
                     LatestSignedOffStatus = latestSignedOffStatus,
@@ -1506,6 +1696,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
 
         private async Task<List<MessageItemViewModel>> GetThreadMessagesAsync(SqlConnection connection, int threadId, int currentUserId)
         {
+            var attachmentsByMessage = await GetMessageAttachmentsAsync(connection, threadId);
             await using var command = connection.CreateCommand();
             command.CommandText = @"
 SELECT tm.MessageID,
@@ -1551,7 +1742,13 @@ SELECT tm.MessageID,
             FROM dbo.ThreadMessageRecipients r
             WHERE r.MessageID = tm.MessageID
               AND r.IsRead = 1
-       ) AS LastReadAt
+       ) AS LastReadAt,
+       CASE WHEN tm.SenderUserID = @CurrentUserID AND ISNULL(tm.IsDeleted, 0) = 0 THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanEdit,
+       CASE WHEN tm.SenderUserID = @CurrentUserID AND ISNULL(tm.IsDeleted, 0) = 0 THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanDelete,
+       CASE WHEN tm.EditedAt IS NULL THEN CAST(0 AS BIT) ELSE CAST(1 AS BIT) END AS IsEdited,
+       tm.EditedAt,
+       ISNULL(tm.IsDeleted, 0) AS IsDeleted,
+       tm.DeletedAt
 FROM dbo.ThreadMessages tm
 INNER JOIN dbo.Users u ON u.UserID = tm.SenderUserID
 WHERE tm.ThreadID = @ThreadID
@@ -1576,7 +1773,16 @@ ORDER BY tm.SentAt ASC, tm.MessageID ASC;";
                     RecipientCount = reader.FieldCount > 9 && !reader.IsDBNull(9) ? reader.GetInt32(9) : 0,
                     ReadCount = reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetInt32(10) : 0,
                     FirstReadAt = reader.FieldCount > 11 && !reader.IsDBNull(11) ? reader.GetDateTime(11) : null,
-                    LastReadAt = reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetDateTime(12) : null
+                    LastReadAt = reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetDateTime(12) : null,
+                    CanEdit = reader.FieldCount > 13 && !reader.IsDBNull(13) && reader.GetBoolean(13),
+                    CanDelete = reader.FieldCount > 14 && !reader.IsDBNull(14) && reader.GetBoolean(14),
+                    IsEdited = reader.FieldCount > 15 && !reader.IsDBNull(15) && reader.GetBoolean(15),
+                    EditedAt = reader.FieldCount > 16 && !reader.IsDBNull(16) ? reader.GetDateTime(16) : null,
+                    IsDeleted = reader.FieldCount > 17 && !reader.IsDBNull(17) && reader.GetBoolean(17),
+                    DeletedAt = reader.FieldCount > 18 && !reader.IsDBNull(18) ? reader.GetDateTime(18) : null,
+                    Attachments = attachmentsByMessage.TryGetValue(reader.GetInt32(0), out var messageAttachments)
+                        ? messageAttachments
+                        : new List<MessageAttachmentViewModel>()
                 });
             }
 
@@ -1610,6 +1816,120 @@ FROM (
             return list;
         }
 
+        private async Task<Dictionary<int, List<MessageAttachmentViewModel>>> GetMessageAttachmentsAsync(SqlConnection connection, int threadId)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+SELECT att.AttachmentID,
+       att.MessageID,
+       att.FileName,
+       att.FilePath,
+       att.ContentType,
+       att.FileSize,
+       att.AttachmentKind
+FROM dbo.ThreadMessageAttachments att
+INNER JOIN dbo.ThreadMessages tm ON tm.MessageID = att.MessageID
+WHERE tm.ThreadID = @ThreadID
+ORDER BY att.AttachmentID ASC;";
+            command.Parameters.AddWithValue("@ThreadID", threadId);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            var attachments = new Dictionary<int, List<MessageAttachmentViewModel>>();
+            while (await reader.ReadAsync())
+            {
+                var messageId = reader.GetInt32(1);
+                if (!attachments.TryGetValue(messageId, out var list))
+                {
+                    list = new List<MessageAttachmentViewModel>();
+                    attachments[messageId] = list;
+                }
+
+                list.Add(new MessageAttachmentViewModel
+                {
+                    AttachmentId = reader.GetInt32(0),
+                    MessageId = messageId,
+                    FileName = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    FilePath = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    ContentType = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    FileSize = reader.IsDBNull(5) ? 0 : reader.GetInt64(5),
+                    AttachmentKind = reader.IsDBNull(6) ? "file" : reader.GetString(6)
+                });
+            }
+
+            return attachments;
+        }
+
+        private async Task<bool> CanAccessThreadAsync(SqlConnection connection, int threadId, int userId)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.MessageThreads th
+WHERE th.ThreadID = @ThreadID
+  AND NOT EXISTS (
+      SELECT 1
+      FROM dbo.ThreadUserStates tus
+      WHERE tus.ThreadID = th.ThreadID
+        AND tus.UserID = @UserID
+        AND tus.IsDeleted = 1
+  )
+  AND (
+      th.CreatedByUserID = @UserID
+      OR EXISTS (
+          SELECT 1
+          FROM dbo.ThreadMessages tm
+          INNER JOIN dbo.ThreadMessageRecipients r ON r.MessageID = tm.MessageID
+          WHERE tm.ThreadID = th.ThreadID
+            AND r.UserID = @UserID
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM dbo.ThreadMessages tm
+          WHERE tm.ThreadID = th.ThreadID
+            AND tm.SenderUserID = @UserID
+      )
+  );";
+            command.Parameters.AddWithValue("@ThreadID", threadId);
+            command.Parameters.AddWithValue("@UserID", userId);
+            return Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
+        }
+
+        private async Task<bool> CanAccessMessageAsync(SqlConnection connection, int messageId, int threadId, int userId)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.ThreadMessages tm
+WHERE tm.MessageID = @MessageID
+  AND tm.ThreadID = @ThreadID
+  AND ISNULL(tm.IsDeleted, 0) = 0
+  AND tm.SenderUserID = @UserID;";
+            command.Parameters.AddWithValue("@MessageID", messageId);
+            command.Parameters.AddWithValue("@ThreadID", threadId);
+            command.Parameters.AddWithValue("@UserID", userId);
+            return Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
+        }
+
+        private async Task RestoreThreadForUsersAsync(SqlConnection connection, int threadId, IEnumerable<int> userIds)
+        {
+            foreach (var participantId in userIds.Where(id => id > 0).Distinct())
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = @"
+MERGE dbo.ThreadUserStates AS target
+USING (SELECT @ThreadID AS ThreadID, @UserID AS UserID) AS source
+    ON target.ThreadID = source.ThreadID AND target.UserID = source.UserID
+WHEN MATCHED THEN
+    UPDATE SET IsDeleted = 0, DeletedAt = NULL
+WHEN NOT MATCHED THEN
+    INSERT (ThreadID, UserID, IsDeleted, DeletedAt)
+    VALUES (@ThreadID, @UserID, 0, NULL);";
+                command.Parameters.AddWithValue("@ThreadID", threadId);
+                command.Parameters.AddWithValue("@UserID", participantId);
+                await command.ExecuteNonQueryAsync();
+            }
+        }
+
         private async Task<int> InsertThreadMessageAsync(
             SqlConnection connection,
             int threadId,
@@ -1617,14 +1937,15 @@ FROM (
             string body,
             int? replyToMessageId,
             IEnumerable<int> recipientUserIds,
-            DateTime sentAt)
+            DateTime sentAt,
+            IEnumerable<MessageAttachmentInput>? attachments = null)
         {
             var previousHash = await GetLatestHashAsync(connection, "dbo.ThreadMessages");
 
             await using var insert = connection.CreateCommand();
             insert.CommandText = @"
-INSERT INTO dbo.ThreadMessages (ThreadID, SenderUserID, Body, ReplyToMessageID, SentAt, PreviousHash, RecordHash)
-VALUES (@ThreadID, @SenderUserID, @Body, @ReplyToMessageID, @SentAt, @PreviousHash, NULL);
+INSERT INTO dbo.ThreadMessages (ThreadID, SenderUserID, Body, ReplyToMessageID, SentAt, PreviousHash, RecordHash, EditedAt, IsDeleted, DeletedAt)
+VALUES (@ThreadID, @SenderUserID, @Body, @ReplyToMessageID, @SentAt, @PreviousHash, NULL, NULL, 0, NULL);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
             insert.Parameters.AddWithValue("@ThreadID", threadId);
             insert.Parameters.AddWithValue("@SenderUserID", senderUserId);
@@ -1652,6 +1973,25 @@ VALUES (@MessageID, @UserID, 0, NULL);";
                 recipient.Parameters.AddWithValue("@MessageID", messageId);
                 recipient.Parameters.AddWithValue("@UserID", recipientId);
                 await recipient.ExecuteNonQueryAsync();
+            }
+
+            if (attachments != null)
+            {
+                foreach (var attachment in attachments.Where(item => item != null))
+                {
+                    await using var attachmentCommand = connection.CreateCommand();
+                    attachmentCommand.CommandText = @"
+INSERT INTO dbo.ThreadMessageAttachments (MessageID, FileName, FilePath, ContentType, FileSize, AttachmentKind, CreatedAt)
+VALUES (@MessageID, @FileName, @FilePath, @ContentType, @FileSize, @AttachmentKind, @CreatedAt);";
+                    attachmentCommand.Parameters.AddWithValue("@MessageID", messageId);
+                    attachmentCommand.Parameters.AddWithValue("@FileName", attachment.FileName);
+                    attachmentCommand.Parameters.AddWithValue("@FilePath", attachment.FilePath);
+                    attachmentCommand.Parameters.AddWithValue("@ContentType", attachment.ContentType);
+                    attachmentCommand.Parameters.AddWithValue("@FileSize", attachment.FileSize);
+                    attachmentCommand.Parameters.AddWithValue("@AttachmentKind", attachment.AttachmentKind);
+                    attachmentCommand.Parameters.AddWithValue("@CreatedAt", sentAt);
+                    await attachmentCommand.ExecuteNonQueryAsync();
+                }
             }
 
             return messageId;

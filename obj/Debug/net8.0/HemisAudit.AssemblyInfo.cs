@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("HemisAudit")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3a1c41c7054561cf1990a4179f28d42da450692f")]
 [assembly: System.Reflection.AssemblyProductAttribute("HemisAudit")]
 [assembly: System.Reflection.AssemblyTitleAttribute("HemisAudit")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
