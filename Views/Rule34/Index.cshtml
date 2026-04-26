@@ -520,11 +520,45 @@ function applyWorkspace(workspace, preserveMessage) {
 
 function applyWorkspaceReviewState(workspace) {
     state.currentRunId = workspace.runId || state.currentRunId;
+    state.server = workspace.server || state.server;
+    state.database = workspace.database || state.database;
+    state.driver = workspace.driver || state.driver;
+    state.tableName = workspace.tableName || state.tableName;
+    state.firstDayColumn = workspace.firstDayColumn || state.firstDayColumn;
+    state.lastDayColumn = workspace.lastDayColumn || state.lastDayColumn;
+    state.censusDateColumn = workspace.censusDateColumn || state.censusDateColumn;
+    state.startYear = workspace.startYear || state.startYear;
+    state.endYear = workspace.endYear || state.endYear;
     state.currentUserEngagementRole = workspace.currentUserEngagementRole || state.currentUserEngagementRole;
     state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
     state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
     state.currentStatus = workspace.currentStatus || state.currentStatus;
     state.resultsVisible = !!workspace.resultsVisible;
+    document.getElementById('serverInput').value = state.server;
+    document.getElementById('driverSelect').value = state.driver;
+    document.getElementById('startYearInput').value = state.startYear;
+    document.getElementById('endYearInput').value = state.endYear;
+    if (state.database) {
+        document.getElementById('dbFieldGroup').style.display = 'block';
+        document.getElementById('databaseSelect').innerHTML = `<option value="${escapeHtml(state.database)}">${escapeHtml(state.database)}</option>`;
+        document.getElementById('databaseSelect').value = state.database;
+    }
+    if (state.tableName) {
+        document.getElementById('tableSelect').innerHTML = `<option value="${escapeHtml(state.tableName)}">${escapeHtml(state.tableName)}</option>`;
+        document.getElementById('tableSelect').value = state.tableName;
+    }
+    if (state.firstDayColumn) {
+        document.getElementById('firstDaySelect').innerHTML = `<option value="${escapeHtml(state.firstDayColumn)}">${escapeHtml(state.firstDayColumn)}</option>`;
+        document.getElementById('firstDaySelect').value = state.firstDayColumn;
+    }
+    if (state.lastDayColumn) {
+        document.getElementById('lastDaySelect').innerHTML = `<option value="${escapeHtml(state.lastDayColumn)}">${escapeHtml(state.lastDayColumn)}</option>`;
+        document.getElementById('lastDaySelect').value = state.lastDayColumn;
+    }
+    if (state.censusDateColumn) {
+        document.getElementById('censusDateSelect').innerHTML = `<option value="${escapeHtml(state.censusDateColumn)}">${escapeHtml(state.censusDateColumn)}</option>`;
+        document.getElementById('censusDateSelect').value = state.censusDateColumn;
+    }
     document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
 
     if (workspace.summary) {

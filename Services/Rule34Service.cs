@@ -400,10 +400,10 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
                 Server = reader.GetString(2),
                 Database = reader.GetString(3),
                 Driver = "ODBC Driver 17 for SQL Server",
-                TableName = !string.IsNullOrWhiteSpace(summary?.TableName) ? summary.TableName : reader.GetString(4),
-                FirstDayColumn = !string.IsNullOrWhiteSpace(summary?.FirstDayColumn) ? summary.FirstDayColumn : reader.GetString(5),
-                LastDayColumn = !string.IsNullOrWhiteSpace(summary?.LastDayColumn) ? summary.LastDayColumn : reader.GetString(6),
-                CensusDateColumn = !string.IsNullOrWhiteSpace(summary?.CensusDateColumn) ? summary.CensusDateColumn : reader.GetString(7),
+                TableName = reader.GetString(4),
+                FirstDayColumn = reader.GetString(5),
+                LastDayColumn = reader.GetString(6),
+                CensusDateColumn = reader.GetString(7),
                 StartYear = summary?.StartYear ?? DateTime.Now.Year,
                 EndYear = summary?.EndYear ?? DateTime.Now.Year,
                 CurrentStatus = reader.GetString(8),
@@ -525,6 +525,20 @@ WHERE vr.RunID = @RunID
 
                 var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
                 var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
+                var existingSummary = await GetValidationSummaryAsync(connection, request.RunId.Value);
+                if (existingSummary != null)
+                {
+                    existingSummary.ClientId = request.ClientId;
+                    existingSummary.Database = request.Database;
+                    existingSummary.TableName = request.TableName;
+                    existingSummary.FirstDayColumn = request.FirstDayColumn;
+                    existingSummary.LastDayColumn = request.LastDayColumn;
+                    existingSummary.CensusDateColumn = request.CensusDateColumn;
+                    existingSummary.StartYear = request.StartYear;
+                    existingSummary.EndYear = request.EndYear;
+                    existingSummary.HolidayYearRange = $"{request.StartYear}-{request.EndYear}";
+                    existingSummary.SavedRunId = request.RunId.Value;
+                }
 
                 await using var command = connection.CreateCommand();
                 command.CommandText = @"
@@ -537,6 +551,7 @@ SET HemisServer = @HemisServer,
     DeceasedColumn = @DeceasedColumn,
     LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    ResultsJSON = @ResultsJSON,
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
@@ -551,6 +566,9 @@ WHERE RunID = @RunID
                 command.Parameters.AddWithValue("@StudColumn", request.FirstDayColumn);
                 command.Parameters.AddWithValue("@DeceasedColumn", request.LastDayColumn);
                 command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
+                command.Parameters.AddWithValue("@ResultsJSON", existingSummary == null
+                    ? DBNull.Value
+                    : JsonConvert.SerializeObject(existingSummary));
                 command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
                 command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule34|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.TableName}|{request.FirstDayColumn}|{request.LastDayColumn}|{request.CensusDateColumn}|{request.StartYear}|{request.EndYear}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
                 await command.ExecuteNonQueryAsync();
@@ -1280,6 +1298,20 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             command.Parameters.AddWithValue("@RuleNumber", ruleNumber);
             var value = await command.ExecuteScalarAsync();
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
+        }
+
+        private async Task<Rule34ValidationSummary?> GetValidationSummaryAsync(SqlConnection connection, int runId)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+SELECT TOP 1 ResultsJSON
+FROM dbo.ValidationRuns
+WHERE RunID = @RunID;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            var value = await command.ExecuteScalarAsync();
+            return value == null || value == DBNull.Value
+                ? null
+                : DeserializeSummary(Convert.ToString(value));
         }
 
         private static string ComputeHash(string input)

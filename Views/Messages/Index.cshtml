@@ -1,4 +1,4 @@
-@using System.Linq
+﻿@using System.Linq
 @using System.Text
 @using System.Text.Encodings.Web
 @using System.Text.RegularExpressions
@@ -330,12 +330,12 @@
                         <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
                     </div>
                     <div class="emoji-picker" data-emoji-panel="reply-body">
-                        <button type="button" data-emoji-value="😀">😀</button>
-                        <button type="button" data-emoji-value="👍">👍</button>
-                        <button type="button" data-emoji-value="🎉">🎉</button>
-                        <button type="button" data-emoji-value="✅">✅</button>
-                        <button type="button" data-emoji-value="📌">📌</button>
-                        <button type="button" data-emoji-value="🙏">🙏</button>
+                        <button type="button" data-emoji-value="grinning">&#x1F600;</button>
+                        <button type="button" data-emoji-value="thumbs_up">&#x1F44D;</button>
+                        <button type="button" data-emoji-value="party_popper">&#x1F389;</button>
+                        <button type="button" data-emoji-value="check_mark">&#x2705;</button>
+                        <button type="button" data-emoji-value="pushpin">&#x1F4CC;</button>
+                        <button type="button" data-emoji-value="pray">&#x1F64F;</button>
                     </div>
                     <textarea id="reply-body" name="Body" rows="3" placeholder="Type a message"></textarea>
                     <input id="reply-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
@@ -399,7 +399,7 @@
 
             <div class="field-group">
                 <label for="compose-subject">Chat title</label>
-                <input id="compose-subject" name="Subject" value="@Model.Compose.Subject" maxlength="255" placeholder="Example: Rule 34 Review" />
+                <input id="compose-subject" name="Subject" value="@Model.Compose.Subject" maxlength="255" placeholder="Example: Rule 34 Review" required />
             </div>
 
             <div class="field-group">
@@ -413,12 +413,12 @@
                         <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
                     </div>
                     <div class="emoji-picker" data-emoji-panel="compose-body">
-                        <button type="button" data-emoji-value="😀">😀</button>
-                        <button type="button" data-emoji-value="👍">👍</button>
-                        <button type="button" data-emoji-value="🎉">🎉</button>
-                        <button type="button" data-emoji-value="✅">✅</button>
-                        <button type="button" data-emoji-value="📌">📌</button>
-                        <button type="button" data-emoji-value="🙏">🙏</button>
+                        <button type="button" data-emoji-value="grinning">&#x1F600;</button>
+                        <button type="button" data-emoji-value="thumbs_up">&#x1F44D;</button>
+                        <button type="button" data-emoji-value="party_popper">&#x1F389;</button>
+                        <button type="button" data-emoji-value="check_mark">&#x2705;</button>
+                        <button type="button" data-emoji-value="pushpin">&#x1F4CC;</button>
+                        <button type="button" data-emoji-value="pray">&#x1F64F;</button>
                     </div>
                     <textarea id="compose-body" name="Body" rows="5" placeholder="Write your first message.">@Model.Compose.Body</textarea>
                     <input id="compose-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
@@ -493,12 +493,12 @@
                             <button type="button" class="messages-toolbar-btn" data-emoji-toggle="edit-message-body">Emoji</button>
                         </div>
                         <div class="emoji-picker" data-emoji-panel="edit-message-body">
-                            <button type="button" data-emoji-value="😀">😀</button>
-                            <button type="button" data-emoji-value="👍">👍</button>
-                            <button type="button" data-emoji-value="🎉">🎉</button>
-                            <button type="button" data-emoji-value="✅">✅</button>
-                            <button type="button" data-emoji-value="📌">📌</button>
-                            <button type="button" data-emoji-value="🙏">🙏</button>
+                        <button type="button" data-emoji-value="grinning">&#x1F600;</button>
+                        <button type="button" data-emoji-value="thumbs_up">&#x1F44D;</button>
+                        <button type="button" data-emoji-value="party_popper">&#x1F389;</button>
+                        <button type="button" data-emoji-value="check_mark">&#x2705;</button>
+                        <button type="button" data-emoji-value="pushpin">&#x1F4CC;</button>
+                        <button type="button" data-emoji-value="pray">&#x1F64F;</button>
                         </div>
                         <textarea id="edit-message-body" name="Body" rows="5">@Model.EditMessage.Body</textarea>
                     </div>
@@ -809,17 +809,17 @@
                         <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
                     </div>
                     <div class="emoji-picker" data-emoji-panel="reply-body">
-                        <button type="button" data-emoji-value="😀">😀</button>
-                        <button type="button" data-emoji-value="👍">👍</button>
-                        <button type="button" data-emoji-value="🎉">🎉</button>
-                        <button type="button" data-emoji-value="✅">✅</button>
-                        <button type="button" data-emoji-value="📌">📌</button>
-                        <button type="button" data-emoji-value="🙏">🙏</button>
+                        <button type="button" data-emoji-value="grinning">\u{1F600}</button>
+                        <button type="button" data-emoji-value="thumbs_up">\u{1F44D}</button>
+                        <button type="button" data-emoji-value="party_popper">\u{1F389}</button>
+                        <button type="button" data-emoji-value="check_mark">\u2705</button>
+                        <button type="button" data-emoji-value="pushpin">\u{1F4CC}</button>
+                        <button type="button" data-emoji-value="pray">\u{1F64F}</button>
                     </div>
                     <textarea id="reply-body" name="Body" rows="3" placeholder="Type a message"></textarea>
                     <input id="reply-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
                     <div class="messages-compose-meta">
-                        <span>Images, audio, video, PDF, Office files, text files, and ZIP are supported.</span>
+                        <span>All file types are supported. Links in messages open in a new tab.</span>
                         <span data-attachment-count-for="reply-attachments">No files selected</span>
                     </div>
                     <div class="messages-attachment-preview" id="reply-attachment-preview"></div>
@@ -898,12 +898,12 @@
         function normalizeEmojiValue(rawValue) {
             const value = rawValue || '';
             const replacements = {
-                'ðŸ˜€': '\u{1F600}',
-                'ðŸ‘': '\u{1F44D}',
-                'ðŸŽ‰': '\u{1F389}',
-                'âœ…': '\u2705',
-                'ðŸ“Œ': '\u{1F4CC}',
-                'ðŸ™': '\u{1F64F}'
+                grinning: '\u{1F600}',
+                thumbs_up: '\u{1F44D}',
+                party_popper: '\u{1F389}',
+                check_mark: '\u2705',
+                pushpin: '\u{1F4CC}',
+                pray: '\u{1F64F}'
             };
 
             return replacements[value] || value;
@@ -1043,3 +1043,4 @@
     }, 7000);
 })();
 </script>
+
