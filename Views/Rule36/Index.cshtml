@@ -1625,44 +1625,44 @@ async function removeWorkspaceSignoff() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    document.getElementById('serverInput').addEventListener('input', () => {
+    document.getElementById('serverInput').addEventListener('input', async () => {
         state.server = document.getElementById('serverInput').value.trim();
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
-    document.getElementById('driverSelect').addEventListener('change', () => {
+    document.getElementById('driverSelect').addEventListener('change', async () => {
         state.driver = document.getElementById('driverSelect').value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
     document.getElementById('databaseSelect').addEventListener('change', async e => {
         state.database = e.target.value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
         await loadTables();
     });
 
     document.getElementById('studTableSelect').addEventListener('change', async e => {
         state.studTable = e.target.value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
         await loadColumns('stud');
     });
 
     document.getElementById('deceasedTableSelect').addEventListener('change', async e => {
         state.deceasedTable = e.target.value;
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
         await loadColumns('deceased');
     });
 
-    document.getElementById('studColumnSelect').addEventListener('change', e => {
+    document.getElementById('studColumnSelect').addEventListener('change', async e => {
         state.studColumn = e.target.value;
         updatePreview();
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
-    document.getElementById('deceasedColumnSelect').addEventListener('change', e => {
+    document.getElementById('deceasedColumnSelect').addEventListener('change', async e => {
         state.deceasedColumn = e.target.value;
         updatePreview();
-        markWorkspaceDirty();
+        await markWorkspaceDirty();
     });
 
     renderWorkspaceState();
