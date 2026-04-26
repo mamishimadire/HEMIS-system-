@@ -1,3 +1,4 @@
+@using HemisAudit.Helpers
 @model HemisAudit.ViewModels.ClientDetailViewModel
 @{
     ViewData["Title"] = Model.EngagementName;
@@ -9,6 +10,9 @@
     var isArchived = Model.IsArchived;
     var canReviewUnsignedRuns =
         string.Equals(currentSystemRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+    var showModulesWorkspaceUi = ViewBag.ShowModulesWorkspaceUi is bool showModules && showModules;
+    var currentValidationRuns = Model.ValidationRuns.Where(run => run.IsCurrent).ToList();
+    var historicalValidationRuns = Model.ValidationRuns.Where(run => !run.IsCurrent).ToList();
 }
 
 @if (TempData["Success"] != null)
@@ -40,11 +44,11 @@
         </p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
-        @if (canOpenModule || Model.IsArchived)
+        @if (showModulesWorkspaceUi && (canOpenModule || Model.IsArchived))
         {
             <a href="#modules-panel" class="btn btn-secondary">Modules</a>
         }
-        else
+        else if (showModulesWorkspaceUi)
         {
             <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Modules Locked</span>
         }
@@ -109,13 +113,13 @@
                 Open the latest signed-off validation run or download it directly. No edits are allowed on archived engagements.
             </p>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <a asp-controller="@(Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@RuleRouteHelper.GetControllerName(Model.CurrentRunRuleNumber ?? 0)"
                    asp-action="Run"
                    asp-route-id="@Model.CurrentRunId"
                    class="btn btn-primary">
                     Open Latest Results
                 </a>
-                <a asp-controller="@(Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@RuleRouteHelper.GetControllerName(Model.CurrentRunRuleNumber ?? 0)"
                    asp-action="DownloadSavedExcel"
                    asp-route-runId="@Model.CurrentRunId"
                    class="btn btn-success">
@@ -131,59 +135,100 @@
     <div class="alert alert--info" style="margin-bottom:24px">@Model.ArchiveEligibilityMessage</div>
 }
 
-<details class="collapsible-section" id="modules-panel" style="margin-bottom:24px">
-    <summary class="collapsible-trigger">
-        <div>
-            <span class="collapsible-trigger__title">Modules</span>
-            <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
+@if (showModulesWorkspaceUi)
+{
+    <details class="collapsible-section" id="modules-panel" style="margin-bottom:24px">
+        <summary class="collapsible-trigger">
+            <div>
+                <span class="collapsible-trigger__title">Modules</span>
+                <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
+            </div>
+            <span class="collapsible-trigger__meta">Rules 26, 27, 29, 30, 31, 32, 34 and 36</span>
+            <span class="collapsible-trigger__icon" aria-hidden="true"></span>
+        </summary>
+        <div class="collapsible-panel">
+            <div class="card" style="padding:18px 20px">
+                @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
+                {
+                    <div class="module-card-grid">
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 26</div>
+                            <h4 class="module-card__title">Bi-Directional 5-Control Validation</h4>
+                            <p class="module-card__text">Test dbo_PROF and Payroll_Sample in both directions at the same time across personnel existence, employment type, gender, race/group, and birth date controls.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule26?clientId=@Model.Id" class="btn btn-success">Open Rule 26</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 27</div>
+                            <h4 class="module-card__title">Error Validation</h4>
+                            <p class="module-card__text">Choose any validation table column, detect its values, and retrieve 100% of the records that match the selected value.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule27?clientId=@Model.Id" class="btn btn-success">Open Rule 27</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 29</div>
+                            <h4 class="module-card__title">Single Column Filter</h4>
+                            <p class="module-card__text">Filter records where one selected column equals one selected value, then review the matching set with an optional breakdown column.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule29?clientId=@Model.Id" class="btn btn-success">Open Rule 29</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 30</div>
+                            <h4 class="module-card__title">Fatal Errors with Exclusions (PROF)</h4>
+                            <p class="module-card__text">Filter fatal PROF validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule30?clientId=@Model.Id" class="btn btn-success">Open Rule 30</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 31</div>
+                            <h4 class="module-card__title">Fatal Errors with Exclusions (QUAL)</h4>
+                            <p class="module-card__text">Filter fatal QUAL validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule31?clientId=@Model.Id" class="btn btn-success">Open Rule 31</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 32</div>
+                            <h4 class="module-card__title">Fatal Errors with Exclusions</h4>
+                            <p class="module-card__text">Filter fatal STUD validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule32?clientId=@Model.Id" class="btn btn-success">Open Rule 32</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 34</div>
+                            <h4 class="module-card__title">Census Date Validation</h4>
+                            <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it with the stored census date, and evaluate weekends and SA public holidays.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule34?clientId=@Model.Id" class="btn btn-success">Open Rule 34</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 36</div>
+                            <h4 class="module-card__title">Deceased Students Validation</h4>
+                            <p class="module-card__text">Match student records against the deceased students reference table and save exceptions for review and signoff.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">Open Rule 36</a>
+                            </div>
+                        </article>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-card" style="margin:0">
+                        <p>This engagement must be approved before users can access modules.</p>
+                    </div>
+                }
+            </div>
         </div>
-        <span class="collapsible-trigger__meta">Rules 34 and 36</span>
-        <span class="collapsible-trigger__icon" aria-hidden="true"></span>
-    </summary>
-    <div class="collapsible-panel">
-        <div class="card" style="padding:18px 20px">
-            @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
-            {
-                <div class="module-card-grid">
-                    <article class="module-card">
-                        <div class="module-card__eyebrow">Rule 34</div>
-                        <h4 class="module-card__title">Census Date Validation</h4>
-                        <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it with the stored census date, and evaluate weekends and SA public holidays.</p>
-                        <div class="module-card__actions">
-                            <a href="/Rule34?clientId=@Model.Id" class="btn btn-success">Open Rule 34</a>
-                        </div>
-                    </article>
-                    <article class="module-card">
-                        <div class="module-card__eyebrow">Rule 36</div>
-                        <h4 class="module-card__title">Deceased Students Validation</h4>
-                        <p class="module-card__text">Match student records against the deceased students reference table and save exceptions for review and signoff.</p>
-                        <div class="module-card__actions">
-                            <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">Open Rule 36</a>
-                        </div>
-                    </article>
-                </div>
-            }
-            else if (Model.IsArchived)
-            {
-                <div class="empty-card" style="margin:0">
-                    <p>This engagement is archived. Modules are read-only now, and saved results stay available through archived results and validation runs.</p>
-                </div>
-            }
-            else if (canOpenModule)
-            {
-                <div class="empty-card" style="margin:0">
-                    <p>This engagement is results-only for your role. Open saved validation runs below to review outputs and signoff progress.</p>
-                </div>
-            }
-            else
-            {
-                <div class="empty-card" style="margin:0">
-                    <p>This engagement must be approved before users can access modules.</p>
-                </div>
-            }
-        </div>
-    </div>
-</details>
+    </details>
+}
 
 <details class="collapsible-section" style="margin-bottom:24px">
     <summary class="collapsible-trigger">
@@ -291,77 +336,160 @@
     </div>
 </details>
 
-<details class="collapsible-section">
+
+<details class="collapsible-section" id="validation-runs-panel">
     <summary class="collapsible-trigger">
         <div>
             <span class="collapsible-trigger__title">Validation Runs (@Model.ValidationRuns.Count)</span>
-            <span class="collapsible-trigger__subtitle">Show or hide saved runs, statuses, signoffs, and review links for this engagement.</span>
+            <span class="collapsible-trigger__subtitle">Current results and history are separated for easier review.</span>
         </div>
         <span class="collapsible-trigger__icon" aria-hidden="true"></span>
     </summary>
     <div class="collapsible-panel">
 @if (Model.ValidationRuns.Any())
 {
-    <div class="card">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Rule</th>
-                    <th>Status</th>
-                    <th>Current</th>
-                    <th>Total</th>
-                    <th>Exceptions</th>
-                    <th>Rate</th>
-                    <th>Signoffs</th>
-                    <th>Run By</th>
-                    <th>Date</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var run in Model.ValidationRuns)
-                {
-                    var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
-                        ? "badge--pass"
-                        : run.Status == "Fail" || run.Status == "Needs Review"
-                            ? "badge--fail"
-                            : "badge--role";
-                    <tr>
-                        <td>@run.Id</td>
-                        <td>Rule @run.RuleNumber - @run.RuleName</td>
-                        <td><span class="badge @runBadge">@run.Status</span></td>
-                        <td><span class="badge @(run.IsCurrent ? "badge--pass" : "badge--neutral")">@(run.IsCurrent ? "Current" : "History")</span></td>
-                        <td>@run.TotalValidated.ToString("N0")</td>
-                        <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
-                        <td>@run.ExceptionRate.ToString("F2")%</td>
-                        <td>
-                            @run.SignoffCount
-                            @if (run.HasDataAnalystSignoff)
-                            {
-                                <br />
-                                <small style="color:#2e7d32">Data analyst signed</small>
-                            }
-                        </td>
-                        <td>@run.RunByUserName</td>
-                        <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
-                        <td>
-            @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
+    <div style="display:grid;gap:18px">
+        <div class="card">
+            <div style="padding:18px 20px 0">
+                <h3 class="section-title" style="margin:0">Current Results (@currentValidationRuns.Count)</h3>
+                <p style="margin:6px 0 0;color:#64748b">These are the active runs currently in effect for each module.</p>
+            </div>
+            @if (currentValidationRuns.Any())
             {
-                <a asp-controller="@(run.RuleNumber == 34 ? "Rule34" : "Rule36")"
-                   asp-action="Run"
-                   asp-route-id="@run.Id"
-                   class="btn btn-sm btn-secondary">Review</a>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Rule</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                            <th>Exceptions</th>
+                            <th>Rate</th>
+                            <th>Signoffs</th>
+                            <th>Run By</th>
+                            <th>Date</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in currentValidationRuns)
+                        {
+                            var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
+                                ? "badge--pass"
+                                : run.Status == "Fail" || run.Status == "Needs Review"
+                                    ? "badge--fail"
+                                    : "badge--role";
+                            <tr>
+                                <td>@run.Id</td>
+                                <td>Rule @run.RuleNumber - @run.RuleName</td>
+                                <td><span class="badge @runBadge">@run.Status</span></td>
+                                <td>@run.TotalValidated.ToString("N0")</td>
+                                <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
+                                <td>@run.ExceptionRate.ToString("F2")%</td>
+                                <td>
+                                    @run.SignoffCount
+                                    @if (run.HasDataAnalystSignoff)
+                                    {
+                                        <br />
+                                        <small style="color:#2e7d32">Data analyst signed</small>
+                                    }
+                                </td>
+                                <td>@run.RunByUserName</td>
+                                <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
+                                    {
+                                        <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
+                                           asp-action="Run"
+                                           asp-route-id="@run.Id"
+                                           class="btn btn-sm btn-secondary">Review</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             }
-                            else
-                            {
-                                <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+            else
+            {
+                <div style="padding:16px 20px;color:#757575">No current validation results are available.</div>
+            }
+        </div>
+
+        <div class="card">
+            <div style="padding:18px 20px 0">
+                <h3 class="section-title" style="margin:0">History (@historicalValidationRuns.Count)</h3>
+                <p style="margin:6px 0 0;color:#64748b">Previous saved runs remain available here for comparison and audit trail review.</p>
+            </div>
+            @if (historicalValidationRuns.Any())
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Rule</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                            <th>Exceptions</th>
+                            <th>Rate</th>
+                            <th>Signoffs</th>
+                            <th>Run By</th>
+                            <th>Date</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in historicalValidationRuns)
+                        {
+                            var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
+                                ? "badge--pass"
+                                : run.Status == "Fail" || run.Status == "Needs Review"
+                                    ? "badge--fail"
+                                    : "badge--role";
+                            <tr>
+                                <td>@run.Id</td>
+                                <td>Rule @run.RuleNumber - @run.RuleName</td>
+                                <td><span class="badge @runBadge">@run.Status</span></td>
+                                <td>@run.TotalValidated.ToString("N0")</td>
+                                <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
+                                <td>@run.ExceptionRate.ToString("F2")%</td>
+                                <td>
+                                    @run.SignoffCount
+                                    @if (run.HasDataAnalystSignoff)
+                                    {
+                                        <br />
+                                        <small style="color:#2e7d32">Data analyst signed</small>
+                                    }
+                                </td>
+                                <td>@run.RunByUserName</td>
+                                <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
+                                    {
+                                        <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
+                                           asp-action="Run"
+                                           asp-route-id="@run.Id"
+                                           class="btn btn-sm btn-secondary">Review</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="padding:16px 20px;color:#757575">No historical validation runs have been saved yet.</div>
+            }
+        </div>
     </div>
 }
 else
@@ -369,7 +497,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a> or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
         }
         else if (Model.IsArchived)
         {
@@ -383,3 +511,21 @@ else
 }
     </div>
 </details>
+
+<script>
+(() => {
+    if (window.location.hash !== '#validation-runs-panel') {
+        return;
+    }
+
+    const panel = document.getElementById('validation-runs-panel');
+    if (!panel) {
+        return;
+    }
+
+    panel.open = true;
+    setTimeout(() => {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+})();
+</script>

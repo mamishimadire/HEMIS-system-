@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using System.Data;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using HemisAudit.ViewModels;
 
 namespace HemisAudit.Services
@@ -244,12 +245,24 @@ FROM [{table}];";
                 using var conn = new SqlConnection(connStr);
                 await conn.OpenAsync();
 
+                var optionalColumns = await GetOptionalCurrentDayColumnsAsync(conn, safeTable);
+                var selectedColumns = new List<string>
+                {
+                    $"[{safeFirst}] AS FirstDayValue",
+                    $"[{safeLast}] AS LastDayValue",
+                    $"[{safeCensus}] AS CensusDateValue"
+                };
+
+                if (!string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysColumn))
+                    selectedColumns.Add($"[{optionalColumns.CurrentDaysColumn}] AS CurrentDaysValue");
+
+                if (!string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysHalfColumn))
+                    selectedColumns.Add($"[{optionalColumns.CurrentDaysHalfColumn}] AS CurrentDaysHalfValue");
+
                 var sql = $@"
 SELECT
     ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
-    [{safeFirst}] AS FirstDayValue,
-    [{safeLast}] AS LastDayValue,
-    [{safeCensus}] AS CensusDateValue
+    {string.Join(",\n    ", selectedColumns)}
 FROM [{safeTable}];";
 
                 using var cmd = new SqlCommand(sql, conn) { CommandTimeout = 300 };
@@ -262,17 +275,28 @@ FROM [{safeTable}];";
                     var firstDay = ParseNullableDate(reader[1]);
                     var lastDay = ParseNullableDate(reader[2]);
                     var censusDate = ParseNullableDate(reader[3]);
-                    var computedDate = ComputeMidpoint(firstDay, lastDay);
-                    var dayStatus = GetDayStatus(computedDate, holidayLookup);
-                    var comparisonResult = !computedDate.HasValue || !censusDate.HasValue ||
-                                           computedDate.Value.Date != censusDate.Value.Date;
+                    var storedCurrentDays = TryGetValue(reader, "CurrentDaysValue", ParseNullableInt);
+                    var storedCurrentDaysHalf = TryGetValue(reader, "CurrentDaysHalfValue", ParseNullableDecimal);
+                    var wholeDays = storedCurrentDays ?? ComputeNotebookDaySpan(firstDay, lastDay);
+                    var halfDays = storedCurrentDaysHalf ?? ComputeNotebookHalfDaySpan(wholeDays);
+                    var useSqlDayValues = storedCurrentDays.HasValue && storedCurrentDaysHalf.HasValue;
+                    var computedDate = useSqlDayValues
+                        ? ComputePreparedCensusDateFromSqlDayValues(firstDay, wholeDays, halfDays)
+                        : ComputePreparedCensusDate(firstDay, halfDays);
+                    var actualCensusDate = ComputeActualCensusDate(computedDate, holidayLookup);
+                    var dayStatus = GetDayStatus(computedDate, actualCensusDate, holidayLookup);
+                    var comparisonResult = !actualCensusDate.HasValue || !censusDate.HasValue ||
+                                           actualCensusDate.Value.Date != censusDate.Value.Date;
 
                     rows.Add(new Rule34ValidationRowRecord
                     {
                         ValidationNumber = validationNumber,
                         FirstDayValue = FormatDate(firstDay),
                         LastDayValue = FormatDate(lastDay),
+                        CurrentDays = wholeDays,
+                        CurrentDaysHalf = halfDays,
                         ComputedCensusDate = FormatDate(computedDate),
+                        ActualCensusDate = FormatDate(actualCensusDate),
                         CensusDateValue = FormatDate(censusDate),
                         DayStatus = dayStatus,
                         ComparisonResult = comparisonResult,
@@ -356,19 +380,15 @@ WHERE RunID = @RunID;";
         public async Task<int?> GetClientIdForRunAsync(int runId)
         {
             await using var connection = await OpenSystemConnectionAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT TOP 1 ClientID FROM dbo.ValidationRuns WHERE RunID = @RunID;";
-            command.Parameters.AddWithValue("@RunID", runId);
-            var value = await command.ExecuteScalarAsync();
-            return value == null || value == DBNull.Value ? null : Convert.ToInt32(value);
+            return await GetClientIdForRunAsync(connection, runId);
         }
 
-        public async Task<Rule34WorkspaceStateViewModel?> GetCurrentWorkspaceStateAsync(int clientId, string? currentUserEmail = null)
+        public async Task<Rule34WorkspaceStateViewModel?> GetCurrentWorkspaceStateAsync(int clientId, string? currentUserEmail = null, bool includeSummary = true)
         {
             await using var connection = await OpenSystemConnectionAsync();
 
             await using var command = connection.CreateCommand();
-            command.CommandText = @"
+            command.CommandText = includeSummary ? @"
 SELECT TOP 1
     vr.RunID,
     vr.ClientID,
@@ -385,6 +405,23 @@ SELECT TOP 1
 FROM dbo.ValidationRuns vr
 WHERE vr.ClientID = @ClientID
   AND vr.RuleNumber = 34
+ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;"
+            : @"
+SELECT TOP 1
+    vr.RunID,
+    vr.ClientID,
+    ISNULL(vr.HemisServer, '') AS HemisServer,
+    ISNULL(vr.AuditDatabase, '') AS AuditDatabase,
+    ISNULL(vr.StudTable, '') AS TableName,
+    ISNULL(vr.StudColumn, '') AS FirstDayColumn,
+    ISNULL(vr.DeceasedColumn, '') AS LastDayColumn,
+    ISNULL(vr.DeceasedTable, '') AS CensusDateColumn,
+    ISNULL(vr.Status, '') AS Status,
+    ISNULL(vr.LastEditedByUserName, '') AS LastEditedByUserName,
+    vr.LastEditedAt
+FROM dbo.ValidationRuns vr
+WHERE vr.ClientID = @ClientID
+  AND vr.RuleNumber = 34
 ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
             command.Parameters.AddWithValue("@ClientID", clientId);
 
@@ -392,7 +429,9 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
             if (!await reader.ReadAsync())
                 return null;
 
-            var summary = DeserializeSummary(reader.IsDBNull(11) ? null : reader.GetString(11));
+            var summary = includeSummary && !reader.IsDBNull(11)
+                ? DeserializeSummary(reader.GetString(11))
+                : null;
             var workspace = new Rule34WorkspaceStateViewModel
             {
                 RunId = reader.GetInt32(0),
@@ -446,7 +485,7 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
 
             await using var command = connection.CreateCommand();
             command.CommandText = @"
-SELECT vr.RunID, vr.ClientID, c.EngagementName, c.MaconomyNumber, vr.ResultsJSON
+SELECT vr.RunID, vr.ClientID, vr.IsCurrent, c.EngagementName, c.MaconomyNumber, vr.HemisServer, vr.ResultsJSON
 FROM dbo.ValidationRuns vr
 INNER JOIN dbo.Clients c ON c.ClientID = vr.ClientID
 WHERE vr.RunID = @RunID
@@ -457,7 +496,7 @@ WHERE vr.RunID = @RunID
             if (!await reader.ReadAsync())
                 return null;
 
-            var summary = DeserializeSummary(reader.IsDBNull(4) ? null : reader.GetString(4));
+            var summary = DeserializeSummary(reader.IsDBNull(6) ? null : reader.GetString(6));
             if (summary == null)
                 return null;
 
@@ -465,8 +504,10 @@ WHERE vr.RunID = @RunID
             {
                 RunId = reader.GetInt32(0),
                 ClientId = reader.GetInt32(1),
-                EngagementName = reader.IsDBNull(2) ? "" : reader.GetString(2),
-                MaconomyNumber = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                IsCurrentRun = !reader.IsDBNull(2) && reader.GetBoolean(2),
+                EngagementName = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                MaconomyNumber = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                SourceServer = reader.IsDBNull(5) ? "" : reader.GetString(5),
                 Summary = summary
             };
 
@@ -501,7 +542,7 @@ WHERE vr.RunID = @RunID
                 }
 
                 await using var connection = await OpenSystemConnectionAsync();
-                var clientId = await GetClientIdForRunAsync(request.RunId.Value);
+                var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
                 if (!clientId.HasValue || clientId.Value != request.ClientId)
                 {
                     return new Rule34WorkspaceSaveResult
@@ -573,7 +614,7 @@ WHERE RunID = @RunID
                 command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule34|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.TableName}|{request.FirstDayColumn}|{request.LastDayColumn}|{request.CensusDateColumn}|{request.StartYear}|{request.EndYear}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
                 await command.ExecuteNonQueryAsync();
 
-                var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail);
+                var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
                 return new Rule34WorkspaceSaveResult
                 {
                     Success = true,
@@ -610,7 +651,7 @@ WHERE RunID = @RunID
                     };
                 }
 
-                var clientId = await GetClientIdForRunAsync(runId);
+                var clientId = await GetClientIdForRunAsync(connection, runId);
                 if (!clientId.HasValue)
                 {
                     return new Rule34WorkspaceSaveResult
@@ -641,7 +682,7 @@ WHERE RunID = @RunID;";
                     await markEdit.ExecuteNonQueryAsync();
                 }
 
-                var workspace = await GetCurrentWorkspaceStateAsync(clientId.Value, reviewerEmail);
+                var workspace = await GetCurrentWorkspaceStateAsync(clientId.Value, reviewerEmail, includeSummary: false);
                 return new Rule34WorkspaceSaveResult
                 {
                     Success = true,
@@ -670,7 +711,7 @@ WHERE RunID = @RunID;";
             if (!reviewerId.HasValue)
                 throw new InvalidOperationException("Reviewer could not be resolved in the system database.");
 
-            var clientId = await GetClientIdForRunAsync(runId);
+            var clientId = await GetClientIdForRunAsync(connection, runId);
             if (!clientId.HasValue)
                 throw new InvalidOperationException("Validation run was not found.");
 
@@ -725,7 +766,7 @@ END";
             if (!reviewerId.HasValue)
                 throw new InvalidOperationException("Reviewer could not be resolved in the system database.");
 
-            var clientId = await GetClientIdForRunAsync(runId);
+            var clientId = await GetClientIdForRunAsync(connection, runId);
             if (!clientId.HasValue)
                 throw new InvalidOperationException("Validation run was not found.");
 
@@ -758,17 +799,37 @@ WHERE RunID = @RunID
                 ? string.Join(",\n", holidays.Select(h => $"    (CAST('{h.Date}' AS date), N'{EscapeSqlString(h.Name)}')"))
                 : "    (CAST('1900-01-01' AS date), N'No Holiday Data')";
 
-            var table = request.TableName;
-            var firstDay = request.FirstDayColumn;
-            var lastDay = request.LastDayColumn;
-            var censusDate = request.CensusDateColumn;
+                var table = request.TableName;
+                var firstDay = request.FirstDayColumn;
+                var lastDay = request.LastDayColumn;
+                var censusDate = request.CensusDateColumn;
+                var firstDaySql = BuildNotebookSqlDateParseExpression(firstDay);
+                var lastDaySql = BuildNotebookSqlDateParseExpression(lastDay);
+                var censusDateSql = BuildNotebookSqlDateParseExpression(censusDate);
+                var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+                using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+                var optionalColumns = await GetOptionalCurrentDayColumnsAsync(conn, Sanitise(table));
+                var currentDaysSql = !string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysColumn)
+                    ? BuildSqlIntParseExpression(optionalColumns.CurrentDaysColumn!)
+                    : null;
+                var currentDaysHalfSql = !string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysHalfColumn)
+                    ? BuildSqlDecimalParseExpression(optionalColumns.CurrentDaysHalfColumn!)
+                    : null;
 
             return $@"-- ============================================================================
 -- HEMIS 2025 - RULE 34: CENSUS DATE VALIDATION
 -- ============================================================================
--- Purpose: Compare the prepared census midpoint against the stored census date.
--- PASS: c_Census_Date_Prep = Midpoint_CENSUS_DATE
--- FAIL: c_Census_Date_Prep <> Midpoint_CENSUS_DATE
+-- Purpose: Compare the adjusted actual census date against the stored census date.
+-- NOTEBOOK FORMULA:
+--   c_Days = (Last_Day_Class - First_Day_Class).dt.days
+--   c_Days_2 = c_Days / 2
+--   c_Census_Date_Prep = First_Day_Class + timedelta(days=c_Days_2)
+--   c_ACTUAL_CENSUS_DATE = next working day when the prepared date falls on
+--                          a weekend or South African public holiday
+--   Comparison_Result = c_ACTUAL_CENSUS_DATE <> Midpoint_CENSUS_DATE
+-- PASS: FALSE (dates match)
+-- FAIL: TRUE (dates mismatch)
 -- Dynamic holiday year range: {request.StartYear} - {request.EndYear}
 -- ============================================================================
 
@@ -789,9 +850,9 @@ WITH BaseData AS
 (
     SELECT
         ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
-        TRY_CONVERT(datetime, [{firstDay}]) AS First_Day_Class,
-        TRY_CONVERT(datetime, [{lastDay}]) AS Last_Day_Class,
-        TRY_CONVERT(datetime, [{censusDate}]) AS Midpoint_CENSUS_DATE
+        {firstDaySql} AS First_Day_Class,
+        {lastDaySql} AS Last_Day_Class,
+        {censusDateSql} AS Midpoint_CENSUS_DATE
     FROM [{table}]
 ),
 Prepared AS
@@ -802,16 +863,93 @@ Prepared AS
         Last_Day_Class,
         Midpoint_CENSUS_DATE,
         CASE
+            WHEN {currentDaysSql ?? "NULL"} IS NOT NULL THEN {currentDaysSql}
             WHEN First_Day_Class IS NULL OR Last_Day_Class IS NULL THEN NULL
-            ELSE DATEADD(MINUTE, DATEDIFF(MINUTE, First_Day_Class, Last_Day_Class) / 2, First_Day_Class)
-        END AS c_Census_Date_Prep
+            ELSE CAST(FLOOR(DATEDIFF_BIG(SECOND, First_Day_Class, Last_Day_Class) / 86400.0) AS int)
+        END AS c_Days
     FROM BaseData
+),
+Calculated AS
+(
+    SELECT
+        Validation_Number,
+        First_Day_Class,
+        Last_Day_Class,
+        Midpoint_CENSUS_DATE,
+        c_Days,
+        CASE
+            WHEN {currentDaysHalfSql ?? "NULL"} IS NOT NULL THEN {currentDaysHalfSql}
+            WHEN c_Days IS NULL THEN NULL
+            ELSE CAST(c_Days AS decimal(18, 1)) / 2.0
+        END AS c_Days_2,
+        CASE
+            WHEN First_Day_Class IS NULL OR c_Days IS NULL THEN NULL
+            WHEN {currentDaysSql ?? "NULL"} IS NOT NULL AND {currentDaysHalfSql ?? "NULL"} IS NOT NULL
+                THEN DATEADD(
+                    DAY,
+                    CASE
+                        WHEN c_Days % 2 = 0 THEN CAST(({currentDaysHalfSql}) - 1 AS int)
+                        ELSE CAST({currentDaysHalfSql} AS int)
+                    END,
+                    First_Day_Class
+                )
+            ELSE DATEADD(SECOND, CAST((CAST(c_Days AS decimal(18, 1)) / 2.0) * 86400 AS int), First_Day_Class)
+        END AS c_Census_Date_Prep
+    FROM Prepared
+),
+OffsetDays AS
+(
+    SELECT 0 AS OffsetValue
+    UNION ALL SELECT 1
+    UNION ALL SELECT 2
+    UNION ALL SELECT 3
+    UNION ALL SELECT 4
+    UNION ALL SELECT 5
+    UNION ALL SELECT 6
+    UNION ALL SELECT 7
+    UNION ALL SELECT 8
+    UNION ALL SELECT 9
+    UNION ALL SELECT 10
+    UNION ALL SELECT 11
+    UNION ALL SELECT 12
+    UNION ALL SELECT 13
+    UNION ALL SELECT 14
+),
+ActualDates AS
+(
+    SELECT
+        c.Validation_Number,
+        c.First_Day_Class,
+        c.Last_Day_Class,
+        c.Midpoint_CENSUS_DATE,
+        c.c_Days,
+        c.c_Days_2,
+        c.c_Census_Date_Prep,
+        actualDate.c_ACTUAL_CENSUS_DATE
+    FROM Calculated c
+    OUTER APPLY
+    (
+        SELECT TOP 1
+            DATEADD(DAY, o.OffsetValue, CAST(c.c_Census_Date_Prep AS date)) AS c_ACTUAL_CENSUS_DATE
+        FROM OffsetDays o
+        WHERE c.c_Census_Date_Prep IS NOT NULL
+          AND DATENAME(WEEKDAY, DATEADD(DAY, o.OffsetValue, CAST(c.c_Census_Date_Prep AS date))) NOT IN ('Saturday', 'Sunday')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM #Rule34Holidays h
+              WHERE h.HolidayDate = DATEADD(DAY, o.OffsetValue, CAST(c.c_Census_Date_Prep AS date))
+          )
+        ORDER BY o.OffsetValue
+    ) actualDate
 )
 SELECT
     Validation_Number,
     First_Day_Class,
     Last_Day_Class,
+    c_Days AS Current_days,
+    c_Days_2 AS Current_days_2,
     c_Census_Date_Prep,
+    c_ACTUAL_CENSUS_DATE,
     Midpoint_CENSUS_DATE,
     CASE
         WHEN c_Census_Date_Prep IS NULL THEN 'NULL Date'
@@ -823,23 +961,35 @@ SELECT
             SELECT TOP 1 h.HolidayName
             FROM #Rule34Holidays h
             WHERE h.HolidayDate = CAST(c_Census_Date_Prep AS date)
-        )
-        WHEN DATENAME(WEEKDAY, c_Census_Date_Prep) = 'Saturday' THEN 'Falls on Saturday'
-        WHEN DATENAME(WEEKDAY, c_Census_Date_Prep) = 'Sunday' THEN 'Falls on Sunday'
+        ) + CASE
+            WHEN c_ACTUAL_CENSUS_DATE IS NOT NULL AND CAST(c_ACTUAL_CENSUS_DATE AS date) <> CAST(c_Census_Date_Prep AS date)
+                THEN ' -> shifted to ' + CONVERT(varchar(10), c_ACTUAL_CENSUS_DATE, 23)
+            ELSE ''
+        END
+        WHEN DATENAME(WEEKDAY, c_Census_Date_Prep) = 'Saturday' THEN 'Falls on Saturday' + CASE
+            WHEN c_ACTUAL_CENSUS_DATE IS NOT NULL AND CAST(c_ACTUAL_CENSUS_DATE AS date) <> CAST(c_Census_Date_Prep AS date)
+                THEN ' -> shifted to ' + CONVERT(varchar(10), c_ACTUAL_CENSUS_DATE, 23)
+            ELSE ''
+        END
+        WHEN DATENAME(WEEKDAY, c_Census_Date_Prep) = 'Sunday' THEN 'Falls on Sunday' + CASE
+            WHEN c_ACTUAL_CENSUS_DATE IS NOT NULL AND CAST(c_ACTUAL_CENSUS_DATE AS date) <> CAST(c_Census_Date_Prep AS date)
+                THEN ' -> shifted to ' + CONVERT(varchar(10), c_ACTUAL_CENSUS_DATE, 23)
+            ELSE ''
+        END
         ELSE 'Weekday'
     END AS step4_Weekend_Note,
     CASE
-        WHEN c_Census_Date_Prep IS NULL OR Midpoint_CENSUS_DATE IS NULL THEN CAST(1 AS bit)
-        WHEN CAST(c_Census_Date_Prep AS date) <> CAST(Midpoint_CENSUS_DATE AS date) THEN CAST(1 AS bit)
+        WHEN c_ACTUAL_CENSUS_DATE IS NULL OR Midpoint_CENSUS_DATE IS NULL THEN CAST(1 AS bit)
+        WHEN CAST(c_ACTUAL_CENSUS_DATE AS date) <> CAST(Midpoint_CENSUS_DATE AS date) THEN CAST(1 AS bit)
         ELSE CAST(0 AS bit)
     END AS Comparison_Result,
     CASE
-        WHEN c_Census_Date_Prep IS NULL OR Midpoint_CENSUS_DATE IS NULL THEN 'FAIL (TRUE - MISMATCH)'
-        WHEN CAST(c_Census_Date_Prep AS date) <> CAST(Midpoint_CENSUS_DATE AS date) THEN 'FAIL (TRUE - MISMATCH)'
+        WHEN c_ACTUAL_CENSUS_DATE IS NULL OR Midpoint_CENSUS_DATE IS NULL THEN 'FAIL (TRUE - MISMATCH)'
+        WHEN CAST(c_ACTUAL_CENSUS_DATE AS date) <> CAST(Midpoint_CENSUS_DATE AS date) THEN 'FAIL (TRUE - MISMATCH)'
         ELSE 'PASS (FALSE - MATCH)'
     END AS Validation_Status
 INTO #Rule34Validation
-FROM Prepared;
+FROM ActualDates;
 
 SELECT
     COUNT(*) AS Total_Validated,
@@ -847,7 +997,7 @@ SELECT
     SUM(CASE WHEN Validation_Status = 'FAIL (TRUE - MISMATCH)' THEN 1 ELSE 0 END) AS Fail_Count,
     CAST(SUM(CASE WHEN Validation_Status = 'FAIL (TRUE - MISMATCH)' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(10,2)) AS Exception_Rate_Percent,
     SUM(CASE WHEN step4_Weekend_Note LIKE 'SA Public Holiday:%' THEN 1 ELSE 0 END) AS Holiday_Count,
-    SUM(CASE WHEN step4_Weekend_Note IN ('Falls on Saturday', 'Falls on Sunday') THEN 1 ELSE 0 END) AS Weekend_Count
+    SUM(CASE WHEN step4_Weekend_Note LIKE 'Falls on Saturday%' OR step4_Weekend_Note LIKE 'Falls on Sunday%' THEN 1 ELSE 0 END) AS Weekend_Count
 FROM #Rule34Validation;
 
 SELECT *
@@ -1015,40 +1165,227 @@ WHERE RunID = @RunID;";
             if (value is DateTime dt)
                 return dt;
 
-            if (DateTime.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            var raw = Convert.ToString(value, CultureInfo.InvariantCulture);
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+
+            var normalized = NormalizeNotebookDateText(raw);
+
+            foreach (var format in NotebookDateFormats)
+            {
+                if (DateTime.TryParseExact(normalized, format, CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
+                    return exact;
+
+                if (DateTime.TryParseExact(normalized, format, CultureInfo.GetCultureInfo("en-GB"), DateTimeStyles.None, out exact))
+                    return exact;
+            }
+
+            if (DateTime.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+                return parsed;
+
+            if (DateTime.TryParse(normalized, CultureInfo.GetCultureInfo("en-GB"), DateTimeStyles.None, out parsed))
                 return parsed;
 
             return null;
         }
 
-        private static DateTime? ComputeMidpoint(DateTime? firstDay, DateTime? lastDay)
+        private static readonly string[] NotebookDateFormats =
+        {
+            "dd MMM yy",
+            "d MMM yy",
+            "dd MMM yyyy",
+            "d MMM yyyy",
+            "dd MMMM yy",
+            "d MMMM yy",
+            "dd MMMM yyyy",
+            "d MMMM yyyy",
+            "dd-MMM-yy",
+            "d-MMM-yy",
+            "dd-MMM-yyyy",
+            "d-MMM-yyyy",
+            "dd-MMMM-yy",
+            "d-MMMM-yy",
+            "dd-MMMM-yyyy",
+            "d-MMMM-yyyy",
+            "yyyy-MM-dd",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy/MM/dd",
+            "MM/dd/yyyy",
+            "dd/MM/yyyy"
+        };
+
+        private static string NormalizeNotebookDateText(string value)
+        {
+            var normalized = value.Trim();
+            if (normalized.Length == 0)
+                return normalized;
+
+            normalized = normalized.Replace('\u00A0', ' ');
+            normalized = Regex.Replace(normalized, @"\s+", " ");
+            normalized = Regex.Replace(normalized, @"\bSept\b", "Sep", RegexOptions.IgnoreCase);
+            return normalized;
+        }
+
+        private static string BuildNotebookSqlDateParseExpression(string columnName)
+        {
+            var escapedColumn = $"[{columnName}]";
+            var textValue = $"NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), {escapedColumn}))), '')";
+            var normalizedText = $"REPLACE(REPLACE({textValue}, 'Sept', 'Sep'), '-', ' ')";
+
+            return $@"COALESCE(
+        TRY_CONVERT(datetime, {escapedColumn}),
+        TRY_PARSE({normalizedText} AS datetime USING 'en-GB'),
+        TRY_PARSE({normalizedText} AS datetime USING 'en-US')
+    )";
+        }
+
+        private static string BuildSqlIntParseExpression(string columnName)
+        {
+            var escapedColumn = $"[{columnName}]";
+            var textValue = $"NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), {escapedColumn}))), '')";
+
+            return $@"COALESCE(
+        TRY_CONVERT(int, {textValue}),
+        TRY_PARSE({textValue} AS int USING 'en-ZA'),
+        TRY_PARSE({textValue} AS int USING 'en-US')
+    )";
+        }
+
+        private static string BuildSqlDecimalParseExpression(string columnName)
+        {
+            var escapedColumn = $"[{columnName}]";
+            var textValue = $"NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), {escapedColumn}))), '')";
+            var normalizedText = $"REPLACE({textValue}, ',', '.')";
+
+            return $@"COALESCE(
+        TRY_CONVERT(decimal(18, 4), {textValue}),
+        TRY_CONVERT(decimal(18, 4), {normalizedText}),
+        TRY_PARSE({textValue} AS decimal(18, 4) USING 'en-ZA'),
+        TRY_PARSE({textValue} AS decimal(18, 4) USING 'en-US')
+    )";
+        }
+
+        private static int? ComputeNotebookDaySpan(DateTime? firstDay, DateTime? lastDay)
         {
             if (!firstDay.HasValue || !lastDay.HasValue)
                 return null;
 
-            var span = lastDay.Value - firstDay.Value;
-            return firstDay.Value.AddTicks(span.Ticks / 2);
+            return (int)Math.Floor((lastDay.Value - firstDay.Value).TotalDays);
         }
 
-        private static string GetDayStatus(DateTime? date, IReadOnlyDictionary<DateOnly, string> holidays)
+        private static decimal? ComputeNotebookHalfDaySpan(int? wholeDays) =>
+            wholeDays.HasValue ? wholeDays.Value / 2m : null;
+
+        private static DateTime? ComputePreparedCensusDate(DateTime? firstDay, decimal? halfDays)
         {
-            if (!date.HasValue)
+            if (!firstDay.HasValue || !halfDays.HasValue)
+                return null;
+
+            return firstDay.Value.AddDays((double)halfDays.Value);
+        }
+
+        private static DateTime? ComputePreparedCensusDateFromSqlDayValues(DateTime? firstDay, int? wholeDays, decimal? halfDays)
+        {
+            if (!firstDay.HasValue || !wholeDays.HasValue || !halfDays.HasValue)
+                return null;
+
+            var midpointOffset = wholeDays.Value % 2 == 0
+                ? halfDays.Value - 1m
+                : halfDays.Value;
+
+            return firstDay.Value.AddDays((double)midpointOffset);
+        }
+
+        private static DateTime? ComputeActualCensusDate(DateTime? preparedDate, IReadOnlyDictionary<DateOnly, string> holidays)
+        {
+            if (!preparedDate.HasValue)
+                return null;
+
+            var candidate = preparedDate.Value.Date;
+            for (var i = 0; i < 31; i++)
+            {
+                var day = DateOnly.FromDateTime(candidate);
+                var isWeekend = candidate.DayOfWeek == DayOfWeek.Saturday || candidate.DayOfWeek == DayOfWeek.Sunday;
+                if (!isWeekend && !holidays.ContainsKey(day))
+                    return candidate;
+
+                candidate = candidate.AddDays(1);
+            }
+
+            return candidate;
+        }
+
+        private static string GetDayStatus(DateTime? preparedDate, DateTime? actualDate, IReadOnlyDictionary<DateOnly, string> holidays)
+        {
+            if (!preparedDate.HasValue)
                 return "NULL Date";
 
-            var day = DateOnly.FromDateTime(date.Value);
-            if (holidays.TryGetValue(day, out var holidayName))
-                return $"SA Public Holiday: {holidayName}";
+            var day = DateOnly.FromDateTime(preparedDate.Value);
+            var shiftSuffix = actualDate.HasValue && actualDate.Value.Date != preparedDate.Value.Date
+                ? $" -> shifted to {actualDate.Value:yyyy-MM-dd}"
+                : "";
 
-            return date.Value.DayOfWeek switch
+            if (holidays.TryGetValue(day, out var holidayName))
+                return $"SA Public Holiday: {holidayName}{shiftSuffix}";
+
+            return preparedDate.Value.DayOfWeek switch
             {
-                DayOfWeek.Saturday => "Falls on Saturday",
-                DayOfWeek.Sunday => "Falls on Sunday",
+                DayOfWeek.Saturday => $"Falls on Saturday{shiftSuffix}",
+                DayOfWeek.Sunday => $"Falls on Sunday{shiftSuffix}",
                 _ => "Weekday"
             };
         }
 
         private static string FormatDate(DateTime? value) =>
-            value.HasValue ? value.Value.ToString("yyyy-MM-dd HH:mm:ss") : "";
+            value.HasValue ? value.Value.ToString("yyyy-MM-dd HH:mm:ss") : "NULL";
+
+        private static int? ParseNullableInt(object value)
+        {
+            if (value == null || value == DBNull.Value)
+                return null;
+
+            var text = Convert.ToString(value, CultureInfo.InvariantCulture)?.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedInt))
+                return parsedInt;
+
+            if (decimal.TryParse(text.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedDecimal))
+                return (int)Math.Round(parsedDecimal, MidpointRounding.AwayFromZero);
+
+            return null;
+        }
+
+        private static decimal? ParseNullableDecimal(object value)
+        {
+            if (value == null || value == DBNull.Value)
+                return null;
+
+            var text = Convert.ToString(value, CultureInfo.InvariantCulture)?.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            if (decimal.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                return parsed;
+
+            if (decimal.TryParse(text.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out parsed))
+                return parsed;
+
+            return null;
+        }
+
+        private static T? TryGetValue<T>(SqlDataReader reader, string columnName, Func<object, T?> parser)
+            where T : struct
+        {
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                if (string.Equals(reader.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+                    return parser(reader.GetValue(i));
+            }
+
+            return null;
+        }
 
         private static string FormatValue(object value) =>
             value switch
@@ -1075,6 +1412,63 @@ WHERE RunID = @RunID;";
             }
 
             return dateColumns.FirstOrDefault() ?? columns.FirstOrDefault() ?? "";
+        }
+
+        private static async Task<int?> GetClientIdForRunAsync(SqlConnection connection, int runId)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT TOP 1 ClientID FROM dbo.ValidationRuns WHERE RunID = @RunID;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            var value = await command.ExecuteScalarAsync();
+            return value == null || value == DBNull.Value ? null : Convert.ToInt32(value);
+        }
+
+        private async Task<(string? CurrentDaysColumn, string? CurrentDaysHalfColumn)> GetOptionalCurrentDayColumnsAsync(SqlConnection connection, string tableName)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = @"
+SELECT COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = @TableName
+ORDER BY ORDINAL_POSITION;";
+            command.Parameters.AddWithValue("@TableName", tableName);
+
+            var columns = new List<string>();
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                if (!reader.IsDBNull(0))
+                    columns.Add(reader.GetString(0));
+            }
+
+            return
+            (
+                FindOptionalColumn(columns,
+                    new[] { "Current_days", "CurrentDays", "c_Days", "C_DAYS" },
+                    new[] { "current_days", "currentdays", "c_days" }),
+                FindOptionalColumn(columns,
+                    new[] { "Current_days_2", "CurrentDays_2", "CurrentDays2", "c_Days_2", "C_DAYS_2" },
+                    new[] { "current_days_2", "currentdays_2", "currentdays2", "c_days_2" })
+            );
+        }
+
+        private static string? FindOptionalColumn(IEnumerable<string> columns, string[] exactMatches, string[] containsMatches)
+        {
+            foreach (var exact in exactMatches)
+            {
+                var match = columns.FirstOrDefault(c => c.Equals(exact, StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrWhiteSpace(match))
+                    return match;
+            }
+
+            foreach (var fragment in containsMatches)
+            {
+                var match = columns.FirstOrDefault(c => c.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrWhiteSpace(match))
+                    return match;
+            }
+
+            return null;
         }
 
         private static string BuildConnectionString(string server, string database, string driver) =>

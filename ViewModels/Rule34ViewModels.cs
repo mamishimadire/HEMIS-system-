@@ -1,3 +1,5 @@
+using HemisAudit.Helpers;
+
 namespace HemisAudit.ViewModels
 {
     public class Rule34HolidayLoadRequest
@@ -85,7 +87,10 @@ namespace HemisAudit.ViewModels
         public int ValidationNumber { get; set; }
         public string FirstDayValue { get; set; } = "";
         public string LastDayValue { get; set; } = "";
+        public int? CurrentDays { get; set; }
+        public decimal? CurrentDaysHalf { get; set; }
         public string ComputedCensusDate { get; set; } = "";
+        public string ActualCensusDate { get; set; } = "";
         public string CensusDateValue { get; set; } = "";
         public string DayStatus { get; set; } = "";
         public bool ComparisonResult { get; set; }
@@ -124,8 +129,11 @@ namespace HemisAudit.ViewModels
     {
         public int RunId { get; set; }
         public int ClientId { get; set; }
+        public bool IsCurrentRun { get; set; }
         public string EngagementName { get; set; } = "";
         public string MaconomyNumber { get; set; } = "";
+        public string SourceServer { get; set; } = "";
+        public string GeneratedSql { get; set; } = "";
         public Rule34ValidationSummary Summary { get; set; } = new();
         public List<RunSignoffViewModel> Signoffs { get; set; } = new();
         public string CurrentUserEngagementRole { get; set; } = "";
@@ -135,15 +143,9 @@ namespace HemisAudit.ViewModels
             Signoffs.Any(s =>
                 s.IsCurrentUser &&
                 string.Equals(s.SignoffRole, CurrentUserEngagementRole, StringComparison.OrdinalIgnoreCase));
-        public bool CanCurrentUserSignOff =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase);
-        public bool CanCurrentUserDownload =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+        public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
+        public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
     }
 
     public class Rule34WorkspaceStateViewModel

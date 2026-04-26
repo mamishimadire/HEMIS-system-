@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using HemisAudit.Data;
+using HemisAudit.Helpers;
 using HemisAudit.Models;
 using HemisAudit.Services;
 using HemisAudit.ViewModels;
@@ -426,6 +427,10 @@ namespace HemisAudit.Controllers
             ViewBag.CanManageAssignments =
                 string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) &&
                 !detail.IsArchived;
+            ViewBag.ShowModulesWorkspaceUi =
+                string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) ||
+                (string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(detail.CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
 
             detail.CanArchive = false;
             detail.ArchiveEligibilityMessage = detail.IsArchived
@@ -452,7 +457,7 @@ namespace HemisAudit.Controllers
                 !string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
             {
                 detail.ValidationRuns = detail.ValidationRuns
-                    .Where(run => run.HasDataAnalystSignoff)
+                    .Where(run => ValidationRunAccessPolicy.CanViewSignedResults(role, detail.CurrentUserEngagementRole, run.HasDataAnalystSignoff))
                     .ToList();
             }
 

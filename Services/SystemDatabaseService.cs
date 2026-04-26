@@ -198,17 +198,34 @@ WHERE ClientID = @ClientID
         public async Task<int> GetValidationRunCountAsync(ApplicationUser? user, string role)
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
+            var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             await using var connection = await OpenConnectionAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = isAdmin
                 ? "SELECT COUNT(*) FROM dbo.ValidationRuns;"
-                : @"SELECT COUNT(*)
+                : isDataAnalyst
+                    ? @"SELECT COUNT(*)
                     FROM dbo.ValidationRuns vr
                     WHERE EXISTS (
                         SELECT 1
                         FROM dbo.UserClientAssignments a
                         WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
-                    ) OR vr.UserID = @UserID;";
+                    ) OR vr.UserID = @UserID;"
+                    : @"SELECT COUNT(*)
+                    FROM dbo.ValidationRuns vr
+                    WHERE (
+                        EXISTS (
+                            SELECT 1
+                            FROM dbo.UserClientAssignments a
+                            WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
+                        ) OR vr.UserID = @UserID
+                    )
+                      AND EXISTS (
+                          SELECT 1
+                          FROM dbo.ReviewSignoffs rs
+                          WHERE rs.RunID = vr.RunID
+                            AND rs.SignoffRole = 'DataAnalyst'
+                      );";
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
             return Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -217,17 +234,34 @@ WHERE ClientID = @ClientID
         public async Task<int> GetExceptionCountAsync(ApplicationUser? user, string role)
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
+            var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             await using var connection = await OpenConnectionAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = isAdmin
                 ? "SELECT ISNULL(SUM(ISNULL(FailCount,0)),0) FROM dbo.ValidationRuns;"
-                : @"SELECT ISNULL(SUM(ISNULL(vr.FailCount,0)),0)
+                : isDataAnalyst
+                    ? @"SELECT ISNULL(SUM(ISNULL(vr.FailCount,0)),0)
                     FROM dbo.ValidationRuns vr
                     WHERE EXISTS (
                         SELECT 1
                         FROM dbo.UserClientAssignments a
                         WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
-                    ) OR vr.UserID = @UserID;";
+                    ) OR vr.UserID = @UserID;"
+                    : @"SELECT ISNULL(SUM(ISNULL(vr.FailCount,0)),0)
+                    FROM dbo.ValidationRuns vr
+                    WHERE (
+                        EXISTS (
+                            SELECT 1
+                            FROM dbo.UserClientAssignments a
+                            WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
+                        ) OR vr.UserID = @UserID
+                    )
+                      AND EXISTS (
+                          SELECT 1
+                          FROM dbo.ReviewSignoffs rs
+                          WHERE rs.RunID = vr.RunID
+                            AND rs.SignoffRole = 'DataAnalyst'
+                      );";
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
             return Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -268,6 +302,7 @@ WHERE vr.Status <> 'Reviewed and Completed'
         public async Task<List<ValidationRunRow>> GetRecentRunsAsync(ApplicationUser? user, string role, int take = 10)
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
+            var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             await using var connection = await OpenConnectionAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = isAdmin
@@ -296,7 +331,8 @@ WHERE vr.Status <> 'Reviewed and Completed'
                       LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
                       LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
                       ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
-                : $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
+                : isDataAnalyst
+                    ? $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
                             COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
                             ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
                             vr.LastEditedAt,
@@ -324,6 +360,42 @@ WHERE vr.Status <> 'Reviewed and Completed'
                           SELECT 1 FROM dbo.UserClientAssignments a
                           WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
                       ) OR vr.UserID = @UserID
+                      ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
+                    : $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
+                            COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
+                            ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
+                            vr.LastEditedAt,
+                            vr.IsCurrent,
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM dbo.ReviewSignoffs rs
+                                WHERE rs.RunID = vr.RunID
+                                  AND rs.SignoffRole = 'DataAnalyst'
+                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDataAnalystSignoff
+                            ,
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM dbo.ReviewSignoffs rs
+                                WHERE rs.RunID = vr.RunID
+                                  AND rs.SignoffRole = 'Manager'
+                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasManagerSignoff,
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM dbo.ReviewSignoffs rs
+                                WHERE rs.RunID = vr.RunID
+                                  AND rs.SignoffRole = 'Director'
+                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDirectorSignoff
+                      FROM dbo.ValidationRuns vr
+                      LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
+                      LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
+                      WHERE (
+                          EXISTS (
+                              SELECT 1 FROM dbo.UserClientAssignments a
+                              WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
+                          ) OR vr.UserID = @UserID
+                      )
+                        AND EXISTS (
+                            SELECT 1 FROM dbo.ReviewSignoffs rs
+                            WHERE rs.RunID = vr.RunID
+                              AND rs.SignoffRole = 'DataAnalyst'
+                        )
                       ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
@@ -1327,6 +1399,7 @@ VALUES (@UserID, @ClientID);";
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
             var isDirector = string.Equals(role, "Director", StringComparison.OrdinalIgnoreCase);
+            var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             var normalizedSearch = string.IsNullOrWhiteSpace(search)
                 ? null
                 : $"%{search.Trim().ToLowerInvariant()}%";
@@ -1342,6 +1415,13 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
        ISNULL(u.FirstName + ' ' + u.LastName, '') AS CreatedByName,
        (SELECT COUNT(1) FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID) AS AssignedUsersCount,
        (SELECT COUNT(1) FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID) AS ValidationRunsCount,
+       (SELECT COUNT(1)
+        FROM dbo.ValidationRuns vr
+        WHERE vr.ClientID = c.ClientID
+          AND EXISTS (
+              SELECT 1 FROM dbo.ReviewSignoffs rs
+              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
+          )) AS SignedOffValidationRunsCount,
        (SELECT TOP 1 vr.RunID FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunId,
        (SELECT TOP 1 vr.RuleNumber FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunRuleNumber,
        (SELECT TOP 1 vr.RunID
@@ -1414,6 +1494,13 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
        ISNULL(u.FirstName + ' ' + u.LastName, '') AS CreatedByName,
        (SELECT COUNT(1) FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID) AS AssignedUsersCount,
        (SELECT COUNT(1) FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID) AS ValidationRunsCount,
+       (SELECT COUNT(1)
+        FROM dbo.ValidationRuns vr
+        WHERE vr.ClientID = c.ClientID
+          AND EXISTS (
+              SELECT 1 FROM dbo.ReviewSignoffs rs
+              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
+          )) AS SignedOffValidationRunsCount,
        (SELECT TOP 1 vr.RunID FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunId,
        (SELECT TOP 1 vr.RuleNumber FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunRuleNumber,
        (SELECT TOP 1 vr.RunID
@@ -1492,6 +1579,13 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
        ISNULL(u.FirstName + ' ' + u.LastName, '') AS CreatedByName,
        (SELECT COUNT(1) FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID) AS AssignedUsersCount,
        (SELECT COUNT(1) FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID) AS ValidationRunsCount,
+       (SELECT COUNT(1)
+        FROM dbo.ValidationRuns vr
+        WHERE vr.ClientID = c.ClientID
+          AND EXISTS (
+              SELECT 1 FROM dbo.ReviewSignoffs rs
+              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
+          )) AS SignedOffValidationRunsCount,
        (SELECT TOP 1 vr.RunID FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunId,
        (SELECT TOP 1 vr.RuleNumber FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunRuleNumber,
        (SELECT TOP 1 vr.RunID
@@ -1583,16 +1677,27 @@ ORDER BY c.CreatedAt DESC, c.ClientID DESC;";
                 var createdByName = reader.IsDBNull(6) ? "" : reader.GetString(6);
                 var assignedUsersCount = reader.IsDBNull(7) ? 0 : reader.GetInt32(7);
                 var validationRunsCount = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
-                var latestRunId = reader.IsDBNull(9) ? (int?)null : reader.GetInt32(9);
-                var latestRunRuleNumber = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
-                var latestSignedOffRunId = reader.IsDBNull(11) ? (int?)null : reader.GetInt32(11);
-                var latestSignedOffRunRuleNumber = reader.IsDBNull(12) ? (int?)null : reader.GetInt32(12);
-                var lastRunStatus = reader.IsDBNull(13) ? null : reader.GetString(13);
-                DateTime? lastRunAt = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14);
-                var latestSignedOffStatus = reader.IsDBNull(15) ? null : reader.GetString(15);
-                DateTime? latestSignedOffAt = reader.IsDBNull(16) ? (DateTime?)null : reader.GetDateTime(16);
-                var isFavorite = !reader.IsDBNull(17) && reader.GetBoolean(17);
-                var currentUserEngagementRole = reader.IsDBNull(18) ? "" : reader.GetString(18);
+                var signedOffValidationRunsCount = reader.IsDBNull(9) ? 0 : reader.GetInt32(9);
+                var latestRunId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
+                var latestRunRuleNumber = reader.IsDBNull(11) ? (int?)null : reader.GetInt32(11);
+                var latestSignedOffRunId = reader.IsDBNull(12) ? (int?)null : reader.GetInt32(12);
+                var latestSignedOffRunRuleNumber = reader.IsDBNull(13) ? (int?)null : reader.GetInt32(13);
+                var lastRunStatus = reader.IsDBNull(14) ? null : reader.GetString(14);
+                DateTime? lastRunAt = reader.IsDBNull(15) ? (DateTime?)null : reader.GetDateTime(15);
+                var latestSignedOffStatus = reader.IsDBNull(16) ? null : reader.GetString(16);
+                DateTime? latestSignedOffAt = reader.IsDBNull(17) ? (DateTime?)null : reader.GetDateTime(17);
+                var isFavorite = !reader.IsDBNull(18) && reader.GetBoolean(18);
+                var currentUserEngagementRole = reader.IsDBNull(19) ? "" : reader.GetString(19);
+                var canOnlySeeSignedResults = !isAdmin && !isDataAnalyst;
+
+                if (canOnlySeeSignedResults)
+                {
+                    validationRunsCount = signedOffValidationRunsCount;
+                    latestRunId = latestSignedOffRunId;
+                    latestRunRuleNumber = latestSignedOffRunRuleNumber;
+                    lastRunStatus = latestSignedOffStatus;
+                    lastRunAt = latestSignedOffAt;
+                }
 
                 list.Add(new ClientListViewModel
                 {

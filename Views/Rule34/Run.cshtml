@@ -7,6 +7,7 @@
     var canManageEngagement = ViewBag.CanManageEngagement is bool manageEngagement && manageEngagement;
     var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool openWorkspace && openWorkspace;
     var isArchived = ViewBag.IsArchived is bool archived && archived;
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
 }
 
 @if (TempData["Success"] != null)
@@ -18,6 +19,29 @@
 {
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
 }
+
+@if (moduleNavigation != null)
+{
+    @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+}
+
+<style>
+    .review-tabs { display:flex; gap:0; border-bottom:1px solid #e5e7eb; margin-bottom:24px; overflow:auto; }
+    .review-tab { background:none; border:0; border-bottom:3px solid transparent; color:#334155; cursor:pointer; font:inherit; padding:14px 18px; white-space:nowrap; }
+    .review-tab.is-active { border-bottom-color:#ef4444; color:#dc2626; font-weight:700; }
+    .review-panel { display:none; }
+    .review-panel.is-active { display:block; }
+    .viz-grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); }
+    .viz-card { background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:20px; box-shadow:0 18px 40px rgba(15, 23, 42, .06); }
+    .viz-bar { background:#e5e7eb; border-radius:999px; height:14px; overflow:hidden; margin-top:10px; }
+    .viz-bar > span { display:block; height:100%; }
+    .code-panel { background:#0f172a; border-radius:18px; color:#e2e8f0; overflow:auto; padding:18px; }
+    .code-panel pre { margin:0; white-space:pre-wrap; word-break:break-word; }
+    .filter-toolbar { align-items:center; display:flex; flex-wrap:wrap; gap:16px; justify-content:space-between; margin-bottom:16px; }
+    .filter-toolbar__group { align-items:center; display:flex; gap:10px; }
+    .filter-toolbar__group label { color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; }
+    .filter-toolbar__meta { color:#64748b; font-size:14px; }
+</style>
 
 <div class="page-header">
     <div>
@@ -38,6 +62,7 @@
             <a asp-action="Index" asp-route-clientId="@Model.ClientId" class="btn btn-secondary">Back to Workspace</a>
         }
         <a asp-controller="Dashboard" asp-action="Index" class="btn btn-secondary">Back to Dashboard</a>
+        <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" asp-fragment="validation-runs-panel" class="btn btn-secondary">Back to Validation Runs</a>
         @if (canManageEngagement)
         {
             <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" class="btn btn-secondary">Back to Engagement</a>
@@ -52,92 +77,12 @@
     </div>
 }
 
-<div class="stats-grid" style="margin-bottom:24px">
-    <div class="stat-card">
-        <div class="stat-card__label">Validated</div>
-        <div class="stat-card__value">@Model.Summary.TotalValidated.ToString("N0")</div>
-    </div>
-    <div class="stat-card stat-card--pass">
-        <div class="stat-card__label">Pass</div>
-        <div class="stat-card__value">@Model.Summary.PassCount.ToString("N0")</div>
-    </div>
-    <div class="stat-card stat-card--fail">
-        <div class="stat-card__label">Fail</div>
-        <div class="stat-card__value">@Model.Summary.FailCount.ToString("N0")</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-card__label">Mismatch Rate</div>
-        <div class="stat-card__value">@Model.Summary.ExceptionRate.ToString("F2")%</div>
-    </div>
-</div>
-
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
         The assigned data analyst must sign off before managers, directors, and trainees can download this run.
     </div>
 }
-
-<div class="card" style="margin-bottom:24px;padding:20px">
-    <h3 class="section-title" style="margin-top:0">Run Summary</h3>
-    <div class="form-grid">
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Database</div>
-            <div>@Model.Summary.Database</div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Rule</div>
-            <div>Rule 34 - Census Date Validation</div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Source Table</div>
-            <div>@Model.Summary.TableName</div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Columns</div>
-            <div>@Model.Summary.FirstDayColumn | @Model.Summary.LastDayColumn | @Model.Summary.CensusDateColumn</div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Holiday Years</div>
-            <div>@Model.Summary.HolidayYearRange</div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
-            <div><span class="badge @(Model.Summary.Status == "PASS" ? "badge--pass" : "badge--fail")">@Model.Summary.Status</span></div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Computed Holidays</div>
-            <div>@Model.Summary.HolidayCount.ToString("N0")</div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Computed Weekends</div>
-            <div>@Model.Summary.WeekendCount.ToString("N0")</div>
-        </div>
-        <div>
-            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Engagement Role</div>
-            <div>@(string.IsNullOrWhiteSpace(Model.CurrentUserEngagementRole) ? (isAdmin ? "Admin" : "Viewer") : Model.CurrentUserEngagementRole)</div>
-        </div>
-    </div>
-</div>
-
-<div class="card" style="margin-bottom:24px;padding:20px">
-    <h3 class="section-title" style="margin-top:0">Downloads</h3>
-    @if (canDownload)
-    {
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <a asp-action="DownloadSavedExcel" asp-route-runId="@Model.RunId" class="btn btn-success">Excel</a>
-            <a asp-action="DownloadSavedCsv" asp-route-runId="@Model.RunId" class="btn btn-info">Full CSV</a>
-            <a asp-action="DownloadSavedExceptionsCsv" asp-route-runId="@Model.RunId" class="btn btn-info">Exceptions CSV</a>
-            <a asp-action="DownloadSavedSql" asp-route-runId="@Model.RunId" class="btn btn-primary">SQL</a>
-        </div>
-    }
-    else
-    {
-        <div class="alert alert--warning" style="margin:0">
-            Download is available to the assigned data analyst immediately, and to other assigned users after the data analyst signoff.
-        </div>
-    }
-</div>
 
 <div class="card" style="margin-bottom:24px;padding:20px">
     <h3 class="section-title" style="margin-top:0">Signoffs</h3>
@@ -151,30 +96,25 @@
                 <label>Comment</label>
                 <textarea name="Comment" rows="3" placeholder="Add review or completion notes">@Model.Signoffs.FirstOrDefault(s => s.IsCurrentUser)?.Comment</textarea>
             </div>
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <button type="submit" class="btn btn-primary">
-                    @(Model.CurrentUserHasSignedOff ? "Update My Signoff" : $"Sign Off as {Model.CurrentUserEngagementRole}")
-                </button>
-            </div>
+            <button type="submit" class="btn btn-primary">
+                @(Model.CurrentUserHasSignedOff ? "Update My Signoff" : $"Sign Off as {Model.CurrentUserEngagementRole}")
+            </button>
         </form>
 
-        @if (Model.CurrentUserHasSignedOff)
+        @if (Model.CanCurrentUserRemoveSignoff)
         {
             <form asp-action="RemoveSignoff" method="post" style="margin-bottom:16px">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="runId" value="@Model.RunId" />
-                <button type="submit" class="btn btn-warning"
-                        onclick="return confirm('Remove your signoff for this validation run?')">
+                <button type="submit" class="btn btn-warning" onclick="return confirm('Remove your signoff for this validation run?')">
                     Remove My Signoff
                 </button>
             </form>
         }
     }
-    else if (isArchived)
+    else if (!Model.IsCurrentRun && !isArchived)
     {
-        <div class="alert alert--info" style="margin-bottom:16px">
-            Signoff controls are disabled for archived engagements.
-        </div>
+        <div class="alert alert--info" style="margin-bottom:16px">History results are read-only for signoff. Signoff is only available on the current run.</div>
     }
 
     @if (Model.Signoffs.Any())
@@ -210,47 +150,290 @@
     }
 </div>
 
-<div class="card" style="padding:20px">
-    <h3 class="section-title" style="margin-top:0">Exceptions</h3>
-    @if (Model.Summary.Exceptions.Any())
-    {
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>First Day</th>
-                    <th>Last Day</th>
-                    <th>Prepared Census Date</th>
-                    <th>Stored Census Date</th>
-                    <th>Day Status</th>
-                    <th>Validation Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var item in Model.Summary.Exceptions.Take(200))
-                {
-                    <tr>
-                        <td>@item.ValidationNumber</td>
-                        <td>@item.FirstDayValue</td>
-                        <td>@item.LastDayValue</td>
-                        <td>@item.ComputedCensusDate</td>
-                        <td>@item.CensusDateValue</td>
-                        <td>@item.DayStatus</td>
-                        <td><span class="badge badge--fail">@item.ValidationStatus</span></td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+<div class="card" style="padding:0 0 24px">
+    <div class="review-tabs" role="tablist" aria-label="Rule 34 review tabs">
+        <button type="button" class="review-tab is-active" data-review-tab="analysis">Analysis Results</button>
+        <button type="button" class="review-tab" data-review-tab="details">Data Details</button>
+        <button type="button" class="review-tab" data-review-tab="visuals">Visualizations</button>
+        <button type="button" class="review-tab" data-review-tab="sql">SQL Code</button>
+        <button type="button" class="review-tab" data-review-tab="downloads">Downloads</button>
+    </div>
 
-        @if (Model.Summary.Exceptions.Count > 200)
-        {
-            <div style="margin-top:12px;color:#757575">
-                Showing the first 200 exceptions here. Use the download buttons for the full saved result set.
+    <div class="review-panel is-active" data-review-panel="analysis" style="padding:24px">
+        <div class="stats-grid" style="margin-bottom:24px">
+            <div class="stat-card">
+                <div class="stat-card__label">Validated</div>
+                <div class="stat-card__value">@Model.Summary.TotalValidated.ToString("N0")</div>
             </div>
-        }
-    }
-    else
-    {
-        <div class="alert alert--success" style="margin:0">No exceptions were found in this saved validation run.</div>
-    }
+            <div class="stat-card stat-card--pass">
+                <div class="stat-card__label">Pass</div>
+                <div class="stat-card__value">@Model.Summary.PassCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card stat-card--fail">
+                <div class="stat-card__label">Fail</div>
+                <div class="stat-card__value">@Model.Summary.FailCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card__label">Mismatch Rate</div>
+                <div class="stat-card__value">@Model.Summary.ExceptionRate.ToString("F2")%</div>
+            </div>
+        </div>
+
+        <div class="card" style="padding:20px">
+            <h3 class="section-title" style="margin-top:0">Run Summary</h3>
+            <div class="form-grid">
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Database</div>
+                    <div>@Model.Summary.Database</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Rule</div>
+                    <div>Rule 34 - Census Date Validation</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Source Table</div>
+                    <div>@Model.Summary.TableName</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Columns</div>
+                    <div>@Model.Summary.FirstDayColumn | @Model.Summary.LastDayColumn | @Model.Summary.CensusDateColumn</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Holiday Years</div>
+                    <div>@Model.Summary.HolidayYearRange</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                    <div><span class="badge @(Model.Summary.Status == "PASS" ? "badge--pass" : "badge--fail")">@Model.Summary.Status</span></div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Computed Holidays</div>
+                    <div>@Model.Summary.HolidayCount.ToString("N0")</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Computed Weekends</div>
+                    <div>@Model.Summary.WeekendCount.ToString("N0")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="review-panel" data-review-panel="details" style="padding:24px">
+        <div class="card" style="margin-bottom:24px;padding:20px">
+            <h3 class="section-title" style="margin-top:0">Exceptions</h3>
+            @if (Model.Summary.Exceptions.Any())
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>First Day</th>
+                            <th>Last Day</th>
+                            <th>c_Days</th>
+                            <th>c_Days_2</th>
+                            <th>Prepared Census Date</th>
+                            <th>Actual Census Date</th>
+                            <th>Stored Census Date</th>
+                            <th>Day Status</th>
+                            <th>Validation Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model.Summary.Exceptions.Take(200))
+                        {
+                            <tr>
+                                <td>@item.ValidationNumber</td>
+                                <td>@item.FirstDayValue</td>
+                                <td>@item.LastDayValue</td>
+                                <td>@(item.CurrentDays?.ToString() ?? "NULL")</td>
+                                <td>@(item.CurrentDaysHalf?.ToString() ?? "NULL")</td>
+                                <td>@item.ComputedCensusDate</td>
+                                <td>@item.ActualCensusDate</td>
+                                <td>@item.CensusDateValue</td>
+                                <td>@item.DayStatus</td>
+                                <td><span class="badge badge--fail">@item.ValidationStatus</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div class="alert alert--success" style="margin:0">No exceptions were found in this saved validation run.</div>
+            }
+        </div>
+
+        <div class="card" style="padding:20px">
+            <h3 class="section-title" style="margin-top:0">Validation Sample</h3>
+            @if (Model.Summary.ValidationRows.Any())
+            {
+                <div class="filter-toolbar">
+                    <div class="filter-toolbar__group">
+                        <label for="rule34ValidationFilter">Filter</label>
+                        <select id="rule34ValidationFilter">
+                            <option value="ALL">All</option>
+                            <option value="PASS">Passed</option>
+                            <option value="FAIL">Failed</option>
+                        </select>
+                    </div>
+                    <div class="filter-toolbar__meta">
+                        <span id="rule34FilterCount">@Model.Summary.ValidationRows.Take(100).Count()</span> visible row(s)
+                    </div>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>First Day</th>
+                            <th>Last Day</th>
+                            <th>Prepared Census Date</th>
+                            <th>Actual Census Date</th>
+                            <th>Stored Census Date</th>
+                            <th>Day Status</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model.Summary.ValidationRows.Take(100))
+                        {
+                            <tr data-filter-result="@item.ValidationStatus">
+                                <td>@item.ValidationNumber</td>
+                                <td>@item.FirstDayValue</td>
+                                <td>@item.LastDayValue</td>
+                                <td>@item.ComputedCensusDate</td>
+                                <td>@item.ActualCensusDate</td>
+                                <td>@item.CensusDateValue</td>
+                                <td>@item.DayStatus</td>
+                                <td><span class="badge @(item.ValidationStatus == "PASS" ? "badge--pass" : "badge--fail")">@item.ValidationStatus</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="color:#64748b">No validation rows are available in this saved run.</div>
+            }
+        </div>
+    </div>
+
+    <div class="review-panel" data-review-panel="visuals" style="padding:24px">
+        <div class="viz-grid">
+            <div class="viz-card">
+                <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Pass Rate</div>
+                <div style="font-size:36px;font-weight:800;color:#166534">@Model.Summary.PassCount.ToString("N0")</div>
+                <div class="viz-bar"><span style="width:@(Model.Summary.TotalValidated == 0 ? 0 : (Model.Summary.PassCount * 100m / Model.Summary.TotalValidated).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%;background:#22c55e"></span></div>
+            </div>
+            <div class="viz-card">
+                <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Exception Rate</div>
+                <div style="font-size:36px;font-weight:800;color:#dc2626">@Model.Summary.FailCount.ToString("N0")</div>
+                <div class="viz-bar"><span style="width:@(Model.Summary.TotalValidated == 0 ? 0 : (Model.Summary.FailCount * 100m / Model.Summary.TotalValidated).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%;background:#ef4444"></span></div>
+            </div>
+        </div>
+
+        <div class="viz-grid" style="margin-top:20px">
+            <div class="viz-card">
+                <h4 style="margin-top:0">Calendar Impact</h4>
+                <div style="margin-bottom:14px">
+                    <div style="display:flex;justify-content:space-between"><strong>Computed Holidays</strong><span>@Model.Summary.HolidayCount.ToString("N0")</span></div>
+                    <div class="viz-bar"><span style="width:100%;background:#8b5cf6"></span></div>
+                </div>
+                <div>
+                    <div style="display:flex;justify-content:space-between"><strong>Computed Weekends</strong><span>@Model.Summary.WeekendCount.ToString("N0")</span></div>
+                    <div class="viz-bar"><span style="width:100%;background:#0ea5e9"></span></div>
+                </div>
+            </div>
+            <div class="viz-card">
+                <h4 style="margin-top:0">Review Summary</h4>
+                <div style="color:#475569;line-height:1.8">
+                    <div><strong>Validated:</strong> @Model.Summary.TotalValidated.ToString("N0")</div>
+                    <div><strong>Pass:</strong> @Model.Summary.PassCount.ToString("N0")</div>
+                    <div><strong>Fail:</strong> @Model.Summary.FailCount.ToString("N0")</div>
+                    <div><strong>Status:</strong> @Model.Summary.Status</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="review-panel" data-review-panel="sql" style="padding:24px">
+        <div class="card" style="padding:20px;margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+                <div>
+                    <h3 class="section-title" style="margin:0">Saved SQL Preview</h3>
+                    <div style="color:#64748b;margin-top:4px">Review the SQL generated from the saved run configuration.</div>
+                </div>
+                @if (canDownload)
+                {
+                    <a asp-action="DownloadSavedSql" asp-route-runId="@Model.RunId" class="btn btn-primary">Download SQL</a>
+                }
+            </div>
+        </div>
+        <div class="code-panel"><pre><code>@Model.GeneratedSql</code></pre></div>
+    </div>
+
+    <div class="review-panel" data-review-panel="downloads" style="padding:24px">
+        <div class="card" style="padding:20px">
+            <h3 class="section-title" style="margin-top:0">Downloads</h3>
+            @if (canDownload)
+            {
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <a asp-action="DownloadSavedExcel" asp-route-runId="@Model.RunId" class="btn btn-success">Excel</a>
+                    <a asp-action="DownloadSavedCsv" asp-route-runId="@Model.RunId" class="btn btn-info">Full CSV</a>
+                    <a asp-action="DownloadSavedExceptionsCsv" asp-route-runId="@Model.RunId" class="btn btn-info">Exceptions CSV</a>
+                    <a asp-action="DownloadSavedSql" asp-route-runId="@Model.RunId" class="btn btn-primary">SQL</a>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert--warning" style="margin:0">
+                    Download is available to the assigned data analyst immediately, and to other assigned users after the data analyst signoff.
+                </div>
+            }
+        </div>
+    </div>
 </div>
+
+<script>
+(() => {
+    const tabs = Array.from(document.querySelectorAll('[data-review-tab]'));
+    const panels = Array.from(document.querySelectorAll('[data-review-panel]'));
+
+    function setActiveTab(name) {
+        tabs.forEach(tab => tab.classList.toggle('is-active', tab.getAttribute('data-review-tab') === name));
+        panels.forEach(panel => panel.classList.toggle('is-active', panel.getAttribute('data-review-panel') === name));
+    }
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => setActiveTab(tab.getAttribute('data-review-tab')));
+    });
+
+    const validationFilter = document.getElementById('rule34ValidationFilter');
+    const validationRows = Array.from(document.querySelectorAll('tr[data-filter-result]'));
+    const validationCount = document.getElementById('rule34FilterCount');
+
+    function applyValidationFilter() {
+        if (!validationFilter || !validationCount) {
+            return;
+        }
+
+        const filterValue = validationFilter.value;
+        let visibleCount = 0;
+
+        validationRows.forEach(row => {
+            const result = (row.getAttribute('data-filter-result') || '').toUpperCase();
+            const visible = filterValue === 'ALL' || result === filterValue;
+            row.style.display = visible ? '' : 'none';
+            if (visible) {
+                visibleCount += 1;
+            }
+        });
+
+        validationCount.textContent = visibleCount.toLocaleString();
+    }
+
+    if (validationFilter) {
+        validationFilter.addEventListener('change', applyValidationFilter);
+        applyValidationFilter();
+    }
+})();
+</script>

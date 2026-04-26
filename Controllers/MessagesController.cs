@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ModelBinding;
 using HemisAudit.Models;
 using HemisAudit.Services;
 using HemisAudit.ViewModels;
@@ -127,14 +126,15 @@ namespace HemisAudit.Controllers
 
             var role = await GetCurrentSystemRoleAsync(user);
             var recipientIds = ResolveRecipientIds(model);
-            var savedAttachments = new List<MessageAttachmentInput>();
+            var attachmentWarnings = new List<string>();
+            var resolvedFiles = ResolvePostedFiles(model.Attachments);
 
             if (!recipientIds.Any())
                 ModelState.AddModelError("", "Select at least one recipient.");
             if (string.IsNullOrWhiteSpace(model.Subject))
                 ModelState.AddModelError("Subject", "Chat title is required.");
 
-            savedAttachments = await SaveAttachmentsAsync(model.Attachments, ModelState);
+            var savedAttachments = await SaveAttachmentsAsync(resolvedFiles, attachmentWarnings);
 
             if (string.IsNullOrWhiteSpace(model.Body) && !savedAttachments.Any())
                 ModelState.AddModelError("Body", "Enter a message or attach a file.");
@@ -142,7 +142,14 @@ namespace HemisAudit.Controllers
             if (!ModelState.IsValid)
             {
                 DeleteSavedAttachments(savedAttachments);
-                TempData["Error"] = string.Join(", ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
+                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+                if (attachmentWarnings.Any())
+                    errors.AddRange(attachmentWarnings);
+                var errorMessage = string.Join(", ", errors);
+                if (IsAjaxRequest())
+                    return BadRequest(new { success = false, error = errorMessage });
+
+                TempData["Error"] = errorMessage;
                 return RedirectToAction(nameof(Index), new { clientId = model.ClientId, compose = true });
             }
 
@@ -164,6 +171,22 @@ namespace HemisAudit.Controllers
                     user.Email);
 
                 TempData["Success"] = "Message sent.";
+                if (attachmentWarnings.Any())
+                    TempData["Error"] = $"Some attachments were skipped: {string.Join(", ", attachmentWarnings)}";
+
+                if (IsAjaxRequest())
+                {
+                    return Json(new
+                    {
+                        success = true,
+                        message = attachmentWarnings.Any()
+                            ? $"Message sent. Some attachments were skipped: {string.Join(", ", attachmentWarnings)}"
+                            : "Message sent.",
+                        threadId,
+                        clientId = model.ClientId
+                    });
+                }
+
                 return RedirectToAction(nameof(Index), new { threadId, clientId = model.ClientId });
             }
             catch
@@ -184,7 +207,9 @@ namespace HemisAudit.Controllers
                 return RedirectToAction("Login", "Account");
 
             var role = await GetCurrentSystemRoleAsync(user);
-            var savedAttachments = await SaveAttachmentsAsync(model.Attachments, ModelState);
+            var attachmentWarnings = new List<string>();
+            var resolvedFiles = ResolvePostedFiles(model.Attachments);
+            var savedAttachments = await SaveAttachmentsAsync(resolvedFiles, attachmentWarnings);
 
             if (string.IsNullOrWhiteSpace(model.Body) && !savedAttachments.Any())
                 ModelState.AddModelError("Body", "Enter a reply or attach a file.");
@@ -192,7 +217,14 @@ namespace HemisAudit.Controllers
             if (!ModelState.IsValid)
             {
                 DeleteSavedAttachments(savedAttachments);
-                TempData["Error"] = string.Join(", ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
+                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+                if (attachmentWarnings.Any())
+                    errors.AddRange(attachmentWarnings);
+                var errorMessage = string.Join(", ", errors);
+                if (IsAjaxRequest())
+                    return BadRequest(new { success = false, error = errorMessage });
+
+                TempData["Error"] = errorMessage;
                 return RedirectToAction(nameof(Index), new { threadId = model.ThreadId, clientId = model.ClientId });
             }
 
@@ -206,6 +238,22 @@ namespace HemisAudit.Controllers
                     user.Email);
 
                 TempData["Success"] = "Reply sent.";
+                if (attachmentWarnings.Any())
+                    TempData["Error"] = $"Some attachments were skipped: {string.Join(", ", attachmentWarnings)}";
+
+                if (IsAjaxRequest())
+                {
+                    return Json(new
+                    {
+                        success = true,
+                        message = attachmentWarnings.Any()
+                            ? $"Reply sent. Some attachments were skipped: {string.Join(", ", attachmentWarnings)}"
+                            : "Reply sent.",
+                        threadId = model.ThreadId,
+                        clientId = model.ClientId
+                    });
+                }
+
                 return RedirectToAction(nameof(Index), new { threadId = model.ThreadId, clientId = model.ClientId });
             }
             catch
@@ -388,29 +436,56 @@ namespace HemisAudit.Controllers
             return recipientIds;
         }
 
-        private async Task<List<MessageAttachmentInput>> SaveAttachmentsAsync(IEnumerable<IFormFile>? files, ModelStateDictionary modelState)
+        private IReadOnlyList<IFormFile> ResolvePostedFiles(IEnumerable<IFormFile>? files)
+        {
+            var resolved = (files ?? Enumerable.Empty<IFormFile>())
+                .Where(file => file != null && file.Length > 0)
+                .ToList();
+
+            if (resolved.Count == 0 && Request.HasFormContentType && Request.Form.Files.Count > 0)
+            {
+                resolved = Request.Form.Files
+                    .Where(file => file != null && file.Length > 0)
+                    .Cast<IFormFile>()
+                    .ToList();
+            }
+
+            return resolved;
+        }
+
+        private async Task<List<MessageAttachmentInput>> SaveAttachmentsAsync(
+            IReadOnlyList<IFormFile> files,
+            List<string> warnings)
         {
             var saved = new List<MessageAttachmentInput>();
-            if (files == null)
+            if (files == null || files.Count == 0)
                 return saved;
 
             var attachmentsFolder = Path.Combine(_environment.WebRootPath, "uploads", "messages");
             Directory.CreateDirectory(attachmentsFolder);
 
-            foreach (var file in files.Where(file => file != null && file.Length > 0))
+            foreach (var file in files)
             {
                 if (file.Length > MaxAttachmentSizeBytes)
                 {
-                    modelState.AddModelError("Attachments", $"{file.FileName} must be 15 MB or smaller.");
+                    warnings.Add($"{file.FileName} must be 15 MB or smaller.");
                     continue;
                 }
 
                 var extension = Path.GetExtension(file.FileName);
                 var safeFileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
                 var physicalPath = Path.Combine(attachmentsFolder, safeFileName);
-                await using (var stream = System.IO.File.Create(physicalPath))
+                try
                 {
+                    await using var stream = System.IO.File.Create(physicalPath);
                     await file.CopyToAsync(stream);
+                }
+                catch
+                {
+                    warnings.Add($"{file.FileName} could not be uploaded.");
+                    if (System.IO.File.Exists(physicalPath))
+                        System.IO.File.Delete(physicalPath);
+                    continue;
                 }
 
                 var fileMeta = ClassifyAttachment(file.ContentType, extension);
@@ -444,6 +519,9 @@ namespace HemisAudit.Controllers
 
         private static string NormaliseMessageBody(string? body) =>
             string.IsNullOrWhiteSpace(body) ? "" : body.Trim();
+
+        private bool IsAjaxRequest() =>
+            string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
 
         private static (string ContentType, string Kind) ClassifyAttachment(string? contentType, string? extension)
         {

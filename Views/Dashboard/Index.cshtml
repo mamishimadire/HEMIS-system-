@@ -1,10 +1,14 @@
 @model HemisAudit.ViewModels.DashboardViewModel
+@using HemisAudit.Helpers
 @{
     ViewData["Title"] = "My engagements";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var isAdmin = string.Equals(Model.CurrentUserRole, "Admin", StringComparison.OrdinalIgnoreCase);
     var isDirector = string.Equals(Model.CurrentUserRole, "Director", StringComparison.OrdinalIgnoreCase);
     var isDataAnalyst = string.Equals(Model.CurrentUserRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+    var isManager = string.Equals(Model.CurrentUserRole, "Manager", StringComparison.OrdinalIgnoreCase);
+    var isTrainee = string.Equals(Model.CurrentUserRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var isResultsOnlyRole = !isAdmin && !isDataAnalyst;
     var currentScope = (Model.CurrentScope ?? "active").ToLowerInvariant();
     var scopeTitle = currentScope switch
     {
@@ -25,6 +29,18 @@
     var managerSignedRuns = Model.ManagerSignedRuns;
     var directorSignedRuns = Model.DirectorSignedRuns;
     var recentInsightRuns = Model.RecentRuns.Take(6).ToList();
+    var recentSignedModuleRuns = Model.RecentRuns
+        .Where(run => run.HasDataAnalystSignoff)
+        .GroupBy(run => new { run.ClientId, run.RuleNumber })
+        .Select(group => group
+            .OrderByDescending(run => run.IsCurrent)
+            .ThenByDescending(run => run.RunAt)
+            .First())
+        .OrderByDescending(run => run.RunAt)
+        .Take(6)
+        .ToList();
+    var moduleReviewActionLabel = (isManager || isDirector) ? "Review and Sign Off" : "Review Results";
+    Func<int, string> controllerForRule = ruleNumber => RuleRouteHelper.GetControllerName(ruleNumber);
     var archiveReadyEngagements = Model.PortfolioClients.Count(client =>
         client.IsArchived ||
         (client.ValidationRunsCount > 0 &&
@@ -62,7 +78,10 @@
 
 <div class="dashboard-tabs">
     <a class="dashboard-tab is-active" href="#engagements" data-dashboard-tab="engagements">Engagements</a>
-    <a class="dashboard-tab" href="#modules" data-dashboard-tab="modules">Modules</a>
+    @if (!isResultsOnlyRole)
+    {
+        <a class="dashboard-tab" href="#modules" data-dashboard-tab="modules">Modules</a>
+    }
     <a class="dashboard-tab" href="#insights" data-dashboard-tab="insights">Insights</a>
     <a class="dashboard-tab" href="#recent-runs" data-dashboard-tab="recent-runs">Recent Validation Runs</a>
 </div>
@@ -304,40 +323,97 @@
 
 </div>
 
-<div class="dashboard-panel" data-dashboard-panel="modules">
-<div class="dashboard-band">
-    <div class="dashboard-band__header">
-        <div>
-            <h3 class="section-title" style="margin-bottom:6px">Modules</h3>
-            <p class="dashboard-band__subtitle">Open a validation module only when you need it. Each workspace lets you pick an engagement and then applies your current role permissions automatically.</p>
+@if (!isResultsOnlyRole)
+{
+    <div class="dashboard-panel" data-dashboard-panel="modules">
+    <div class="dashboard-band">
+        <div class="dashboard-band__header">
+            <div>
+                <h3 class="section-title" style="margin-bottom:6px">Modules</h3>
+                <p class="dashboard-band__subtitle">Open a validation module only when you need it. Each workspace lets you pick an engagement and then applies your current role permissions automatically.</p>
+            </div>
+        </div>
+
+        <div class="module-card-grid">
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 26</div>
+                <h4 class="module-card__title">Bi-Directional 5-Control Validation</h4>
+                <p class="module-card__text">Test dbo_PROF and Payroll_Sample in both directions at the same time across personnel existence, employment type, gender, race/group, and birth date controls.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule26" class="btn btn-success">Open Rule 26</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 27</div>
+                <h4 class="module-card__title">Error Validation</h4>
+                <p class="module-card__text">Choose any validation table column, detect its values, and retrieve 100% of the records that match the selected value.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule27" class="btn btn-success">Open Rule 27</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 29</div>
+                <h4 class="module-card__title">Single Column Filter</h4>
+                <p class="module-card__text">Filter records where one selected column equals one selected value, then review the matching set with optional breakdown and exports.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule29" class="btn btn-success">Open Rule 29</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 30</div>
+                <h4 class="module-card__title">Fatal Errors with Exclusions (PROF)</h4>
+                <p class="module-card__text">Filter fatal PROF validation detail errors, remove approved exclusion codes, and fail the run only when non-excluded fatal rows remain.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule30" class="btn btn-success">Open Rule 30</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 31</div>
+                <h4 class="module-card__title">Fatal Errors with Exclusions (QUAL)</h4>
+                <p class="module-card__text">Filter fatal QUAL validation detail errors, remove approved exclusion codes, and fail the run only when non-excluded fatal rows remain.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule31" class="btn btn-success">Open Rule 31</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 32</div>
+                <h4 class="module-card__title">Fatal Errors with Exclusions</h4>
+                <p class="module-card__text">Filter fatal STUD validation errors, remove the configured exclusion codes, and fail the run only when unapproved fatal errors remain.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule32" class="btn btn-success">Open Rule 32</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 34</div>
+                <h4 class="module-card__title">Census Date Validation</h4>
+                <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it to the stored census date, and evaluate weekends and South African public holidays.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule34" class="btn btn-success">Open Rule 34</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 36</div>
+                <h4 class="module-card__title">Deceased Students Validation</h4>
+                <p class="module-card__text">Cross-check student records against the deceased students reference table and save exceptions for analyst review and signoff.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule36" class="btn btn-success">Open Rule 36</a>
+                </div>
+            </article>
+        </div>
+
+        <div class="empty-card" style="margin-top:16px">
+            <p>Choose a module first, then select the engagement inside the workspace. Read-only and signoff access still follow your assigned role on that engagement.</p>
         </div>
     </div>
-
-    <div class="module-card-grid">
-        <article class="module-card">
-            <div class="module-card__eyebrow">Rule 34</div>
-            <h4 class="module-card__title">Census Date Validation</h4>
-            <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it to the stored census date, and evaluate weekends and South African public holidays.</p>
-            <div class="module-card__actions">
-                <a href="/Rule34" class="btn btn-success">Open Rule 34</a>
-            </div>
-        </article>
-
-        <article class="module-card">
-            <div class="module-card__eyebrow">Rule 36</div>
-            <h4 class="module-card__title">Deceased Students Validation</h4>
-            <p class="module-card__text">Cross-check student records against the deceased students reference table and save exceptions for analyst review and signoff.</p>
-            <div class="module-card__actions">
-                <a href="/Rule36" class="btn btn-success">Open Rule 36</a>
-            </div>
-        </article>
     </div>
-
-    <div class="empty-card" style="margin-top:16px">
-        <p>Choose a module first, then select the engagement inside the workspace. Read-only and signoff access still follow your assigned role on that engagement.</p>
-    </div>
-</div>
-</div>
+}
 
 <div class="dashboard-panel" data-dashboard-panel="recent-runs">
 <div class="dashboard-band">
@@ -362,6 +438,7 @@
                         <th>Rate</th>
                         <th>Run By</th>
                         <th>Date</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -376,6 +453,21 @@
                             <td>@run.ExceptionRate.ToString("F2")%</td>
                             <td>@run.RunByUserName</td>
                             <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <a asp-controller="@controllerForRule(run.RuleNumber)"
+                                       asp-action="Run"
+                                       asp-route-id="@run.Id"
+                                       class="btn btn-sm btn-secondary">Open</a>
+                                    @if (!isResultsOnlyRole || run.HasDataAnalystSignoff)
+                                    {
+                                        <a asp-controller="@controllerForRule(run.RuleNumber)"
+                                           asp-action="DownloadSavedExcel"
+                                           asp-route-runId="@run.Id"
+                                           class="btn btn-sm btn-success">Download</a>
+                                    }
+                                </div>
+                            </td>
                         </tr>
                     }
                 </tbody>

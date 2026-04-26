@@ -11,7 +11,7 @@ namespace HemisAudit.Services
         Task<Rule34HolidayLoadResult> LoadHolidaysAsync(int startYear, int endYear);
         Task<Rule34ValidationSummary> RunValidationAsync(Rule34ValidationRequest request, string? userEmail = null, string? userName = null);
         Task<int?> GetClientIdForRunAsync(int runId);
-        Task<Rule34WorkspaceStateViewModel?> GetCurrentWorkspaceStateAsync(int clientId, string? currentUserEmail = null);
+        Task<Rule34WorkspaceStateViewModel?> GetCurrentWorkspaceStateAsync(int clientId, string? currentUserEmail = null, bool includeSummary = true);
         Task<Rule34RunReviewViewModel?> GetSavedRunAsync(int runId, string? currentUserEmail = null);
         Task<Rule34WorkspaceSaveResult> SaveWorkspaceAsync(Rule34ValidationRequest request, string reviewerEmail, string? reviewerName = null);
         Task<Rule34WorkspaceSaveResult> BeginWorkspaceEditAsync(int runId, string reviewerEmail, string? reviewerName = null);

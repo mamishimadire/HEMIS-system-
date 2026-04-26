@@ -547,7 +547,7 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
 
             await using var command = connection.CreateCommand();
             command.CommandText = @"
-SELECT vr.RunID, vr.ClientID, c.EngagementName, c.MaconomyNumber, vr.ResultsJSON
+SELECT vr.RunID, vr.ClientID, vr.IsCurrent, c.EngagementName, c.MaconomyNumber, vr.HemisServer, vr.ResultsJSON
 FROM dbo.ValidationRuns vr
 INNER JOIN dbo.Clients c ON c.ClientID = vr.ClientID
 WHERE vr.RunID = @RunID;";
@@ -557,7 +557,7 @@ WHERE vr.RunID = @RunID;";
             if (!await reader.ReadAsync())
                 return null;
 
-            var summaryJson = reader.IsDBNull(4) ? null : reader.GetString(4);
+            var summaryJson = reader.IsDBNull(5) ? null : reader.GetString(5);
             var summary = DeserializeSummary(summaryJson);
             if (summary == null)
                 return null;
@@ -566,8 +566,10 @@ WHERE vr.RunID = @RunID;";
             {
                 RunId = reader.GetInt32(0),
                 ClientId = reader.GetInt32(1),
-                EngagementName = reader.IsDBNull(2) ? "" : reader.GetString(2),
-                MaconomyNumber = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                IsCurrentRun = !reader.IsDBNull(2) && reader.GetBoolean(2),
+                EngagementName = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                MaconomyNumber = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                SourceServer = reader.IsDBNull(5) ? "" : reader.GetString(5),
                 Summary = summary
             };
 

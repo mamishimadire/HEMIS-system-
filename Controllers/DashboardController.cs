@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using HemisAudit.Data;
+using HemisAudit.Helpers;
 using HemisAudit.Models;
 using HemisAudit.ViewModels;
 using HemisAudit.Services;
@@ -36,7 +37,7 @@ namespace HemisAudit.Controllers
             if (!isAdmin && !isDataAnalyst)
             {
                 recentRuns = recentRuns
-                    .Where(run => run.HasDataAnalystSignoff)
+                    .Where(run => ValidationRunAccessPolicy.CanViewSignedResults(role, role, run.HasDataAnalystSignoff))
                     .ToList();
             }
             var activeClientsCount = await _systemDb.GetClientCountAsync(user, role, "active");

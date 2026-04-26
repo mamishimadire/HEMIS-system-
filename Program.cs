@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using HemisAudit.Data;
 using HemisAudit.Models;
 using HemisAudit.Services;
@@ -45,8 +46,14 @@ builder.Services.AddControllersWithViews(options =>
     options.Filters.AddService<PasswordAgeFilter>();
 }).AddNewtonsoftJson();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IRule26Service, Rule26Service>();
 builder.Services.AddScoped<IRule36Service, Rule36Service>();
 builder.Services.AddScoped<IRule34Service, Rule34Service>();
+builder.Services.AddScoped<IRule32Service, Rule32Service>();
+builder.Services.AddScoped<IRule31Service, Rule31Service>();
+builder.Services.AddScoped<IRule30Service, Rule30Service>();
+builder.Services.AddScoped<IRule29Service, Rule29Service>();
+builder.Services.AddScoped<IRule27Service, Rule27Service>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 
@@ -67,6 +74,17 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(Path.Combine(app.Environment.WebRootPath, "uploads", "messages")),
+    RequestPath = "/uploads/messages",
+    ServeUnknownFileTypes = true,
+    DefaultContentType = "application/octet-stream",
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    }
+});
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -75,6 +93,36 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule26-short",
+    pattern: "Rule26",
+    defaults: new { controller = "Rule26", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule29-short",
+    pattern: "Rule29",
+    defaults: new { controller = "Rule29", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule27-short",
+    pattern: "Rule27",
+    defaults: new { controller = "Rule27", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule30-short",
+    pattern: "Rule30",
+    defaults: new { controller = "Rule30", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule31-short",
+    pattern: "Rule31",
+    defaults: new { controller = "Rule31", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule32-short",
+    pattern: "Rule32",
+    defaults: new { controller = "Rule32", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule36-short",

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using System.ComponentModel.DataAnnotations;
 
+using HemisAudit.Helpers;
+
 namespace HemisAudit.ViewModels
 {
     // ═══════════════════════════════════════════════════════════════════════════
@@ -326,6 +328,24 @@ namespace HemisAudit.ViewModels
             HasDirectorSignoff;
     }
 
+    public class ModuleSequenceLinkViewModel
+    {
+        public int RuleNumber { get; set; }
+        public string RuleLabel { get; set; } = "";
+        public string RuleTitle { get; set; } = "";
+        public string Url { get; set; } = "";
+        public bool OpensSavedRun { get; set; }
+    }
+
+    public class ModuleSequenceNavigationViewModel
+    {
+        public int CurrentRuleNumber { get; set; }
+        public string CurrentRuleLabel { get; set; } = "";
+        public string CurrentRuleTitle { get; set; } = "";
+        public ModuleSequenceLinkViewModel? Previous { get; set; }
+        public ModuleSequenceLinkViewModel? Next { get; set; }
+    }
+
     public class RunSignoffViewModel
     {
         public int Id { get; set; }
@@ -341,8 +361,11 @@ namespace HemisAudit.ViewModels
     {
         public int RunId { get; set; }
         public int ClientId { get; set; }
+        public bool IsCurrentRun { get; set; }
         public string EngagementName { get; set; } = "";
         public string MaconomyNumber { get; set; } = "";
+        public string SourceServer { get; set; } = "";
+        public string GeneratedSql { get; set; } = "";
         public ValidationSummary Summary { get; set; } = new();
         public List<RunSignoffViewModel> Signoffs { get; set; } = new();
         public string CurrentUserEngagementRole { get; set; } = "";
@@ -352,15 +375,9 @@ namespace HemisAudit.ViewModels
             Signoffs.Any(s =>
                 s.IsCurrentUser &&
                 string.Equals(s.SignoffRole, CurrentUserEngagementRole, StringComparison.OrdinalIgnoreCase));
-        public bool CanCurrentUserSignOff =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase);
-        public bool CanCurrentUserDownload =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+        public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
+        public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
     }
 
     public class Rule36WorkspaceStateViewModel

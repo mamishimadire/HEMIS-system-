@@ -4,9 +4,15 @@
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
     var selectedClientId = (int)(ViewBag.ClientId ?? 0);
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
 }
 
 <div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
     <!-- Engagement selector -->
     <div class="engagement-selector">
         <label>Engagement</label>
