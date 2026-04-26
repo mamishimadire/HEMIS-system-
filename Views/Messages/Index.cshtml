@@ -524,7 +524,9 @@
         clientId: parseInt(shell.getAttribute('data-current-client-id') || '0', 10) || 0,
         activeFilter: 'all',
         searchTerm: '',
-        pollHandle: null
+        pollHandle: null,
+        timelineScrollTop: 0,
+        timelineWasNearBottom: true
     };
 
     const searchInput = document.getElementById('chatSearchInput');
@@ -586,12 +588,15 @@
     function renderInbox(inbox) {
         if (!chatList) return;
 
+        const previousScrollTop = chatList.scrollTop;
+
         if (!inbox || !inbox.length) {
             chatList.innerHTML = `
                 <div class="messages-empty-list" id="chatListEmpty">
                     <p>No chats yet.</p>
                     <button type="button" class="btn btn-success" data-modal-open="compose-modal">Start chat</button>
                 </div>`;
+            chatList.scrollTop = previousScrollTop;
             bindModalToggles();
             return;
         }
@@ -619,6 +624,7 @@
                 </a>`;
         }).join('');
 
+        chatList.scrollTop = previousScrollTop;
         applyChatFilters();
     }
 
@@ -730,8 +736,15 @@
             </div>`;
     }
 
-    function renderStage(thread) {
+    function renderStage(thread, options) {
         if (!stage) return;
+        const config = options || {};
+        const existingTimeline = document.getElementById('messagesTimeline');
+        const preserveScroll = config.preserveScroll === true;
+        const previousScrollTop = preserveScroll && existingTimeline ? existingTimeline.scrollTop : 0;
+        const wasNearBottom = preserveScroll && existingTimeline
+            ? (existingTimeline.scrollHeight - existingTimeline.clientHeight - existingTimeline.scrollTop) < 72
+            : true;
 
         if (!thread) {
             shell.setAttribute('data-current-thread-id', '');
@@ -838,6 +851,16 @@
         bindEmojiPickers();
         bindFilePickers();
         bindMessageEditButtons();
+
+        const nextTimeline = document.getElementById('messagesTimeline');
+        if (nextTimeline) {
+            if (config.scrollToBottom === true || wasNearBottom) {
+                nextTimeline.scrollTop = nextTimeline.scrollHeight;
+            } else {
+                const maxScrollTop = Math.max(nextTimeline.scrollHeight - nextTimeline.clientHeight, 0);
+                nextTimeline.scrollTop = Math.min(previousScrollTop, maxScrollTop);
+            }
+        }
     }
 
     function applyChatFilters() {
@@ -1007,7 +1030,7 @@
         const editThreadModalOpen = document.getElementById('edit-modal')?.classList.contains('is-open');
 
         if (!isReplyBusy && !editMessageModalOpen && !editThreadModalOpen) {
-            renderStage(snapshot.activeThread || null);
+            renderStage(snapshot.activeThread || null, { preserveScroll: true });
         }
     }
 
@@ -1037,6 +1060,11 @@
     bindFilePickers();
     bindMessageEditButtons();
     applyChatFilters();
+
+    const initialTimeline = document.getElementById('messagesTimeline');
+    if (initialTimeline) {
+        initialTimeline.scrollTop = initialTimeline.scrollHeight;
+    }
 
     state.pollHandle = window.setInterval(function () {
         pollMessages().catch(function () { });
