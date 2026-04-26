@@ -602,8 +602,9 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public IActionResult DownloadExcel([FromBody] Rule27ValidationSummary summary)
+        public async Task<IActionResult> DownloadExcel([FromBody] Rule27ValidationSummary summary)
         {
+            summary = await ResolveExportSummaryAsync(summary);
             var bytes = _export.ExportExcel(summary);
             var scope = summary.Sampled ? "Summary_and_Sample" : "Summary_and_All_Matches";
             var fileName = $"Rule27_{scope}_{Ts()}.xlsx";
@@ -614,8 +615,9 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public IActionResult DownloadCsv([FromBody] Rule27ValidationSummary summary)
+        public async Task<IActionResult> DownloadCsv([FromBody] Rule27ValidationSummary summary)
         {
+            summary = await ResolveExportSummaryAsync(summary);
             var scope = summary.Sampled ? "Displayed_Sample" : "All_Matching_Records";
             var fileName = $"Rule27_{scope}_{Ts()}.csv";
             var bytes = _export.ExportCsv(summary);
@@ -727,6 +729,27 @@ namespace HemisAudit.Controllers
                 return false;
 
             return ValidationRunAccessPolicy.CanViewSignedResults(role, workspace.CurrentUserEngagementRole, workspace.HasDataAnalystSignoff);
+        }
+
+        private async Task<Rule27ValidationSummary> ResolveExportSummaryAsync(Rule27ValidationSummary summary)
+        {
+            var user = await _users.GetUserAsync(User);
+
+            if (summary.SavedRunId is int savedRunId && savedRunId > 0)
+            {
+                var review = await _rule27.GetSavedRunAsync(savedRunId, user?.Email);
+                if (review?.Summary != null)
+                    return review.Summary;
+            }
+
+            if (summary.ClientId > 0)
+            {
+                var workspace = await _rule27.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: true);
+                if (workspace?.Summary != null)
+                    return workspace.Summary;
+            }
+
+            return summary;
         }
 
         private async Task<object> RequireDataAnalystAsync<T>(Func<Task<T>> action)
