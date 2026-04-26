@@ -634,7 +634,7 @@ WHERE RunID = @RunID
 
         public Task<string> GenerateSqlAsync(Rule31ValidationRequest request)
         {
-            ValidateRequest(request);
+            ValidateSqlRequest(request);
 
             var exclusions = ParseExclusions(request.ExclusionCodes);
             var normalizedExclusions = exclusions
@@ -929,6 +929,24 @@ ORDER BY ORDINAL_POSITION;";
         {
             if (string.IsNullOrWhiteSpace(request.Server))
                 throw new InvalidOperationException("Server name is required.");
+            if (string.IsNullOrWhiteSpace(request.Database))
+                throw new InvalidOperationException("Database is required.");
+            if (string.IsNullOrWhiteSpace(request.TableName))
+                throw new InvalidOperationException("Source table is required.");
+            if (string.IsNullOrWhiteSpace(request.ErrorTypeColumn))
+                throw new InvalidOperationException("Error type column is required.");
+            if (string.IsNullOrWhiteSpace(request.ErrorColumn))
+                throw new InvalidOperationException("Error column is required.");
+            if (string.IsNullOrWhiteSpace(request.ErrorTypeValue))
+                throw new InvalidOperationException("Filter value is required.");
+
+            ValidateObjectName(request.TableName);
+            ValidateObjectName(request.ErrorTypeColumn);
+            ValidateObjectName(request.ErrorColumn);
+        }
+
+        private static void ValidateSqlRequest(Rule31ValidationRequest request)
+        {
             if (string.IsNullOrWhiteSpace(request.Database))
                 throw new InvalidOperationException("Database is required.");
             if (string.IsNullOrWhiteSpace(request.TableName))

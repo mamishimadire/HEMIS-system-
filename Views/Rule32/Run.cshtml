@@ -1,6 +1,9 @@
 @model HemisAudit.ViewModels.Rule32RunReviewViewModel
 @{
-    ViewData["Title"] = $"Rule 32 Run {Model.RunId}";
+    var ruleNumber = ViewBag.RuleNumber as int? ?? 32;
+    var ruleScope = ViewBag.RuleScope as string ?? "STUD";
+    var ruleTitle = ViewBag.RuleTitle as string ?? "Fatal Errors with Exclusions";
+    ViewData["Title"] = $"Rule {ruleNumber} Run {Model.RunId}";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var isAdmin = ViewBag.IsAdmin is bool admin && admin;
     var canDownload = ViewBag.CanDownloadSavedRun is bool allowed && allowed;
@@ -46,7 +49,7 @@
 
 <div class="page-header">
     <div>
-        <h1>Rule 32 Saved Run</h1>
+        <h1>Rule @ruleNumber Saved Run</h1>
         <p>
             @Model.EngagementName
             <span style="padding:0 8px">|</span>
@@ -141,7 +144,7 @@
 </div>
 
 <div class="card" style="padding:0 0 24px">
-    <div class="review-tabs" role="tablist" aria-label="Rule 32 review tabs">
+    <div class="review-tabs" role="tablist" aria-label="Rule @ruleNumber review tabs">
         <button type="button" class="review-tab is-active" data-review-tab="analysis">Analysis Results</button>
         <button type="button" class="review-tab" data-review-tab="details">Data Details</button>
         <button type="button" class="review-tab" data-review-tab="visuals">Visualizations</button>
@@ -178,7 +181,7 @@
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Rule</div>
-                    <div>Rule 32 - Fatal Errors with Exclusions (STUD)</div>
+                    <div>Rule @ruleNumber - @ruleTitle (@ruleScope)</div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Source Table</div>

@@ -1,7 +1,14 @@
 @using HemisAudit.Models
 @using HemisAudit.ViewModels
 @{
-    ViewData["Title"] = "Rule 32 - Fatal Errors with Exclusions";
+    var ruleNumber = ViewBag.RuleNumber as int? ?? 32;
+    var ruleCode = ViewBag.RuleCode as string ?? $"R{ruleNumber}";
+    var ruleScope = ViewBag.RuleScope as string ?? "STUD";
+    var ruleTitle = ViewBag.RuleTitle as string ?? "Fatal Errors with Exclusions";
+    var preferredTableName = ViewBag.PreferredTableName as string ?? "dbo_STUD_VALIDATION_DETAIL";
+    var apiBasePath = ViewBag.ApiBasePath as string ?? $"/Rule{ruleNumber}";
+    var ruleFilePrefix = ViewBag.RuleFilePrefix as string ?? $"Rule{ruleNumber}";
+    ViewData["Title"] = $"Rule {ruleNumber} - {ruleTitle}";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
@@ -30,15 +37,15 @@
     </div>
 
     <div class="rule-header">
-        <div class="rule-header__icon">R32</div>
+        <div class="rule-header__icon">@ruleCode</div>
         <div>
-            <h1 class="rule-header__title">HEMIS RULE 32: Fatal Errors with Exclusions</h1>
+            <h1 class="rule-header__title">HEMIS RULE @ruleNumber: @ruleTitle</h1>
             <p class="rule-header__sub">Filter fatal validation errors, normalize exclusion codes, and fail only when non-excluded fatal rows remain.</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
 
-    <div class="accordion-stack" id="rule32Shell">
+    <div class="accordion-stack" id="rule@ruleNumberShell">
         <div class="accordion-item" id="acc-connection">
             <button class="accordion-toggle" type="button" onclick="toggleAccordion('connection')">
                 <span class="acc-icon">DB</span>
@@ -80,7 +87,7 @@
             </button>
             <div class="accordion-body" id="body-table" style="display:none">
                 <div class="info-box info-box--red">
-                    <strong>Rule 32 Logic:</strong><br />
+                    <strong>Rule @ruleNumber Logic:</strong><br />
                     • Filter Fatal errors from <code>Error_Type</code> column<br />
                     • Exclude specified error codes<br />
                     • PASS if no remaining errors, FAIL if any remain<br />
@@ -170,12 +177,12 @@
         <div class="workspace-signoff-card__header">
             <div>
                 <div class="workspace-signoff-card__title">Saved Workspace</div>
-                <div class="workspace-signoff-card__subtitle" id="signoffSubtitle">The last saved Rule 32 connection, configuration, results, and signoffs reload here automatically.</div>
+                <div class="workspace-signoff-card__subtitle" id="signoffSubtitle">The last saved Rule @ruleNumber connection, configuration, results, and signoffs reload here automatically.</div>
             </div>
             <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
         </div>
         <div id="workspaceInfo" class="alert alert--info">
-            Select an engagement to load the saved Rule 32 workspace.
+            Select an engagement to load the saved Rule @ruleNumber workspace.
         </div>
         <div class="workspace-signoff-grid">
             <div>
@@ -256,7 +263,12 @@
     const currentSystemRole = '@currentSystemRole';
     const defaultExclusionCodes = '02202, 02301, 02302, 00708, 07201, 01501, 1501';
     const preferredDatabaseName = 'HEMIS_2025';
-    const preferredTableName = 'dbo_STUD_VALIDATION_DETAIL';
+    const ruleNumber = @ruleNumber;
+    const ruleScope = '@ruleScope';
+    const ruleTitle = '@ruleTitle';
+    const apiBasePath = '@apiBasePath';
+    const ruleFilePrefix = '@ruleFilePrefix';
+    const preferredTableName = '@preferredTableName';
     const preferredErrorTypeColumn = 'Error_Type';
     const preferredErrorColumn = 'Error';
     const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
@@ -530,7 +542,7 @@
     }
 
     function renderRunError(message) {
-        const safeMessage = escapeHtml(message || 'Rule 32 analysis failed.');
+        const safeMessage = escapeHtml(message || `Rule ${ruleNumber} analysis failed.`);
         document.getElementById('tab-results').innerHTML = `<div class="alert alert--danger">Error: ${safeMessage}</div>`;
         document.getElementById('tab-details').innerHTML = '<div class="empty-card"><p>No detailed data yet. Run analysis first.</p></div>';
         document.getElementById('tab-charts').innerHTML = '<div class="empty-card"><p>Visualizations will appear after running analysis.</p></div>';
@@ -541,7 +553,7 @@
 
     function renderSummary(result) {
         if (!result) {
-            document.getElementById('tab-results').innerHTML = '<div class="empty-card"><p>Run Rule 32 to see validation results.</p></div>';
+            document.getElementById('tab-results').innerHTML = `<div class="empty-card"><p>Run Rule ${ruleNumber} to see validation results.</p></div>`;
             document.getElementById('tab-details').innerHTML = '<div class="empty-card"><p>No detailed data yet. Run analysis first.</p></div>';
             document.getElementById('tab-charts').innerHTML = '<div class="empty-card"><p>Visualizations will appear after running analysis.</p></div>';
             document.getElementById('tab-downloads').innerHTML = '<div class="empty-card"><p>Run analysis first, then use Download All or the individual download buttons.</p></div>';
@@ -577,7 +589,7 @@
 
         document.getElementById('tab-details').innerHTML = `
             <div class="card" style="padding:16px;margin-bottom:16px">
-                <div><strong>RULE 32:</strong> Fatal Errors - Excluded vs Remaining (STUD Validation)</div>
+                <div><strong>RULE ${ruleNumber}:</strong> Fatal Errors - Excluded vs Remaining (${escapeHtml(ruleScope)} Validation)</div>
                 <div style="margin-top:8px"><strong>Timestamp:</strong> ${escapeHtml(result.timestamp || '')}</div>
                 <div style="margin-top:8px"><strong>Summary:</strong> Total Fatal ${result.totalFatal}, Excluded ${result.excludedCount}, Remaining ${result.remainingCount}, Status ${escapeHtml(result.status)}</div>
             </div>
@@ -632,10 +644,10 @@
         chartsHost.innerHTML = `
             <div class="form-grid">
                 <div class="card" style="padding:16px">
-                    <canvas id="rule32SummaryChart" height="220"></canvas>
+                    <canvas id="rule${ruleNumber}SummaryChart" height="220"></canvas>
                 </div>
                 <div class="card" style="padding:16px">
-                    <canvas id="rule32StatusChart" height="220"></canvas>
+                    <canvas id="rule${ruleNumber}StatusChart" height="220"></canvas>
                 </div>
             </div>`;
 
@@ -646,8 +658,8 @@
             return;
         }
 
-        const summaryCtx = document.getElementById('rule32SummaryChart');
-        const statusCtx = document.getElementById('rule32StatusChart');
+        const summaryCtx = document.getElementById(`rule${ruleNumber}SummaryChart`);
+        const statusCtx = document.getElementById(`rule${ruleNumber}StatusChart`);
         if (!summaryCtx || !statusCtx) return;
 
         state.chartInstances.summary = new Chart(summaryCtx, {
@@ -797,7 +809,7 @@
         } else if (!resultsVisible) {
             state.validationResult = null;
             renderSummary(null);
-            setInfo('This workspace is read-only until the assigned data analyst signs off the saved Rule 32 results.', 'info');
+            setInfo(`This workspace is read-only until the assigned data analyst signs off the saved Rule ${ruleNumber} results.`, 'info');
         }
         state.isHydrating = false;
         renderWorkspaceState();
@@ -889,7 +901,7 @@
             showSpinner('Clearing signoffs for the edited workspace...');
 
             try {
-                const result = await post('/Rule32/BeginWorkspaceEdit', buildRequest());
+                const result = await post(`${apiBasePath}/BeginWorkspaceEdit`, buildRequest());
                 if (!result.success) {
                     state.editWarningAccepted = false;
                     setInfo(result.error || 'Unable to begin editing.', 'error');
@@ -917,13 +929,13 @@
         if (!state.clientId) {
             applyWorkspace(null, false);
             renderSummary(null);
-            setInfo('Select an engagement to load the saved Rule 32 workspace.', 'info');
+            setInfo(`Select an engagement to load the saved Rule ${ruleNumber} workspace.`, 'info');
             renderWorkspaceState();
             return;
         }
 
         showSpinner('Loading saved workspace...');
-        const result = await getJson(`/Rule32/GetWorkspaceState?clientId=${state.clientId}`);
+        const result = await getJson(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`);
         if (!result.success) {
             setInfo(result.error || 'Unable to load workspace.', 'error');
             hideSpinner();
@@ -935,8 +947,8 @@
             renderSummary(null);
             setInfo(
                 currentSystemRole === 'DataAnalyst'
-                    ? 'No saved Rule 32 workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.'
-                    : 'No saved Rule 32 workspace exists for this engagement yet. This module is read-only for your role.',
+                    ? `No saved Rule ${ruleNumber} workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.`
+                    : `No saved Rule ${ruleNumber} workspace exists for this engagement yet. This module is read-only for your role.`,
                 'info');
             hideSpinner();
             return;
@@ -944,14 +956,14 @@
 
         applyWorkspace(result.workspace, result.resultsVisible);
         await populateSavedSelections(result.workspace);
-        setInfo('Loaded the saved Rule 32 workspace for this engagement.', 'success');
+        setInfo(`Loaded the saved Rule ${ruleNumber} workspace for this engagement.`, 'success');
         hideSpinner();
     }
 
     async function populateSavedSelections(workspace) {
         if (!workspace) return;
         if (workspace.server) {
-            const dbs = await post('/Rule32/GetDatabases', { server: workspace.server, driver: workspace.driver || els.driver.value });
+            const dbs = await post(`${apiBasePath}/GetDatabases`, { server: workspace.server, driver: workspace.driver || els.driver.value });
             if (dbs.success) {
                 const databases = dbs.databases || [];
                 const preferredDatabase =
@@ -963,7 +975,7 @@
             }
         }
         if (workspace.server && els.database.value) {
-            const tables = await post('/Rule32/GetTables', { server: workspace.server, database: els.database.value, driver: workspace.driver || els.driver.value });
+            const tables = await post(`${apiBasePath}/GetTables`, { server: workspace.server, database: els.database.value, driver: workspace.driver || els.driver.value });
             if (tables.success) {
                 const tableItems = tables.tables || [];
                 const preferredTable =
@@ -976,7 +988,7 @@
             }
         }
         if (workspace.server && els.database.value && els.tableName.value) {
-            const cols = await post('/Rule32/GetColumns', {
+            const cols = await post(`${apiBasePath}/GetColumns`, {
                 server: workspace.server,
                 database: els.database.value,
                 driver: workspace.driver || els.driver.value,
@@ -995,7 +1007,7 @@
             }
         }
         if (workspace.server && els.database.value && els.tableName.value && els.errorTypeColumn.value) {
-            const values = await post('/Rule32/LoadFilterValues', {
+            const values = await post(`${apiBasePath}/LoadFilterValues`, {
                 server: workspace.server,
                 database: els.database.value,
                 driver: workspace.driver || els.driver.value,
@@ -1013,7 +1025,7 @@
         }
 
         showSpinner('Connecting to server...');
-        const result = await post('/Rule32/GetDatabases', { server: els.server.value.trim(), driver: els.driver.value });
+        const result = await post(`${apiBasePath}/GetDatabases`, { server: els.server.value.trim(), driver: els.driver.value });
         if (!result.success) {
             setConnectionText(result.error || 'Connection failed.', 'error');
             hideSpinner();
@@ -1041,7 +1053,7 @@
     }
 
     async function loadTables() {
-        const result = await post('/Rule32/GetTables', {
+        const result = await post(`${apiBasePath}/GetTables`, {
             server: els.server.value.trim(),
             database: els.database.value,
             driver: els.driver.value
@@ -1071,7 +1083,7 @@
 
     async function loadColumns() {
         if (!els.tableName.value) return;
-        const result = await post('/Rule32/GetColumns', {
+        const result = await post(`${apiBasePath}/GetColumns`, {
             server: els.server.value.trim(),
             database: els.database.value,
             driver: els.driver.value,
@@ -1099,7 +1111,7 @@
 
     async function loadFilterValues() {
         if (!els.errorTypeColumn.value) return;
-        const result = await post('/Rule32/LoadFilterValues', {
+        const result = await post(`${apiBasePath}/LoadFilterValues`, {
             server: els.server.value.trim(),
             database: els.database.value,
             driver: els.driver.value,
@@ -1118,7 +1130,7 @@
     }
 
     async function verifyTable() {
-        const result = await post('/Rule32/VerifyTable', buildRequest());
+        const result = await post(`${apiBasePath}/VerifyTable`, buildRequest());
         if (!result.success) {
             setConnectionText(result.error || 'Verification failed.', 'error');
             return;
@@ -1129,13 +1141,13 @@
 
     async function runValidation() {
         if (currentSystemRole !== 'DataAnalyst') {
-            setInfo('Only the assigned data analyst can run Rule 32.', 'error');
+            setInfo(`Only the assigned data analyst can run Rule ${ruleNumber}.`, 'error');
             return;
         }
 
-        showSpinner('Running Rule 32 analysis...');
+        showSpinner(`Running Rule ${ruleNumber} analysis...`);
         try {
-            const result = await post('/Rule32/RunValidation', buildRequest());
+            const result = await post(`${apiBasePath}/RunValidation`, buildRequest());
             if (!result.success) {
                 renderRunError(result.error || 'Validation failed.');
                 switchTab('results');
@@ -1155,7 +1167,7 @@
             switchTab('results');
             setInfo(
                 result.warning ||
-                `Rule 32 completed: ${result.status}. Fatal ${result.totalFatal}, excluded ${result.excludedCount}, remaining ${result.remainingCount}.`,
+                `Rule ${ruleNumber} completed: ${result.status}. Fatal ${result.totalFatal}, excluded ${result.excludedCount}, remaining ${result.remainingCount}.`,
                 result.warning ? 'info' : (result.status === 'PASS' ? 'success' : 'error'));
             els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
             els.workspaceStatusLabel.textContent = result.status;
@@ -1165,7 +1177,7 @@
             updateStatusBadge(result.status);
             renderWorkspaceState();
         } catch (error) {
-            const message = error && error.message ? error.message : 'Unexpected error while running Rule 32.';
+            const message = error && error.message ? error.message : `Unexpected error while running Rule ${ruleNumber}.`;
             renderRunError(message);
             switchTab('results');
             setInfo(message, 'error');
@@ -1181,7 +1193,7 @@
         }
 
         showSpinner('Generating SQL...');
-        const result = await post('/Rule32/GenerateSql', buildRequest());
+        const result = await post(`${apiBasePath}/GenerateSql`, buildRequest());
         if (!result.success) {
             setInfo(result.error || 'Unable to generate SQL.', 'error');
             hideSpinner();
@@ -1201,7 +1213,7 @@
         }
 
         showSpinner('Saving workspace...');
-        const result = await post('/Rule32/SaveWorkspace', buildRequest());
+        const result = await post(`${apiBasePath}/SaveWorkspace`, buildRequest());
         if (!result.success) {
             setInfo(result.error || 'Unable to save workspace.', 'error');
             hideSpinner();
@@ -1215,7 +1227,7 @@
 
     async function beginWorkspaceEdit() {
         showSpinner('Clearing signoffs for the edited workspace...');
-        const result = await post('/Rule32/BeginWorkspaceEdit', buildRequest());
+        const result = await post(`${apiBasePath}/BeginWorkspaceEdit`, buildRequest());
         if (!result.success) {
             setInfo(result.error || 'Unable to begin editing.', 'error');
             hideSpinner();
@@ -1232,7 +1244,7 @@
 
     async function signoffWorkspace() {
         showSpinner('Saving signoff...');
-        const result = await post('/Rule32/SignOffWorkspace', {
+        const result = await post(`${apiBasePath}/SignOffWorkspace`, {
             clientId: state.clientId,
             runId: state.currentRunId,
             comment: els.workspaceSignoffComment.value.trim()
@@ -1251,7 +1263,7 @@
 
     async function removeWorkspaceSignoff() {
         showSpinner('Removing signoff...');
-        const result = await post('/Rule32/RemoveWorkspaceSignoff', {
+        const result = await post(`${apiBasePath}/RemoveWorkspaceSignoff`, {
             clientId: state.clientId,
             runId: state.currentRunId,
             comment: ''
@@ -1275,16 +1287,16 @@
 
         const actions = [];
         if (document.getElementById('chkExcel')?.checked) {
-            actions.push(() => downloadPost('/Rule32/DownloadExcel', state.validationResult, `Rule32_Fatal_Errors_${fileStamp()}.xlsx`));
+            actions.push(() => downloadPost(`${apiBasePath}/DownloadExcel`, state.validationResult, `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.xlsx`));
         }
         if (document.getElementById('chkCsv')?.checked) {
-            actions.push(() => downloadPost('/Rule32/DownloadCsv', state.validationResult, `Rule32_Excluded_and_Remaining_${fileStamp()}.csv`));
+            actions.push(() => downloadPost(`${apiBasePath}/DownloadCsv`, state.validationResult, `${ruleFilePrefix}_Excluded_and_Remaining_${fileStamp()}.csv`));
         }
         if (document.getElementById('chkRemainingCsv')?.checked) {
-            actions.push(() => downloadPost('/Rule32/DownloadExceptionsCsv', state.validationResult, `Rule32_Remaining_${fileStamp()}.csv`));
+            actions.push(() => downloadPost(`${apiBasePath}/DownloadExceptionsCsv`, state.validationResult, `${ruleFilePrefix}_Remaining_${fileStamp()}.csv`));
         }
         if (document.getElementById('chkSql')?.checked) {
-            actions.push(() => downloadPost('/Rule32/DownloadSql', buildRequest(), `Rule32_Fatal_Errors_${fileStamp()}.sql`));
+            actions.push(() => downloadPost(`${apiBasePath}/DownloadSql`, buildRequest(), `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.sql`));
         }
 
         for (const action of actions) {
@@ -1363,18 +1375,18 @@
     document.getElementById('downloadAllBtn').addEventListener('click', downloadAll);
     document.getElementById('downloadExcelBtn').addEventListener('click', async function () {
         if (!state.validationResult) return;
-        await downloadPost('/Rule32/DownloadExcel', state.validationResult, `Rule32_Fatal_Errors_${fileStamp()}.xlsx`);
+        await downloadPost(`${apiBasePath}/DownloadExcel`, state.validationResult, `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.xlsx`);
     });
     document.getElementById('downloadCsvBtn').addEventListener('click', async function () {
         if (!state.validationResult) return;
-        await downloadPost('/Rule32/DownloadCsv', state.validationResult, `Rule32_Excluded_and_Remaining_${fileStamp()}.csv`);
+        await downloadPost(`${apiBasePath}/DownloadCsv`, state.validationResult, `${ruleFilePrefix}_Excluded_and_Remaining_${fileStamp()}.csv`);
     });
     document.getElementById('downloadRemainingBtn').addEventListener('click', async function () {
         if (!state.validationResult) return;
-        await downloadPost('/Rule32/DownloadExceptionsCsv', state.validationResult, `Rule32_Remaining_${fileStamp()}.csv`);
+        await downloadPost(`${apiBasePath}/DownloadExceptionsCsv`, state.validationResult, `${ruleFilePrefix}_Remaining_${fileStamp()}.csv`);
     });
     document.getElementById('downloadSqlBtn').addEventListener('click', async function () {
-        await downloadPost('/Rule32/DownloadSql', buildRequest(), `Rule32_Fatal_Errors_${fileStamp()}.sql`);
+        await downloadPost(`${apiBasePath}/DownloadSql`, buildRequest(), `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.sql`);
     });
 
     renderSummary(null);
