@@ -418,7 +418,7 @@ async function markWorkspaceDirty() {
             state.editWarningAccepted = true;
             state.currentUserHasSignedOff = false;
             state.hasDataAnalystSignoff = false;
-            if (result.workspace) applyWorkspace(result.workspace, true);
+            if (result.workspace) applyWorkspaceReviewState(result.workspace);
             setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
         } finally {
             hideSpinner();
@@ -501,6 +501,22 @@ function applyWorkspace(workspace, preserveMessage) {
                 ? 'Loaded the saved Rule 34 workspace for this engagement.'
                 : 'Saved configuration loaded. Run validation to refresh the results.',
             'success');
+    }
+}
+
+function applyWorkspaceReviewState(workspace) {
+    state.currentRunId = workspace.runId || state.currentRunId;
+    state.currentUserEngagementRole = workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+    state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+    state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
+    state.currentStatus = workspace.currentStatus || state.currentStatus;
+    state.resultsVisible = !!workspace.resultsVisible;
+    document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
+
+    if (workspace.summary) {
+        applyValidationResult(workspace.summary, false);
+    } else {
+        renderWorkspaceState();
     }
 }
 

@@ -658,7 +658,7 @@ namespace HemisAudit.ViewModels
     public class MessageComposeViewModel
     {
         public int? ClientId { get; set; }
-        [Required, MaxLength(255)]
+        [MaxLength(255)]
         public string Subject { get; set; } = "";
         public string Body { get; set; } = "";
         public List<int> RecipientIds { get; set; } = new();

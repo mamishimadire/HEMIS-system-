@@ -28,6 +28,8 @@
     Layout = "~/Views/Shared/_Layout.cshtml";
     var activeThread = Model.ActiveThread;
     var unreadThreads = Model.Inbox.Count(thread => thread.HasUnread);
+    var attachmentAccept = ".jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.ogg,.m4a,.mp4,.webm,.mov,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip";
+    var currentUserEmail = User.Identity?.Name ?? "";
 }
 
 @if (TempData["Success"] != null)
@@ -150,15 +152,18 @@
                         previousDate = messageDate;
                     }
 
-                    var statusText = message.IsCurrentUser
+                    var isOwnMessage = message.IsCurrentUser ||
+                        (!string.IsNullOrWhiteSpace(currentUserEmail) &&
+                         string.Equals(message.SenderEmail, currentUserEmail, StringComparison.OrdinalIgnoreCase));
+                    var statusText = isOwnMessage
                         ? (message.ReadCount > 0
                             ? $"Seen by {message.ReadCount}/{Math.Max(message.RecipientCount, 1)}"
                             : "Sent")
                         : (message.IsRead ? "Read" : "Delivered");
-                    var statusTime = message.IsCurrentUser ? (message.LastReadAt ?? message.ReadAt) : message.ReadAt;
+                    var statusTime = isOwnMessage ? (message.LastReadAt ?? message.ReadAt) : message.ReadAt;
 
-                    <div class="message-row @(message.IsCurrentUser ? "message-row--mine" : "message-row--theirs")">
-                        <article class="message-bubble @(message.IsCurrentUser ? "message-bubble--mine" : "message-bubble--theirs")">
+                    <div class="message-row @(isOwnMessage ? "message-row--mine" : "message-row--theirs")">
+                        <article class="message-bubble @(isOwnMessage ? "message-bubble--mine" : "message-bubble--theirs")">
                             <div class="message-bubble__header">
                                 <strong>@message.SenderName</strong>
                                 <span>@message.SentAt.ToString("HH:mm")</span>
@@ -263,8 +268,11 @@
                 <input type="hidden" name="ClientId" value="@(activeThread.ClientId?.ToString() ?? "")" />
                 <div class="messages-compose-box">
                     <div class="messages-compose-toolbar">
-                        <button type="button" class="messages-toolbar-btn" data-emoji-toggle="reply-body">Emoji</button>
-                        <button type="button" class="messages-toolbar-btn" data-file-trigger="reply-attachments">Attach</button>
+                        <div class="messages-compose-toolbar__group">
+                            <button type="button" class="messages-toolbar-btn" data-emoji-toggle="reply-body">Emoji</button>
+                            <button type="button" class="messages-toolbar-btn" data-file-trigger="reply-attachments">Attach</button>
+                        </div>
+                        <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
                     </div>
                     <div class="emoji-picker" data-emoji-panel="reply-body">
                         <button type="button" data-emoji-value="😀">😀</button>
@@ -274,11 +282,15 @@
                         <button type="button" data-emoji-value="📌">📌</button>
                         <button type="button" data-emoji-value="🙏">🙏</button>
                     </div>
-                    <textarea id="reply-body" name="Body" rows="1" placeholder="Type a message"></textarea>
-                    <input id="reply-attachments" type="file" name="Attachments" multiple style="display:none" />
+                    <textarea id="reply-body" name="Body" rows="3" placeholder="Type a message"></textarea>
+                    <input id="reply-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
+                    <div class="messages-compose-meta">
+                        <span>Images, audio, video, PDF, Office files, text files, and ZIP are supported.</span>
+                        <span data-attachment-count-for="reply-attachments">No files selected</span>
+                    </div>
                     <div class="messages-attachment-preview" id="reply-attachment-preview"></div>
                 </div>
-                <button type="submit" class="btn btn-success">Send</button>
+                <button type="submit" class="btn btn-success messages-send-btn">Send</button>
             </form>
         }
         else
@@ -339,8 +351,11 @@
                 <label for="compose-body">Message</label>
                 <div class="messages-compose-box messages-compose-box--modal">
                     <div class="messages-compose-toolbar">
-                        <button type="button" class="messages-toolbar-btn" data-emoji-toggle="compose-body">Emoji</button>
-                        <button type="button" class="messages-toolbar-btn" data-file-trigger="compose-attachments">Attach</button>
+                        <div class="messages-compose-toolbar__group">
+                            <button type="button" class="messages-toolbar-btn" data-emoji-toggle="compose-body">Emoji</button>
+                            <button type="button" class="messages-toolbar-btn" data-file-trigger="compose-attachments">Attach</button>
+                        </div>
+                        <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
                     </div>
                     <div class="emoji-picker" data-emoji-panel="compose-body">
                         <button type="button" data-emoji-value="😀">😀</button>
@@ -351,7 +366,11 @@
                         <button type="button" data-emoji-value="🙏">🙏</button>
                     </div>
                     <textarea id="compose-body" name="Body" rows="5" placeholder="Write your first message.">@Model.Compose.Body</textarea>
-                    <input id="compose-attachments" type="file" name="Attachments" multiple style="display:none" />
+                    <input id="compose-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
+                    <div class="messages-compose-meta">
+                        <span>Send a message, an attachment, or both.</span>
+                        <span data-attachment-count-for="compose-attachments">No files selected</span>
+                    </div>
                     <div class="messages-attachment-preview" id="compose-attachment-preview"></div>
                 </div>
             </div>
@@ -443,6 +462,7 @@
 (function () {
     const shell = document.querySelector('.messages-shell');
     if (!shell) return;
+    const currentUserEmail = '@currentUserEmail';
 
     const state = {
         threadId: parseInt(shell.getAttribute('data-current-thread-id') || '0', 10) || 0,
@@ -573,11 +593,18 @@
                 </a>`;
     }
 
+    function isOwnMessage(message) {
+        const senderEmail = String(message?.senderEmail || '').trim().toLowerCase();
+        const loggedInEmail = String(currentUserEmail || '').trim().toLowerCase();
+        return !!message && (message.isCurrentUser === true || (!!senderEmail && senderEmail === loggedInEmail));
+    }
+
     function renderMessage(message, clientId) {
-        const statusText = message.isCurrentUser
+        const ownMessage = isOwnMessage(message);
+        const statusText = ownMessage
             ? (message.readCount > 0 ? `Seen by ${message.readCount}/${Math.max(message.recipientCount || 0, 1)}` : 'Sent')
             : (message.isRead ? 'Read' : 'Delivered');
-        const statusTime = message.isCurrentUser ? (message.lastReadAt || message.readAt) : message.readAt;
+        const statusTime = ownMessage ? (message.lastReadAt || message.readAt) : message.readAt;
         const bodyHtml = message.isDeleted
             ? '<div class="message-bubble__deleted">This message was deleted.</div>'
             : `${message.body ? `<div class="message-bubble__body">${escapeHtml(message.body)}</div>` : ''}${
@@ -610,8 +637,8 @@
             : '';
 
         return `
-            <div class="message-row ${message.isCurrentUser ? 'message-row--mine' : 'message-row--theirs'}">
-                <article class="message-bubble ${message.isCurrentUser ? 'message-bubble--mine' : 'message-bubble--theirs'}">
+            <div class="message-row ${ownMessage ? 'message-row--mine' : 'message-row--theirs'}">
+                <article class="message-bubble ${ownMessage ? 'message-bubble--mine' : 'message-bubble--theirs'}">
                     <div class="message-bubble__header">
                         <strong>${escapeHtml(message.senderName || '')}</strong>
                         <span>${escapeHtml(formatTime(message.sentAt))}</span>
@@ -699,8 +726,11 @@
                 <input type="hidden" name="ClientId" value="${thread.clientId || ''}" />
                 <div class="messages-compose-box">
                     <div class="messages-compose-toolbar">
-                        <button type="button" class="messages-toolbar-btn" data-emoji-toggle="reply-body">Emoji</button>
-                        <button type="button" class="messages-toolbar-btn" data-file-trigger="reply-attachments">Attach</button>
+                        <div class="messages-compose-toolbar__group">
+                            <button type="button" class="messages-toolbar-btn" data-emoji-toggle="reply-body">Emoji</button>
+                            <button type="button" class="messages-toolbar-btn" data-file-trigger="reply-attachments">Attach</button>
+                        </div>
+                        <div class="messages-compose-toolbar__hint">Max 15 MB per file</div>
                     </div>
                     <div class="emoji-picker" data-emoji-panel="reply-body">
                         <button type="button" data-emoji-value="😀">😀</button>
@@ -710,11 +740,15 @@
                         <button type="button" data-emoji-value="📌">📌</button>
                         <button type="button" data-emoji-value="🙏">🙏</button>
                     </div>
-                    <textarea id="reply-body" name="Body" rows="1" placeholder="Type a message"></textarea>
-                    <input id="reply-attachments" type="file" name="Attachments" multiple style="display:none" />
+                    <textarea id="reply-body" name="Body" rows="3" placeholder="Type a message"></textarea>
+                    <input id="reply-attachments" type="file" name="Attachments" accept="@attachmentAccept" multiple style="display:none" />
+                    <div class="messages-compose-meta">
+                        <span>Images, audio, video, PDF, Office files, text files, and ZIP are supported.</span>
+                        <span data-attachment-count-for="reply-attachments">No files selected</span>
+                    </div>
                     <div class="messages-attachment-preview" id="reply-attachment-preview"></div>
                 </div>
-                <button type="submit" class="btn btn-success">Send</button>
+                <button type="submit" class="btn btn-success messages-send-btn">Send</button>
             </form>`;
 
         document.getElementById('edit-subject').value = thread.subject || '';
@@ -785,6 +819,20 @@
     }
 
     function bindEmojiPickers() {
+        function normalizeEmojiValue(rawValue) {
+            const value = rawValue || '';
+            const replacements = {
+                'ðŸ˜€': '\u{1F600}',
+                'ðŸ‘': '\u{1F44D}',
+                'ðŸŽ‰': '\u{1F389}',
+                'âœ…': '\u2705',
+                'ðŸ“Œ': '\u{1F4CC}',
+                'ðŸ™': '\u{1F64F}'
+            };
+
+            return replacements[value] || value;
+        }
+
         document.querySelectorAll('[data-emoji-toggle]').forEach(function (button) {
             button.onclick = function () {
                 const targetId = button.getAttribute('data-emoji-toggle');
@@ -806,7 +854,8 @@
                 const target = document.getElementById(targetId || '');
                 if (!target) return;
 
-                const value = button.getAttribute('data-emoji-value') || '';
+                const value = normalizeEmojiValue(button.getAttribute('data-emoji-value'));
+                if (!value) return;
                 const start = target.selectionStart || target.value.length;
                 const end = target.selectionEnd || target.value.length;
                 target.value = `${target.value.slice(0, start)}${value}${target.value.slice(end)}`;
@@ -827,10 +876,16 @@
         [['reply-attachments', 'reply-attachment-preview'], ['compose-attachments', 'compose-attachment-preview']].forEach(function (pair) {
             const input = document.getElementById(pair[0]);
             const preview = document.getElementById(pair[1]);
+            const count = document.querySelector(`[data-attachment-count-for="${pair[0]}"]`);
             if (!input || !preview) return;
 
             input.onchange = function () {
                 const files = Array.from(input.files || []);
+                if (count) {
+                    count.textContent = files.length
+                        ? `${files.length} file${files.length === 1 ? '' : 's'} selected`
+                        : 'No files selected';
+                }
                 preview.innerHTML = files.map(file => `<span class="messages-attachment-chip">${escapeHtml(file.name)}</span>`).join('');
             };
         });

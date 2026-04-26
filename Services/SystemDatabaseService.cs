@@ -939,18 +939,20 @@ LEFT JOIN dbo.ThreadMessages lastMsg ON lastMsg.MessageID = (
     ORDER BY tm.SentAt DESC, tm.MessageID DESC
 )
 LEFT JOIN dbo.Users sender ON sender.UserID = lastMsg.SenderUserID
-WHERE EXISTS (
-    SELECT 1
-    FROM dbo.ThreadMessages tm
-    INNER JOIN dbo.ThreadMessageRecipients r ON r.MessageID = tm.MessageID
-    WHERE tm.ThreadID = th.ThreadID
-      AND r.UserID = @UserID
-)
-OR EXISTS (
-    SELECT 1
-    FROM dbo.ThreadMessages tm
-    WHERE tm.ThreadID = th.ThreadID
-      AND tm.SenderUserID = @UserID
+WHERE (
+    EXISTS (
+        SELECT 1
+        FROM dbo.ThreadMessages tm
+        INNER JOIN dbo.ThreadMessageRecipients r ON r.MessageID = tm.MessageID
+        WHERE tm.ThreadID = th.ThreadID
+          AND r.UserID = @UserID
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM dbo.ThreadMessages tm
+        WHERE tm.ThreadID = th.ThreadID
+          AND tm.SenderUserID = @UserID
+    )
 )
 AND NOT EXISTS (
     SELECT 1
@@ -1041,12 +1043,23 @@ WHERE th.ThreadID = @ThreadID;";
 
             await using var participants = connection.CreateCommand();
             participants.CommandText = @"
-SELECT DISTINCT LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,''))) AS FullName
-FROM dbo.ThreadMessages tm
-LEFT JOIN dbo.ThreadMessageRecipients r ON r.MessageID = tm.MessageID
-INNER JOIN dbo.Users u ON u.UserID = COALESCE(r.UserID, tm.SenderUserID)
-WHERE tm.ThreadID = @ThreadID
-ORDER BY FullName;";
+SELECT DISTINCT participant.FullName
+FROM (
+    SELECT LTRIM(RTRIM(ISNULL(sender.FirstName,'') + ' ' + ISNULL(sender.LastName,''))) AS FullName
+    FROM dbo.ThreadMessages tm
+    INNER JOIN dbo.Users sender ON sender.UserID = tm.SenderUserID
+    WHERE tm.ThreadID = @ThreadID
+
+    UNION
+
+    SELECT LTRIM(RTRIM(ISNULL(recipient.FirstName,'') + ' ' + ISNULL(recipient.LastName,''))) AS FullName
+    FROM dbo.ThreadMessages tm
+    INNER JOIN dbo.ThreadMessageRecipients r ON r.MessageID = tm.MessageID
+    INNER JOIN dbo.Users recipient ON recipient.UserID = r.UserID
+    WHERE tm.ThreadID = @ThreadID
+) participant
+WHERE NULLIF(participant.FullName, '') IS NOT NULL
+ORDER BY participant.FullName;";
             participants.Parameters.AddWithValue("@ThreadID", threadId);
             await using (var participantReader = await participants.ExecuteReaderAsync())
             {
@@ -1066,28 +1079,30 @@ ORDER BY FullName;";
             await using var connection = await OpenConnectionAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = isAdmin
-                ? @"SELECT u.UserID, LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,''))) AS FullName, ISNULL(u.Email,'') AS Email, CAST('Admin' AS NVARCHAR(50)) AS RoleName
+                ? @"SELECT u.UserID, LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,''))) AS FullName, ISNULL(u.Email,'') AS Email, ISNULL(u.SystemRole,'') AS RoleName
                     FROM dbo.Users u
                     WHERE u.IsActive = 1
+                      AND u.UserID <> @UserID
                     ORDER BY FullName;"
                 : clientId.HasValue
                     ? @"SELECT DISTINCT u.UserID, LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,''))) AS FullName, ISNULL(u.Email,'') AS Email, ISNULL(a.EngagementRole,'') AS RoleName
                         FROM dbo.Users u
                         INNER JOIN dbo.UserClientAssignments a ON a.UserID = u.UserID AND a.ClientID = @ClientID
                         WHERE u.IsActive = 1
+                          AND u.UserID <> @UserID
                         ORDER BY FullName;"
                     : @"SELECT DISTINCT u.UserID, LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,''))) AS FullName, ISNULL(u.Email,'') AS Email, ISNULL(a.EngagementRole,'') AS RoleName
                         FROM dbo.Users u
                         INNER JOIN dbo.UserClientAssignments a ON a.UserID = u.UserID
                         WHERE u.IsActive = 1
+                          AND u.UserID <> @UserID
                           AND a.ClientID IN (
                               SELECT DISTINCT ClientID
                               FROM dbo.UserClientAssignments
                               WHERE UserID = @UserID
                           )
                         ORDER BY FullName;";
-            if (!isAdmin)
-                command.Parameters.AddWithValue("@UserID", userId);
+            command.Parameters.AddWithValue("@UserID", userId);
             if (clientId.HasValue)
                 command.Parameters.AddWithValue("@ClientID", clientId.Value);
 
@@ -1149,6 +1164,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         {
             await using var connection = await OpenConnectionAsync();
             var senderUserId = await EnsureUserMirrorAsync(sender, senderRole);
+
+            if (!await CanAccessThreadAsync(connection, threadId, senderUserId))
+                throw new InvalidOperationException("You cannot reply to this chat.");
+
             var participants = await GetThreadParticipantIdsAsync(connection, threadId);
             await RestoreThreadForUsersAsync(connection, threadId, participants.Append(senderUserId));
             participants.Remove(senderUserId);
