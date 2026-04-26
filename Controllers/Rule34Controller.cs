@@ -694,8 +694,9 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public IActionResult DownloadExcel([FromBody] Rule34ValidationSummary summary)
+        public async Task<IActionResult> DownloadExcel([FromBody] Rule34ValidationSummary summary)
         {
+            summary = await ResolveExportSummaryAsync(summary);
             var bytes = _export.ExportExcel(summary);
             SaveToDesktop($"Rule34_Census_Date_Validation_{Ts()}.xlsx", bytes);
             return File(bytes,
@@ -704,8 +705,9 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public IActionResult DownloadCsv([FromBody] Rule34ValidationSummary summary)
+        public async Task<IActionResult> DownloadCsv([FromBody] Rule34ValidationSummary summary)
         {
+            summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule34_Validation_Results_{Ts()}.csv";
             var bytes = _export.ExportCsv(summary, false);
             SaveToDesktop(fileName, bytes);
@@ -713,8 +715,9 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public IActionResult DownloadExceptionsCsv([FromBody] Rule34ValidationSummary summary)
+        public async Task<IActionResult> DownloadExceptionsCsv([FromBody] Rule34ValidationSummary summary)
         {
+            summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule34_Census_Date_Exceptions_{Ts()}.csv";
             var bytes = _export.ExportCsv(summary, true);
             SaveToDesktop(fileName, bytes);
@@ -841,6 +844,27 @@ namespace HemisAudit.Controllers
                 return false;
 
             return ValidationRunAccessPolicy.CanViewSignedResults(role, workspace.CurrentUserEngagementRole, workspace.HasDataAnalystSignoff);
+        }
+
+        private async Task<Rule34ValidationSummary> ResolveExportSummaryAsync(Rule34ValidationSummary summary)
+        {
+            var user = await _users.GetUserAsync(User);
+
+            if (summary.SavedRunId is int savedRunId && savedRunId > 0)
+            {
+                var review = await _rule34.GetSavedRunAsync(savedRunId, user?.Email);
+                if (review?.Summary != null)
+                    return review.Summary;
+            }
+
+            if (summary.ClientId > 0)
+            {
+                var workspace = await _rule34.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: true);
+                if (workspace?.Summary != null)
+                    return workspace.Summary;
+            }
+
+            return summary;
         }
 
         private async Task<object> RequireDataAnalystAsync<T>(Func<Task<T>> action)

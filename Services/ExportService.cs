@@ -8,12 +8,14 @@ namespace HemisAudit.Services
     {
         byte[] ExportExcel(ValidationSummary summary);
         byte[] ExportExcel(Rule34ValidationSummary summary);
+        byte[] ExportExcel(Rule26ValidationSummary summary);
         byte[] ExportExcel(Rule27ValidationSummary summary);
         byte[] ExportExcel(Rule29ValidationSummary summary);
         byte[] ExportExcel(Rule31ValidationSummary summary);
         byte[] ExportExcel(Rule32ValidationSummary summary);
         byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportCsv(Rule26ValidationSummary summary);
         byte[] ExportCsv(Rule27ValidationSummary summary);
         byte[] ExportCsv(Rule29ValidationSummary summary);
         byte[] ExportCsv(Rule31ValidationSummary summary, bool exceptionsOnly = false);
@@ -321,6 +323,145 @@ namespace HemisAudit.Services
             return ms.ToArray();
         }
 
+        public byte[] ExportExcel(Rule26ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 26: BI-DIRECTIONAL 5-CONTROL VALIDATION", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("PROF Table", summary.ProfTable),
+                ("Payroll Table", summary.PayrollTable),
+                ("Validation Date", summary.Timestamp),
+                ("", ""),
+                ("POPULATION SUMMARY", ""),
+                ("PROF Records", summary.ProfRecordCount.ToString("N0")),
+                ("Payroll Records", summary.PayrollRecordCount.ToString("N0")),
+                ("Linked Records", summary.LinkedRecordCount.ToString("N0")),
+                ("Total Control Tests", summary.TotalValidated.ToString("N0")),
+                ("Total Exceptions", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "POPULATION SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 34;
+            wsSummary.Column(2).Width = 72;
+
+            var wsControlSummary = wb.Worksheets.Add("Control Summary");
+            StyleHeaderRow(wsControlSummary, 1, "RULE 26 CONTROL SUMMARY", 6);
+            var controlHeaders = new[] { "Direction", "Control #", "Control Name", "Total Tested", "Exceptions", "Status" };
+            for (var i = 0; i < controlHeaders.Length; i++)
+            {
+                var cell = wsControlSummary.Cell(2, i + 1);
+                cell.Value = controlHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var controlRow = 3;
+            foreach (var direction in summary.Directions)
+            {
+                foreach (var control in direction.Controls)
+                {
+                    wsControlSummary.Cell(controlRow, 1).Value = direction.DirectionLabel;
+                    wsControlSummary.Cell(controlRow, 2).Value = control.ControlNumber;
+                    wsControlSummary.Cell(controlRow, 3).Value = control.ControlName;
+                    wsControlSummary.Cell(controlRow, 4).Value = control.TotalTested;
+                    wsControlSummary.Cell(controlRow, 5).Value = control.ExceptionCount;
+                    wsControlSummary.Cell(controlRow, 6).Value = control.Passed ? "PASS" : "FAIL";
+                    controlRow++;
+                }
+            }
+            for (var c = 1; c <= controlHeaders.Length; c++) wsControlSummary.Column(c).AdjustToContents();
+
+            var exceptionHeaders = new[] { "Direction", "Control #", "Control Name", "Personnel Number", "Personnel Name", "Exception Reason", "Base Value", "Reference Value" };
+            var wsExceptions = wb.Worksheets.Add("Combined Exceptions");
+            StyleHeaderRow(wsExceptions, 1, "RULE 26 EXCEPTIONS", exceptionHeaders.Length);
+            for (var i = 0; i < exceptionHeaders.Length; i++)
+            {
+                var cell = wsExceptions.Cell(2, i + 1);
+                cell.Value = exceptionHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var exceptionRow = 3;
+            foreach (var exception in summary.Exceptions)
+            {
+                wsExceptions.Cell(exceptionRow, 1).Value = exception.DirectionLabel;
+                wsExceptions.Cell(exceptionRow, 2).Value = exception.ControlNumber;
+                wsExceptions.Cell(exceptionRow, 3).Value = exception.ControlName;
+                wsExceptions.Cell(exceptionRow, 4).Value = exception.PersonnelNumber;
+                wsExceptions.Cell(exceptionRow, 5).Value = exception.PersonnelName;
+                wsExceptions.Cell(exceptionRow, 6).Value = exception.ExceptionReason;
+                wsExceptions.Cell(exceptionRow, 7).Value = exception.BaseValue;
+                wsExceptions.Cell(exceptionRow, 8).Value = exception.ReferenceValue;
+                wsExceptions.Range(exceptionRow, 1, exceptionRow, exceptionHeaders.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
+                exceptionRow++;
+            }
+            for (var c = 1; c <= exceptionHeaders.Length; c++) wsExceptions.Column(c).AdjustToContents();
+
+            foreach (var direction in summary.Directions)
+            {
+                var sheetName = direction.DirectionKey == "prof_to_payroll" ? "PROF to Payroll" : "Payroll to PROF";
+                var wsDirection = wb.Worksheets.Add(sheetName);
+                StyleHeaderRow(wsDirection, 1, $"{direction.DirectionLabel} EXCEPTIONS", exceptionHeaders.Length);
+                for (var i = 0; i < exceptionHeaders.Length; i++)
+                {
+                    var cell = wsDirection.Cell(2, i + 1);
+                    cell.Value = exceptionHeaders[i];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    cell.Style.Font.FontColor = XLColor.White;
+                }
+
+                var row = 3;
+                foreach (var exception in direction.Exceptions)
+                {
+                    wsDirection.Cell(row, 1).Value = exception.DirectionLabel;
+                    wsDirection.Cell(row, 2).Value = exception.ControlNumber;
+                    wsDirection.Cell(row, 3).Value = exception.ControlName;
+                    wsDirection.Cell(row, 4).Value = exception.PersonnelNumber;
+                    wsDirection.Cell(row, 5).Value = exception.PersonnelName;
+                    wsDirection.Cell(row, 6).Value = exception.ExceptionReason;
+                    wsDirection.Cell(row, 7).Value = exception.BaseValue;
+                    wsDirection.Cell(row, 8).Value = exception.ReferenceValue;
+                    row++;
+                }
+                for (var c = 1; c <= exceptionHeaders.Length; c++) wsDirection.Column(c).AdjustToContents();
+            }
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
         public byte[] ExportExcel(Rule29ValidationSummary summary)
         {
             using var wb = new XLWorkbook();
@@ -468,6 +609,26 @@ namespace HemisAudit.Services
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
             return ms.ToArray();
+        }
+
+        public byte[] ExportCsv(Rule26ValidationSummary summary)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Direction,ControlNumber,ControlName,PersonnelNumber,PersonnelName,ExceptionReason,BaseValue,ReferenceValue");
+            foreach (var row in summary.Exceptions)
+            {
+                builder
+                    .Append(CsvEscape(row.DirectionLabel)).Append(',')
+                    .Append(row.ControlNumber).Append(',')
+                    .Append(CsvEscape(row.ControlName)).Append(',')
+                    .Append(CsvEscape(row.PersonnelNumber)).Append(',')
+                    .Append(CsvEscape(row.PersonnelName ?? "")).Append(',')
+                    .Append(CsvEscape(row.ExceptionReason)).Append(',')
+                    .Append(CsvEscape(row.BaseValue)).Append(',')
+                    .Append(CsvEscape(row.ReferenceValue)).AppendLine();
+            }
+
+            return Encoding.UTF8.GetBytes(builder.ToString());
         }
 
         public byte[] ExportExcel(Rule32ValidationSummary summary)
