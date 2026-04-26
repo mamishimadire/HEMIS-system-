@@ -109,13 +109,13 @@
                 Open the latest signed-off validation run or download it directly. No edits are allowed on archived engagements.
             </p>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <a asp-controller="@(Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@(Model.CurrentRunRuleNumber == 32 ? "Rule32" : Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
                    asp-action="Run"
                    asp-route-id="@Model.CurrentRunId"
                    class="btn btn-primary">
                     Open Latest Results
                 </a>
-                <a asp-controller="@(Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@(Model.CurrentRunRuleNumber == 32 ? "Rule32" : Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
                    asp-action="DownloadSavedExcel"
                    asp-route-runId="@Model.CurrentRunId"
                    class="btn btn-success">
@@ -145,6 +145,14 @@
             @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
             {
                 <div class="module-card-grid">
+                    <article class="module-card">
+                        <div class="module-card__eyebrow">Rule 32</div>
+                        <h4 class="module-card__title">Fatal Errors with Exclusions</h4>
+                        <p class="module-card__text">Filter fatal STUD validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
+                        <div class="module-card__actions">
+                            <a href="/Rule32?clientId=@Model.Id" class="btn btn-success">Open Rule 32</a>
+                        </div>
+                    </article>
                     <article class="module-card">
                         <div class="module-card__eyebrow">Rule 34</div>
                         <h4 class="module-card__title">Census Date Validation</h4>
@@ -348,7 +356,7 @@
                         <td>
             @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
             {
-                <a asp-controller="@(run.RuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@(run.RuleNumber == 32 ? "Rule32" : run.RuleNumber == 34 ? "Rule34" : "Rule36")"
                    asp-action="Run"
                    asp-route-id="@run.Id"
                    class="btn btn-sm btn-secondary">Review</a>
@@ -369,7 +377,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a> or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
         }
         else if (Model.IsArchived)
         {

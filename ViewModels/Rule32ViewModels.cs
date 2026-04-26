@@ -24,6 +24,15 @@ namespace HemisAudit.ViewModels
         public int Count { get; set; }
     }
 
+    public class Rule32FilterValueRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "";
+        public string TableName { get; set; } = "";
+        public string ErrorTypeColumn { get; set; } = "";
+    }
+
     public class Rule32FilterValueResult
     {
         public bool Success { get; set; }

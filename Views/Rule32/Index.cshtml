@@ -1,0 +1,725 @@
+@using HemisAudit.Models
+@using HemisAudit.ViewModels
+@{
+    ViewData["Title"] = "Rule 32 - Fatal Errors with Exclusions";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (moduleNavigation != null)
+{
+    @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+}
+
+<div class="page-header">
+    <div>
+        <h1>Rule 32 - Fatal Errors with Exclusions</h1>
+        <p>Filter fatal errors from the validation detail table, exclude configured codes, and fail the run only when fatal errors remain.</p>
+    </div>
+</div>
+
+<div class="card" style="padding:20px;margin-bottom:20px">
+    <div class="form-grid">
+        <div class="field-group">
+            <label for="clientId">Engagement</label>
+            <select id="clientId">
+                <option value="">Select an engagement</option>
+                @foreach (var client in clients)
+                {
+                    <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                        @client.Name (@client.FiscalYear)
+                    </option>
+                }
+            </select>
+        </div>
+        <div>
+            <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Workspace Status</div>
+            <div id="workspaceInfo" style="margin-top:6px">Select an engagement to load the saved Rule 32 workspace.</div>
+        </div>
+    </div>
+</div>
+
+<div id="rule32Shell">
+    <div class="card" style="padding:20px;margin-bottom:20px">
+        <h3 class="section-title" style="margin-top:0">Connection</h3>
+        <div class="form-grid">
+            <div class="field-group">
+                <label for="server">Server</label>
+                <input id="server" type="text" placeholder="(localdb)\MSSQLLocalDB" />
+            </div>
+            <div class="field-group">
+                <label for="database">Database</label>
+                <select id="database"></select>
+            </div>
+            <div class="field-group">
+                <label for="driver">Driver</label>
+                <select id="driver">
+                    <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                    <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                    <option value="SQL Server">SQL Server</option>
+                </select>
+            </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+            <button type="button" class="btn btn-primary" id="connectBtn">Connect</button>
+            <button type="button" class="btn btn-secondary" id="verifyBtn">Verify Table</button>
+        </div>
+        <div id="connectionOutput" style="margin-top:12px;color:#555"></div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px">
+        <h3 class="section-title" style="margin-top:0">Configuration</h3>
+        <div class="form-grid">
+            <div class="field-group">
+                <label for="tableName">Table</label>
+                <select id="tableName"></select>
+            </div>
+            <div class="field-group">
+                <label for="errorTypeColumn">Error Type Column</label>
+                <select id="errorTypeColumn"></select>
+            </div>
+            <div class="field-group">
+                <label for="errorColumn">Error Column</label>
+                <select id="errorColumn"></select>
+            </div>
+            <div class="field-group">
+                <label for="errorTypeValue">Filter Value</label>
+                <select id="errorTypeValue"></select>
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <label for="exclusionCodes">Excluded Error Codes</label>
+                <textarea id="exclusionCodes" rows="4" placeholder="02202, 02301, 02302, 00708, 07201, 01501"></textarea>
+            </div>
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin-top:14px">
+            <strong>Rule 32 logic</strong>
+            <div style="margin-top:6px;color:#475569">
+                1. Filter rows where the selected error type equals <code>Fatal</code> or the chosen filter value.
+                2. Normalize error codes by removing leading zeroes.
+                3. Split fatal rows into <strong>Excluded</strong> and <strong>Remaining</strong>.
+                4. PASS when no fatal rows remain after exclusions.
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px">
+        <h3 class="section-title" style="margin-top:0">Workspace Review and Signoff</h3>
+        <div class="workspace-signoff-card__subtitle" id="signoffSubtitle">The last saved Rule 32 connection, configuration, results, and signoffs reload here automatically.</div>
+        <div class="form-grid" style="margin-top:16px">
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
+                <div id="workspaceRunLabel">No saved run yet</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                <div id="workspaceStatusLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
+                <div id="workspaceEditedLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
+                <div id="workspaceRoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
+            </div>
+        </div>
+        <div class="field-group" style="margin-top:16px">
+            <label for="workspaceSignoffComment">Signoff Comment</label>
+            <textarea id="workspaceSignoffComment" rows="3" placeholder="Add review or completion notes"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+            <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
+            <button type="button" class="btn btn-secondary" id="saveWorkspaceBtn">Save Workspace</button>
+            <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+        </div>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+        <button type="button" class="btn btn-success" id="runBtn">Run Analysis</button>
+        <button type="button" class="btn btn-secondary" id="sqlBtn">Generate SQL</button>
+        <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
+        <button type="button" class="btn btn-info" id="downloadCsvBtn">Full CSV</button>
+        <button type="button" class="btn btn-info" id="downloadRemainingBtn">Remaining CSV</button>
+        <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
+    </div>
+
+    <div class="card" style="padding:20px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+            <button class="btn btn-secondary" type="button" data-tab="results">Results</button>
+            <button class="btn btn-secondary" type="button" data-tab="excluded">Excluded</button>
+            <button class="btn btn-secondary" type="button" data-tab="remaining">Remaining</button>
+            <button class="btn btn-secondary" type="button" data-tab="sql">SQL</button>
+        </div>
+        <div id="tab-results" data-tab-panel="results"></div>
+        <div id="tab-excluded" data-tab-panel="excluded" style="display:none"></div>
+        <div id="tab-remaining" data-tab-panel="remaining" style="display:none"></div>
+        <div id="tab-sql" data-tab-panel="sql" style="display:none">
+            <textarea id="sqlText" rows="18" readonly></textarea>
+        </div>
+    </div>
+</div>
+
+<form id="antiForgeryForm" method="post" style="display:none">
+    @Html.AntiForgeryToken()
+</form>
+
+<script>
+(function () {
+    const currentSystemRole = '@currentSystemRole';
+    const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
+    const state = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        currentRunId: null,
+        validationResult: null,
+        workspace: null,
+        sql: '',
+        canEditWorkspace: currentSystemRole === 'DataAnalyst'
+    };
+
+    const els = {
+        clientId: document.getElementById('clientId'),
+        server: document.getElementById('server'),
+        database: document.getElementById('database'),
+        driver: document.getElementById('driver'),
+        tableName: document.getElementById('tableName'),
+        errorTypeColumn: document.getElementById('errorTypeColumn'),
+        errorColumn: document.getElementById('errorColumn'),
+        errorTypeValue: document.getElementById('errorTypeValue'),
+        exclusionCodes: document.getElementById('exclusionCodes'),
+        connectionOutput: document.getElementById('connectionOutput'),
+        workspaceInfo: document.getElementById('workspaceInfo'),
+        workspaceRunLabel: document.getElementById('workspaceRunLabel'),
+        workspaceStatusLabel: document.getElementById('workspaceStatusLabel'),
+        workspaceEditedLabel: document.getElementById('workspaceEditedLabel'),
+        workspaceRoleLabel: document.getElementById('workspaceRoleLabel'),
+        workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
+        sqlText: document.getElementById('sqlText')
+    };
+
+    function setInfo(message, type) {
+        els.workspaceInfo.textContent = message;
+        els.workspaceInfo.style.color = type === 'error' ? '#b91c1c' : type === 'success' ? '#166534' : '#475569';
+    }
+
+    function setConnectionText(message, type) {
+        els.connectionOutput.textContent = message;
+        els.connectionOutput.style.color = type === 'error' ? '#b91c1c' : '#475569';
+    }
+
+    async function getJson(url) {
+        const response = await fetch(url, { cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        return await response.json();
+    }
+
+    async function post(url, body) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(body)
+        });
+        return await response.json();
+    }
+
+    async function downloadPost(url, body, fileName) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || 'Download failed.');
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = fileName;
+        link.click();
+        URL.revokeObjectURL(objectUrl);
+    }
+
+    function buildRequest() {
+        return {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            tableName: els.tableName.value,
+            errorTypeColumn: els.errorTypeColumn.value,
+            errorColumn: els.errorColumn.value,
+            errorTypeValue: els.errorTypeValue.value,
+            exclusionCodes: els.exclusionCodes.value.trim()
+        };
+    }
+
+    function populateSelect(select, values, selectedValue) {
+        select.innerHTML = '';
+        (values || []).forEach(function (item) {
+            const option = document.createElement('option');
+            if (typeof item === 'string') {
+                option.value = item;
+                option.textContent = item;
+            } else {
+                option.value = item.value;
+                option.textContent = item.label;
+            }
+            if (selectedValue && option.value === selectedValue) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    }
+
+    function unionDisplayHeaders(rows) {
+        const headers = ['ValidationNumber', 'Classification', 'ErrorTypeValue', 'ErrorCode', 'NormalizedErrorCode'];
+        const lookup = new Set(headers);
+        (rows || []).forEach(function (row) {
+            Object.keys(row.displayValues || {}).forEach(function (key) {
+                if (!lookup.has(key)) {
+                    headers.push(key);
+                    lookup.add(key);
+                }
+            });
+        });
+        return headers;
+    }
+
+    function renderRowsTable(rows, emptyMessage, failStyle) {
+        if (!rows || !rows.length) {
+            return `<div class="empty-card"><p>${emptyMessage}</p></div>`;
+        }
+
+        const headers = unionDisplayHeaders(rows);
+        const headHtml = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
+        const bodyHtml = rows.slice(0, 200).map(function (row) {
+            return `<tr>
+                ${headers.map(function (header) {
+                    let value = '';
+                    if (header === 'ValidationNumber') value = row.validationNumber;
+                    else if (header === 'Classification') value = row.classification;
+                    else if (header === 'ErrorTypeValue') value = row.errorTypeValue;
+                    else if (header === 'ErrorCode') value = row.errorCode;
+                    else if (header === 'NormalizedErrorCode') value = row.normalizedErrorCode;
+                    else value = row.displayValues && row.displayValues[header] ? row.displayValues[header] : '';
+                    return `<td>${escapeHtml(String(value || ''))}</td>`;
+                }).join('')}
+            </tr>`;
+        }).join('');
+
+        return `<div style="overflow:auto">
+            <table class="data-table ${failStyle ? 'data-table--fail' : ''}">
+                <thead><tr>${headHtml}</tr></thead>
+                <tbody>${bodyHtml}</tbody>
+            </table>
+            ${rows.length > 200 ? `<div style="margin-top:10px;color:#64748b">Showing the first 200 rows here. Use the downloads for the full dataset.</div>` : ''}
+        </div>`;
+    }
+
+    function renderBreakdown(items, emptyMessage) {
+        if (!items || !items.length) {
+            return `<div class="empty-card"><p>${emptyMessage}</p></div>`;
+        }
+
+        return `<table class="data-table">
+            <thead><tr><th>Error Code</th><th>Count</th></tr></thead>
+            <tbody>
+                ${items.map(i => `<tr><td>${escapeHtml(i.errorCode)}</td><td>${i.count}</td></tr>`).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    function renderSummary(result) {
+        if (!result) {
+            document.getElementById('tab-results').innerHTML = '<div class="empty-card"><p>Run Rule 32 to see validation results.</p></div>';
+            document.getElementById('tab-excluded').innerHTML = '<div class="empty-card"><p>No excluded rows to show yet.</p></div>';
+            document.getElementById('tab-remaining').innerHTML = '<div class="empty-card"><p>No remaining rows to show yet.</p></div>';
+            return;
+        }
+
+        document.getElementById('tab-results').innerHTML = `
+            <div class="stats-grid" style="margin-bottom:20px">
+                <div class="stat-card">
+                    <div class="stat-card__label">Fatal</div>
+                    <div class="stat-card__value">${result.totalFatal}</div>
+                </div>
+                <div class="stat-card stat-card--pass">
+                    <div class="stat-card__label">Excluded</div>
+                    <div class="stat-card__value">${result.excludedCount}</div>
+                </div>
+                <div class="stat-card stat-card--fail">
+                    <div class="stat-card__label">Remaining</div>
+                    <div class="stat-card__value">${result.remainingCount}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card__label">Status</div>
+                    <div class="stat-card__value">${escapeHtml(result.status)}</div>
+                </div>
+            </div>
+            <div class="card" style="padding:16px;margin-bottom:16px">
+                <div><strong>Filter:</strong> ${escapeHtml(result.errorTypeColumn)} = '${escapeHtml(result.errorTypeValue)}'</div>
+                <div style="margin-top:6px"><strong>Exclusions:</strong> ${escapeHtml((result.exclusions || []).join(', '))}</div>
+                <div style="margin-top:6px"><strong>Normalized:</strong> ${escapeHtml((result.normalizedExclusions || []).join(', '))}</div>
+            </div>
+            <div class="form-grid">
+                <div>${renderBreakdown(result.excludedBreakdown, 'No excluded fatal errors.')}</div>
+                <div>${renderBreakdown(result.remainingBreakdown, 'No remaining fatal errors.')}</div>
+            </div>`;
+
+        document.getElementById('tab-excluded').innerHTML = renderRowsTable(result.excludedRows, 'No excluded fatal rows found.', false);
+        document.getElementById('tab-remaining').innerHTML = renderRowsTable(result.remainingRows, 'No remaining fatal rows found.', true);
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function applyWorkspace(workspace, resultsVisible) {
+        state.workspace = workspace || null;
+        state.currentRunId = workspace && workspace.runId ? workspace.runId : null;
+        state.canEditWorkspace = currentSystemRole === 'DataAnalyst' &&
+            (!workspace || workspace.currentUserEngagementRole === 'DataAnalyst');
+
+        if (!workspace) {
+            els.workspaceRunLabel.textContent = 'No saved run yet';
+            els.workspaceStatusLabel.textContent = '-';
+            els.workspaceEditedLabel.textContent = '-';
+            els.workspaceRoleLabel.textContent = currentSystemRole || '-';
+            els.workspaceSignoffComment.value = '';
+            return;
+        }
+
+        els.server.value = workspace.server || '';
+        els.driver.value = workspace.driver || 'ODBC Driver 17 for SQL Server';
+        els.exclusionCodes.value = workspace.exclusionCodes || '';
+        els.workspaceRunLabel.textContent = workspace.runId ? `Run #${workspace.runId}` : 'No saved run yet';
+        els.workspaceStatusLabel.textContent = workspace.currentStatus || '-';
+        els.workspaceEditedLabel.textContent = workspace.lastEditedAt
+            ? `${workspace.lastEditedByUserName || 'Unknown'} | ${new Date(workspace.lastEditedAt).toLocaleString()}`
+            : '-';
+        els.workspaceRoleLabel.textContent = workspace.currentUserEngagementRole || currentSystemRole || '-';
+        els.workspaceSignoffComment.value = workspace.currentUserSignoffComment || '';
+
+        if (workspace.summary && resultsVisible) {
+            state.validationResult = workspace.summary;
+            renderSummary(workspace.summary);
+        } else if (!resultsVisible) {
+            state.validationResult = null;
+            renderSummary(null);
+            setInfo('This workspace is read-only until the assigned data analyst signs off the saved Rule 32 results.', 'info');
+        }
+    }
+
+    function updateControlState() {
+        const editable = state.canEditWorkspace;
+        ['server', 'database', 'driver', 'tableName', 'errorTypeColumn', 'errorColumn', 'errorTypeValue', 'exclusionCodes']
+            .forEach(function (id) {
+                const element = document.getElementById(id);
+                if (element) element.disabled = !editable;
+            });
+        ['connectBtn', 'verifyBtn', 'runBtn', 'sqlBtn', 'saveWorkspaceBtn', 'beginEditBtn', 'downloadSqlBtn']
+            .forEach(function (id) {
+                const element = document.getElementById(id);
+                if (element) element.disabled = !editable;
+            });
+    }
+
+    async function loadWorkspace() {
+        if (!state.clientId) {
+            applyWorkspace(null, false);
+            renderSummary(null);
+            setInfo('Select an engagement to load the saved Rule 32 workspace.', 'info');
+            updateControlState();
+            return;
+        }
+
+        const result = await getJson(`/Rule32/GetWorkspaceState?clientId=${state.clientId}`);
+        if (!result.success) {
+            setInfo(result.error || 'Unable to load workspace.', 'error');
+            return;
+        }
+
+        if (!result.hasWorkspace) {
+            applyWorkspace(null, false);
+            renderSummary(null);
+            setInfo(
+                currentSystemRole === 'DataAnalyst'
+                    ? 'No saved Rule 32 workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.'
+                    : 'No saved Rule 32 workspace exists for this engagement yet. This module is read-only for your role.',
+                'info');
+            updateControlState();
+            return;
+        }
+
+        applyWorkspace(result.workspace, result.resultsVisible);
+        await populateSavedSelections(result.workspace);
+        updateControlState();
+        setInfo('Loaded the saved Rule 32 workspace for this engagement.', 'success');
+    }
+
+    async function populateSavedSelections(workspace) {
+        if (!workspace) return;
+        if (workspace.server) {
+            const dbs = await post('/Rule32/GetDatabases', { server: workspace.server, driver: workspace.driver || els.driver.value });
+            if (dbs.success) populateSelect(els.database, dbs.databases || [], workspace.database);
+        }
+        if (workspace.server && workspace.database) {
+            const tables = await post('/Rule32/GetTables', { server: workspace.server, database: workspace.database, driver: workspace.driver || els.driver.value });
+            if (tables.success) populateSelect(els.tableName, tables.tables || [], workspace.tableName);
+        }
+        if (workspace.server && workspace.database && workspace.tableName) {
+            const cols = await post('/Rule32/GetColumns', {
+                server: workspace.server,
+                database: workspace.database,
+                driver: workspace.driver || els.driver.value,
+                tableName: workspace.tableName
+            });
+            if (cols.success) {
+                populateSelect(els.errorTypeColumn, cols.columns || [], workspace.errorTypeColumn);
+                populateSelect(els.errorColumn, cols.columns || [], workspace.errorColumn);
+            }
+        }
+        if (workspace.server && workspace.database && workspace.tableName && workspace.errorTypeColumn) {
+            const values = await post('/Rule32/LoadFilterValues', {
+                server: workspace.server,
+                database: workspace.database,
+                driver: workspace.driver || els.driver.value,
+                tableName: workspace.tableName,
+                errorTypeColumn: workspace.errorTypeColumn
+            });
+            if (values.success) populateSelect(els.errorTypeValue, values.options || [], workspace.errorTypeValue || values.defaultValue);
+        }
+    }
+
+    async function connectServer() {
+        if (!els.server.value.trim()) {
+            setConnectionText('Enter a server name first.', 'error');
+            return;
+        }
+
+        const result = await post('/Rule32/GetDatabases', { server: els.server.value.trim(), driver: els.driver.value });
+        if (!result.success) {
+            setConnectionText(result.error || 'Connection failed.', 'error');
+            return;
+        }
+
+        populateSelect(els.database, result.databases || []);
+        setConnectionText(`Connected to server. Found ${result.databases.length} database(s).`, 'info');
+    }
+
+    async function loadTables() {
+        const result = await post('/Rule32/GetTables', {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value
+        });
+        if (!result.success) {
+            setConnectionText(result.error || 'Unable to load tables.', 'error');
+            return;
+        }
+
+        populateSelect(els.tableName, result.tables || [], result.autoStudTable || null);
+        if (els.tableName.value) await loadColumns();
+    }
+
+    async function loadColumns() {
+        if (!els.tableName.value) return;
+        const result = await post('/Rule32/GetColumns', {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            tableName: els.tableName.value
+        });
+        if (!result.success) {
+            setConnectionText(result.error || 'Unable to load columns.', 'error');
+            return;
+        }
+
+        populateSelect(els.errorTypeColumn, result.columns || [], result.autoErrorTypeColumn || null);
+        populateSelect(els.errorColumn, result.columns || [], result.autoErrorColumn || null);
+        if (els.errorTypeColumn.value) await loadFilterValues();
+    }
+
+    async function loadFilterValues() {
+        if (!els.errorTypeColumn.value) return;
+        const result = await post('/Rule32/LoadFilterValues', {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            tableName: els.tableName.value,
+            errorTypeColumn: els.errorTypeColumn.value
+        });
+        if (!result.success) {
+            setConnectionText(result.error || 'Unable to load filter values.', 'error');
+            return;
+        }
+
+        populateSelect(els.errorTypeValue, result.options || [], result.defaultValue || null);
+    }
+
+    async function verifyTable() {
+        const result = await post('/Rule32/VerifyTable', buildRequest());
+        if (!result.success) {
+            setConnectionText(result.error || 'Verification failed.', 'error');
+            return;
+        }
+
+        setConnectionText(`Verified table. Total records: ${result.totalRecords}. Fatal: ${result.totalFatal}. Excluded: ${result.excludedCount}. Remaining: ${result.remainingCount}.`, 'info');
+    }
+
+    async function runValidation() {
+        const result = await post('/Rule32/RunValidation', buildRequest());
+        if (!result.success) {
+            setInfo(result.error || 'Validation failed.', 'error');
+            return;
+        }
+
+        state.validationResult = result;
+        state.currentRunId = result.savedRunId || null;
+        renderSummary(result);
+        setInfo(`Rule 32 completed: ${result.status}. Fatal ${result.totalFatal}, excluded ${result.excludedCount}, remaining ${result.remainingCount}.`, result.status === 'PASS' ? 'success' : 'error');
+        els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
+        els.workspaceStatusLabel.textContent = result.status;
+    }
+
+    async function generateSql() {
+        const result = await post('/Rule32/GenerateSql', buildRequest());
+        if (!result.success) {
+            setInfo(result.error || 'Unable to generate SQL.', 'error');
+            return;
+        }
+
+        state.sql = result.sql || '';
+        els.sqlText.value = state.sql;
+        switchTab('sql');
+    }
+
+    async function saveWorkspace() {
+        const result = await post('/Rule32/SaveWorkspace', buildRequest());
+        if (!result.success) {
+            setInfo(result.error || 'Unable to save workspace.', 'error');
+            return;
+        }
+
+        applyWorkspace(result.workspace, true);
+        updateControlState();
+        setInfo(result.message || 'Workspace saved.', 'success');
+    }
+
+    async function beginWorkspaceEdit() {
+        const result = await post('/Rule32/BeginWorkspaceEdit', buildRequest());
+        if (!result.success) {
+            setInfo(result.error || 'Unable to begin editing.', 'error');
+            return;
+        }
+
+        applyWorkspace(result.workspace, true);
+        updateControlState();
+        setInfo(result.message || 'Editing has begun.', 'success');
+    }
+
+    async function signoffWorkspace() {
+        const result = await post('/Rule32/SignOffWorkspace', {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: els.workspaceSignoffComment.value.trim()
+        });
+        if (!result.success) {
+            setInfo(result.error || 'Unable to save signoff.', 'error');
+            return;
+        }
+
+        applyWorkspace(result.workspace, true);
+        setInfo(result.message || 'Signoff saved.', 'success');
+    }
+
+    async function removeWorkspaceSignoff() {
+        const result = await post('/Rule32/RemoveWorkspaceSignoff', {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: ''
+        });
+        if (!result.success) {
+            setInfo(result.error || 'Unable to remove signoff.', 'error');
+            return;
+        }
+
+        applyWorkspace(result.workspace, true);
+        setInfo(result.message || 'Signoff removed.', 'success');
+    }
+
+    function fileStamp() {
+        return new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+    }
+
+    function switchTab(tab) {
+        document.querySelectorAll('[data-tab-panel]').forEach(function (panel) {
+            panel.style.display = panel.getAttribute('data-tab-panel') === tab ? '' : 'none';
+        });
+    }
+
+    document.querySelectorAll('[data-tab]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            switchTab(button.getAttribute('data-tab'));
+        });
+    });
+
+    els.clientId.addEventListener('change', async function () {
+        state.clientId = parseInt(els.clientId.value || '0', 10) || 0;
+        await loadWorkspace();
+    });
+    els.database.addEventListener('change', loadTables);
+    els.tableName.addEventListener('change', loadColumns);
+    els.errorTypeColumn.addEventListener('change', loadFilterValues);
+
+    document.getElementById('connectBtn').addEventListener('click', connectServer);
+    document.getElementById('verifyBtn').addEventListener('click', verifyTable);
+    document.getElementById('runBtn').addEventListener('click', runValidation);
+    document.getElementById('sqlBtn').addEventListener('click', generateSql);
+    document.getElementById('saveWorkspaceBtn').addEventListener('click', saveWorkspace);
+    document.getElementById('beginEditBtn').addEventListener('click', beginWorkspaceEdit);
+    document.getElementById('signoffBtn').addEventListener('click', signoffWorkspace);
+    document.getElementById('removeSignoffBtn').addEventListener('click', removeWorkspaceSignoff);
+    document.getElementById('downloadExcelBtn').addEventListener('click', async function () {
+        if (!state.validationResult) return;
+        await downloadPost('/Rule32/DownloadExcel', state.validationResult, `Rule32_Fatal_Errors_${fileStamp()}.xlsx`);
+    });
+    document.getElementById('downloadCsvBtn').addEventListener('click', async function () {
+        if (!state.validationResult) return;
+        await downloadPost('/Rule32/DownloadCsv', state.validationResult, `Rule32_Excluded_and_Remaining_${fileStamp()}.csv`);
+    });
+    document.getElementById('downloadRemainingBtn').addEventListener('click', async function () {
+        if (!state.validationResult) return;
+        await downloadPost('/Rule32/DownloadExceptionsCsv', state.validationResult, `Rule32_Remaining_${fileStamp()}.csv`);
+    });
+    document.getElementById('downloadSqlBtn').addEventListener('click', async function () {
+        await downloadPost('/Rule32/DownloadSql', buildRequest(), `Rule32_Fatal_Errors_${fileStamp()}.sql`);
+    });
+
+    renderSummary(null);
+    switchTab('results');
+    if (state.clientId > 0) {
+        loadWorkspace().catch(function () { });
+    } else {
+        updateControlState();
+    }
+})();
+</script>

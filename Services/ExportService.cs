@@ -8,8 +8,10 @@ namespace HemisAudit.Services
     {
         byte[] ExportExcel(ValidationSummary summary);
         byte[] ExportExcel(Rule34ValidationSummary summary);
+        byte[] ExportExcel(Rule32ValidationSummary summary);
         byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportCsv(Rule32ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportSql(string sql);
     }
 
@@ -313,6 +315,109 @@ namespace HemisAudit.Services
             return ms.ToArray();
         }
 
+        public byte[] ExportExcel(Rule32ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var allHeaders = GetRule32Headers(summary);
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 32: FATAL ERRORS WITH EXCLUSIONS", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("Source Table", summary.TableName),
+                ("Error Type Column", summary.ErrorTypeColumn),
+                ("Error Column", summary.ErrorColumn),
+                ("Filter Value", summary.ErrorTypeValue),
+                ("Exclusion Codes", string.Join(", ", summary.Exclusions)),
+                ("Normalized Codes", string.Join(", ", summary.NormalizedExclusions)),
+                ("Validation Date", summary.Timestamp),
+                ("", ""),
+                ("VALIDATION RESULTS", ""),
+                ("Total Fatal Errors", summary.TotalFatal.ToString("N0")),
+                ("Excluded", summary.ExcludedCount.ToString("N0")),
+                ("Remaining", summary.RemainingCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "VALIDATION RESULTS")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                    if (label == "Status")
+                    {
+                        var color = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2");
+                        wsSummary.Cell(summaryRow, 2).Style.Fill.BackgroundColor = color;
+                        wsSummary.Cell(summaryRow, 2).Style.Font.Bold = true;
+                    }
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 30;
+            wsSummary.Column(2).Width = 70;
+
+            var wsExcluded = wb.Worksheets.Add("Excluded");
+            StyleHeaderRow(wsExcluded, 1, "RULE 32 EXCLUDED FATAL ERRORS", allHeaders.Count);
+            WriteRule32HeaderRow(wsExcluded, 2, allHeaders);
+            WriteRule32Rows(wsExcluded, 3, summary.ExcludedRows, allHeaders, "#F3FFF3");
+
+            var wsRemaining = wb.Worksheets.Add("Remaining");
+            StyleHeaderRow(wsRemaining, 1, "RULE 32 REMAINING FATAL ERRORS", allHeaders.Count);
+            WriteRule32HeaderRow(wsRemaining, 2, allHeaders);
+            WriteRule32Rows(wsRemaining, 3, summary.RemainingRows, allHeaders, "#FFF3F3");
+
+            var wsStats = wb.Worksheets.Add("Breakdown");
+            StyleHeaderRow(wsStats, 1, "RULE 32 ERROR CODE BREAKDOWN", 4);
+            wsStats.Cell(2, 1).Value = "Excluded Code";
+            wsStats.Cell(2, 2).Value = "Excluded Count";
+            wsStats.Cell(2, 3).Value = "Remaining Code";
+            wsStats.Cell(2, 4).Value = "Remaining Count";
+            for (var col = 1; col <= 4; col++)
+            {
+                var cell = wsStats.Cell(2, col);
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var maxRows = Math.Max(summary.ExcludedBreakdown.Count, summary.RemainingBreakdown.Count);
+            for (var i = 0; i < maxRows; i++)
+            {
+                if (i < summary.ExcludedBreakdown.Count)
+                {
+                    wsStats.Cell(i + 3, 1).Value = summary.ExcludedBreakdown[i].ErrorCode;
+                    wsStats.Cell(i + 3, 2).Value = summary.ExcludedBreakdown[i].Count;
+                }
+                if (i < summary.RemainingBreakdown.Count)
+                {
+                    wsStats.Cell(i + 3, 3).Value = summary.RemainingBreakdown[i].ErrorCode;
+                    wsStats.Cell(i + 3, 4).Value = summary.RemainingBreakdown[i].Count;
+                }
+            }
+            for (var col = 1; col <= 4; col++) wsStats.Column(col).AdjustToContents();
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
         // ─── CSV Export ───────────────────────────────────────────────────────
         public byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false)
         {
@@ -372,6 +477,37 @@ namespace HemisAudit.Services
                     CsvEscape(row.CensusDateValue),
                     CsvEscape(row.DayStatus),
                     CsvEscape(row.ValidationStatus)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        public byte[] ExportCsv(Rule32ValidationSummary summary, bool exceptionsOnly = false)
+        {
+            var sb = new StringBuilder();
+            var headers = GetRule32Headers(summary);
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            var rows = exceptionsOnly ? summary.RemainingRows : summary.ExcludedRows.Concat(summary.RemainingRows).ToList();
+            foreach (var row in rows)
+            {
+                var values = headers.Select(header =>
+                {
+                    if (string.Equals(header, "Validation_Number", StringComparison.OrdinalIgnoreCase))
+                        return row.ValidationNumber.ToString();
+                    if (string.Equals(header, "Classification", StringComparison.OrdinalIgnoreCase))
+                        return row.Classification;
+                    if (string.Equals(header, "Error_Type_Value", StringComparison.OrdinalIgnoreCase))
+                        return row.ErrorTypeValue;
+                    if (string.Equals(header, "Error_Code", StringComparison.OrdinalIgnoreCase))
+                        return row.ErrorCode;
+                    if (string.Equals(header, "Normalized_Error_Code", StringComparison.OrdinalIgnoreCase))
+                        return row.NormalizedErrorCode;
+
+                    return row.DisplayValues.TryGetValue(header, out var value) ? value : null;
+                });
+
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
             }
 
             return Encoding.UTF8.GetBytes(sb.ToString());
@@ -446,6 +582,56 @@ namespace HemisAudit.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(x => x)
                 .ToList();
+
+        private static List<string> GetRule32Headers(Rule32ValidationSummary summary) =>
+            new[] { "Validation_Number", "Classification", "Error_Type_Value", "Error_Code", "Normalized_Error_Code" }
+                .Concat(summary.ExcludedRows
+                    .Concat(summary.RemainingRows)
+                    .SelectMany(r => r.DisplayValues.Keys)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+        private static void WriteRule32HeaderRow(IXLWorksheet ws, int row, List<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
+        private static void WriteRule32Rows(IXLWorksheet ws, int startRow, List<Rule32ValidationRowRecord> rows, List<string> headers, string fillColor)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = header switch
+                    {
+                        "Validation_Number" => row.ValidationNumber.ToString(),
+                        "Classification" => row.Classification,
+                        "Error_Type_Value" => row.ErrorTypeValue,
+                        "Error_Code" => row.ErrorCode,
+                        "Normalized_Error_Code" => row.NormalizedErrorCode,
+                        _ => row.DisplayValues.TryGetValue(header, out var currentValue) ? currentValue ?? "" : ""
+                    };
+
+                    ws.Cell(rowIndex, i + 1).Value = value;
+                }
+
+                ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml(fillColor);
+                rowIndex++;
+            }
+
+            for (var c = 1; c <= headers.Count; c++)
+                ws.Column(c).AdjustToContents();
+        }
 
         private static string CsvEscape(string? val)
         {

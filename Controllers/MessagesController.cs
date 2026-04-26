@@ -145,7 +145,11 @@ namespace HemisAudit.Controllers
                 var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
                 if (attachmentWarnings.Any())
                     errors.AddRange(attachmentWarnings);
-                TempData["Error"] = string.Join(", ", errors);
+                var errorMessage = string.Join(", ", errors);
+                if (IsAjaxRequest())
+                    return BadRequest(new { success = false, error = errorMessage });
+
+                TempData["Error"] = errorMessage;
                 return RedirectToAction(nameof(Index), new { clientId = model.ClientId, compose = true });
             }
 
@@ -169,6 +173,20 @@ namespace HemisAudit.Controllers
                 TempData["Success"] = "Message sent.";
                 if (attachmentWarnings.Any())
                     TempData["Error"] = $"Some attachments were skipped: {string.Join(", ", attachmentWarnings)}";
+
+                if (IsAjaxRequest())
+                {
+                    return Json(new
+                    {
+                        success = true,
+                        message = attachmentWarnings.Any()
+                            ? $"Message sent. Some attachments were skipped: {string.Join(", ", attachmentWarnings)}"
+                            : "Message sent.",
+                        threadId,
+                        clientId = model.ClientId
+                    });
+                }
+
                 return RedirectToAction(nameof(Index), new { threadId, clientId = model.ClientId });
             }
             catch
@@ -202,7 +220,11 @@ namespace HemisAudit.Controllers
                 var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
                 if (attachmentWarnings.Any())
                     errors.AddRange(attachmentWarnings);
-                TempData["Error"] = string.Join(", ", errors);
+                var errorMessage = string.Join(", ", errors);
+                if (IsAjaxRequest())
+                    return BadRequest(new { success = false, error = errorMessage });
+
+                TempData["Error"] = errorMessage;
                 return RedirectToAction(nameof(Index), new { threadId = model.ThreadId, clientId = model.ClientId });
             }
 
@@ -218,6 +240,20 @@ namespace HemisAudit.Controllers
                 TempData["Success"] = "Reply sent.";
                 if (attachmentWarnings.Any())
                     TempData["Error"] = $"Some attachments were skipped: {string.Join(", ", attachmentWarnings)}";
+
+                if (IsAjaxRequest())
+                {
+                    return Json(new
+                    {
+                        success = true,
+                        message = attachmentWarnings.Any()
+                            ? $"Reply sent. Some attachments were skipped: {string.Join(", ", attachmentWarnings)}"
+                            : "Reply sent.",
+                        threadId = model.ThreadId,
+                        clientId = model.ClientId
+                    });
+                }
+
                 return RedirectToAction(nameof(Index), new { threadId = model.ThreadId, clientId = model.ClientId });
             }
             catch
@@ -483,6 +519,9 @@ namespace HemisAudit.Controllers
 
         private static string NormaliseMessageBody(string? body) =>
             string.IsNullOrWhiteSpace(body) ? "" : body.Trim();
+
+        private bool IsAjaxRequest() =>
+            string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
 
         private static (string ContentType, string Kind) ClassifyAttachment(string? contentType, string? extension)
         {

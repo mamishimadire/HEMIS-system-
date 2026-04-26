@@ -94,6 +94,8 @@
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
 }
 
+<div id="messagesFlashArea"></div>
+
 <div class="messages-shell" data-current-thread-id="@(Model.SelectedThreadId?.ToString() ?? "")" data-current-client-id="@(activeThread?.ClientId?.ToString() ?? Model.Compose.ClientId?.ToString() ?? "")">
     <aside class="messages-sidebar">
         <div class="messages-sidebar__header">
@@ -376,7 +378,7 @@
             <button type="button" class="messages-icon-btn" data-modal-close="compose-modal">Close</button>
         </div>
 
-        <form asp-action="Send" method="post" enctype="multipart/form-data" class="messages-modal__form">
+        <form asp-action="Send" method="post" enctype="multipart/form-data" class="messages-modal__form" id="composeForm">
             @Html.AntiForgeryToken()
             <input type="hidden" name="ClientId" value="@(Model.Compose.ClientId?.ToString() ?? "")" />
 
@@ -533,6 +535,7 @@
     const chatList = document.getElementById('chatList');
     const unreadText = document.getElementById('messagesUnreadText');
     const stage = document.getElementById('messagesStage');
+    const flashArea = document.getElementById('messagesFlashArea');
 
     function escapeHtml(value) {
         return (value || '')
@@ -583,6 +586,45 @@
                 badge.style.display = 'none';
             }
         });
+    }
+
+    function showFlash(message, tone) {
+        if (!flashArea || !message) return;
+
+        flashArea.innerHTML = `<div class="alert alert--${tone === 'error' ? 'error' : 'success'}" style="margin-bottom:16px">${escapeHtml(message)}</div>`;
+        window.setTimeout(function () {
+            if (flashArea.textContent && flashArea.textContent.indexOf(message) >= 0) {
+                flashArea.innerHTML = '';
+            }
+        }, 5000);
+    }
+
+    function closeModal(modalId) {
+        const modal = document.getElementById(modalId || '');
+        if (!modal) return;
+
+        modal.classList.remove('is-open');
+        if (!document.querySelector('.messages-modal.is-open')) {
+            document.body.classList.remove('messages-modal-open');
+        }
+    }
+
+    function resetAttachmentInput(inputId, previewId) {
+        const input = document.getElementById(inputId || '');
+        const preview = document.getElementById(previewId || '');
+        const count = document.querySelector(`[data-attachment-count-for="${inputId}"]`);
+
+        if (input) {
+            input.value = '';
+        }
+
+        if (preview) {
+            preview.innerHTML = '';
+        }
+
+        if (count) {
+            count.textContent = 'No files selected';
+        }
     }
 
     function renderInbox(inbox) {
@@ -851,6 +893,7 @@
         bindEmojiPickers();
         bindFilePickers();
         bindMessageEditButtons();
+        bindAsyncForms();
 
         const nextTimeline = document.getElementById('messagesTimeline');
         if (nextTimeline) {
@@ -1006,6 +1049,121 @@
         });
     }
 
+    function bindAsyncForms() {
+        const attachFormHandler = function (form, options) {
+            if (!form || form.dataset.asyncBound === 'true') return;
+
+            form.dataset.asyncBound = 'true';
+            form.addEventListener('submit', async function (event) {
+                event.preventDefault();
+
+                const submitButton = form.querySelector('button[type="submit"]');
+                const bodyField = form.querySelector('textarea[name="Body"]');
+                const attachmentInput = options.attachmentInputId
+                    ? document.getElementById(options.attachmentInputId)
+                    : null;
+                const hasBody = !!(bodyField && (bodyField.value || '').trim().length > 0);
+                const hasFiles = !!(attachmentInput && attachmentInput.files && attachmentInput.files.length > 0);
+
+                if (!hasBody && !hasFiles) {
+                    showFlash(options.emptyMessage || 'Enter a message or attach a file.', 'error');
+                    return;
+                }
+
+                const originalText = submitButton ? submitButton.textContent : '';
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.textContent = options.busyText || 'Sending...';
+                }
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+
+                    const payload = await response.json().catch(function () { return null; });
+                    if (!response.ok || !payload || payload.success !== true) {
+                        showFlash((payload && payload.error) || options.errorMessage || 'Unable to send message.', 'error');
+                        return;
+                    }
+
+                    if (bodyField) {
+                        bodyField.value = '';
+                    }
+
+                    if (options.attachmentInputId && options.attachmentPreviewId) {
+                        resetAttachmentInput(options.attachmentInputId, options.attachmentPreviewId);
+                    }
+
+                    if (typeof options.onSuccess === 'function') {
+                        options.onSuccess(payload, form);
+                    }
+
+                    await pollMessages();
+                    showFlash(payload.message || options.successMessage || 'Message sent.', 'success');
+                } catch (_error) {
+                    showFlash(options.errorMessage || 'Unable to send message.', 'error');
+                } finally {
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = originalText || options.defaultButtonText || 'Send';
+                    }
+                }
+            });
+        };
+
+        attachFormHandler(document.getElementById('replyForm'), {
+            attachmentInputId: 'reply-attachments',
+            attachmentPreviewId: 'reply-attachment-preview',
+            emptyMessage: 'Enter a reply or attach a file.',
+            busyText: 'Sending...',
+            defaultButtonText: 'Send',
+            errorMessage: 'Unable to send reply.',
+            successMessage: 'Reply sent.',
+            onSuccess: function (payload) {
+                if (payload.threadId) {
+                    state.threadId = parseInt(payload.threadId, 10) || state.threadId;
+                    shell.setAttribute('data-current-thread-id', String(state.threadId || ''));
+                }
+                if (payload.clientId) {
+                    state.clientId = parseInt(payload.clientId, 10) || state.clientId;
+                    shell.setAttribute('data-current-client-id', String(state.clientId || ''));
+                }
+            }
+        });
+
+        attachFormHandler(document.getElementById('composeForm'), {
+            attachmentInputId: 'compose-attachments',
+            attachmentPreviewId: 'compose-attachment-preview',
+            emptyMessage: 'Enter a message or attach a file.',
+            busyText: 'Sending...',
+            defaultButtonText: 'Send message',
+            errorMessage: 'Unable to create chat.',
+            successMessage: 'Message sent.',
+            onSuccess: function (payload, form) {
+                if (payload.threadId) {
+                    state.threadId = parseInt(payload.threadId, 10) || 0;
+                    shell.setAttribute('data-current-thread-id', String(state.threadId || ''));
+                }
+                if (payload.clientId) {
+                    state.clientId = parseInt(payload.clientId, 10) || 0;
+                    shell.setAttribute('data-current-client-id', String(state.clientId || ''));
+                }
+
+                form.reset();
+                resetAttachmentInput('compose-attachments', 'compose-attachment-preview');
+                closeModal('compose-modal');
+
+                const nextUrl = state.threadId > 0
+                    ? `/Messages?threadId=${state.threadId}`
+                    : (state.clientId > 0 ? `/Messages?clientId=${state.clientId}` : '/Messages');
+                window.history.replaceState({}, '', nextUrl);
+            }
+        });
+    }
+
     async function pollMessages() {
         const params = new URLSearchParams();
         if (state.threadId > 0) params.set('threadId', String(state.threadId));
@@ -1059,6 +1217,7 @@
     bindEmojiPickers();
     bindFilePickers();
     bindMessageEditButtons();
+    bindAsyncForms();
     applyChatFilters();
 
     const initialTimeline = document.getElementById('messagesTimeline');
@@ -1068,7 +1227,7 @@
 
     state.pollHandle = window.setInterval(function () {
         pollMessages().catch(function () { });
-    }, 7000);
+    }, 4000);
 })();
 </script>
 

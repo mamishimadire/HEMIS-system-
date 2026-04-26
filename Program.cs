@@ -48,6 +48,7 @@ builder.Services.AddControllersWithViews(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRule36Service, Rule36Service>();
 builder.Services.AddScoped<IRule34Service, Rule34Service>();
+builder.Services.AddScoped<IRule32Service, Rule32Service>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 
@@ -87,6 +88,11 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule32-short",
+    pattern: "Rule32",
+    defaults: new { controller = "Rule32", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule36-short",
