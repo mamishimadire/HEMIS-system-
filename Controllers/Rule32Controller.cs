@@ -40,6 +40,7 @@ namespace HemisAudit.Controllers
             if (!string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(role, "Director", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(role, "Manager", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(role, "Trainee", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
             {
                 TempData["Error"] = "Only assigned engagement members can open audit modules.";
@@ -51,6 +52,22 @@ namespace HemisAudit.Controllers
             {
                 TempData["Error"] = "You cannot access this engagement.";
                 return RedirectToAction("Index", "Dashboard");
+            }
+
+            if (IsResultsOnlyRole(role))
+            {
+                if (clientId <= 0)
+                {
+                    TempData["Error"] = "Open an analyst-signed saved run to review results, sign off, or download exports.";
+                    return RedirectToAction("Index", "Dashboard", new { scope = "active" });
+                }
+
+                var selectedClient = clients.FirstOrDefault(c => c.Id == clientId);
+                if (selectedClient?.LatestSignedOffRunId is int signedRunId)
+                    return RedirectToAction(nameof(Run), new { id = signedRunId });
+
+                TempData["Error"] = "No analyst-signed Rule 32 result is available for this engagement yet.";
+                return RedirectToAction("ClientDetail", "Admin", new { id = clientId });
             }
 
             ViewBag.Clients = clients
@@ -159,6 +176,17 @@ namespace HemisAudit.Controllers
                 await _systemDb.CanAccessClientModuleAsync(review.ClientId, user, role) &&
                 (string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(review.CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
+
+            review.GeneratedSql = await _rule32.GenerateSqlAsync(new Rule32ValidationRequest
+            {
+                ClientId = review.ClientId,
+                Database = review.Summary.Database,
+                TableName = review.Summary.TableName,
+                ErrorTypeColumn = review.Summary.ErrorTypeColumn,
+                ErrorColumn = review.Summary.ErrorColumn,
+                ErrorTypeValue = review.Summary.ErrorTypeValue,
+                ExclusionCodes = string.Join(", ", review.Summary.Exclusions)
+            });
             return View(review);
         }
 
@@ -319,8 +347,7 @@ namespace HemisAudit.Controllers
             if (clientDetail?.IsArchived == true)
                 return Json(new { success = false, error = "Archived engagements are read-only. Signoff is disabled." });
 
-            if (!string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) &&
-                !review.HasDataAnalystSignoff)
+            if (!ValidationRunAccessPolicy.CanCompleteReviewSignoff(role, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff))
             {
                 return Json(new { success = false, error = "The assigned data analyst must sign off before this review can be completed." });
             }
@@ -441,8 +468,7 @@ namespace HemisAudit.Controllers
                 return RedirectToAction(nameof(Run), new { id = model.RunId });
             }
 
-            if (!string.Equals(review.CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) &&
-                !review.HasDataAnalystSignoff)
+            if (!ValidationRunAccessPolicy.CanCompleteReviewSignoff(role, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff))
             {
                 TempData["Error"] = "The assigned data analyst must sign off before this review can be completed.";
                 return RedirectToAction(nameof(Run), new { id = model.RunId });
@@ -632,22 +658,15 @@ namespace HemisAudit.Controllers
         }
 
         private static bool CanDownloadSavedRun(Rule32RunReviewViewModel review, string systemRole)
-        {
-            if (string.Equals(systemRole, "Admin", StringComparison.OrdinalIgnoreCase))
-                return true;
-            if (string.Equals(review.CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-                return true;
-            return review.CanCurrentUserDownload && review.HasDataAnalystSignoff;
-        }
+            => ValidationRunAccessPolicy.CanDownloadSignedResults(systemRole, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff);
 
         private static bool CanViewSavedRun(Rule32RunReviewViewModel review, string systemRole)
-        {
-            if (string.Equals(systemRole, "Admin", StringComparison.OrdinalIgnoreCase))
-                return true;
-            if (string.Equals(review.CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-                return true;
-            return review.HasDataAnalystSignoff;
-        }
+            => ValidationRunAccessPolicy.CanViewSignedResults(systemRole, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff);
+
+        private static bool IsResultsOnlyRole(string role) =>
+            string.Equals(role, "Manager", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "Director", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "Trainee", StringComparison.OrdinalIgnoreCase);
 
         private async Task<string> GetCurrentSystemRoleAsync(ApplicationUser? user)
         {
@@ -666,7 +685,7 @@ namespace HemisAudit.Controllers
             if (!await _systemDb.CanAccessClientResultsAsync(clientId, user, role))
                 return false;
             var engagementRole = await _systemDb.GetEngagementRoleAsync(clientId, user, role);
-            return string.Equals(engagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+            return ValidationRunAccessPolicy.IsAssignedDataAnalyst(engagementRole);
         }
 
         private async Task<bool> CanSignWorkspaceAsync(int clientId, ApplicationUser? user, string role)
@@ -682,18 +701,16 @@ namespace HemisAudit.Controllers
             if (!await _systemDb.CanAccessClientResultsAsync(clientId, user, role))
                 return false;
             var engagementRole = await _systemDb.GetEngagementRoleAsync(clientId, user, role);
-            return string.Equals(engagementRole, role, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(engagementRole, role, StringComparison.OrdinalIgnoreCase) &&
+                   ValidationRunAccessPolicy.CanAssignedUserSignOff(engagementRole);
         }
 
         private static bool CanViewWorkspaceResults(string role, Rule32WorkspaceStateViewModel? workspace)
         {
             if (workspace == null)
                 return false;
-            if (string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase))
-                return true;
-            if (string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-                return true;
-            return workspace.HasDataAnalystSignoff;
+
+            return ValidationRunAccessPolicy.CanViewSignedResults(role, workspace.CurrentUserEngagementRole, workspace.HasDataAnalystSignoff);
         }
 
         private async Task<object> RequireDataAnalystAsync<T>(Func<Task<T>> action)

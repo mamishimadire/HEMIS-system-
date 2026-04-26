@@ -1,3 +1,5 @@
+using HemisAudit.Helpers;
+
 namespace HemisAudit.ViewModels
 {
     public class Rule32GetColumnsRequest
@@ -122,6 +124,7 @@ namespace HemisAudit.ViewModels
         public List<Rule32BreakdownItemViewModel> RemainingBreakdown { get; set; } = new();
         public List<Rule32ValidationRowRecord> ExcludedRows { get; set; } = new();
         public List<Rule32ValidationRowRecord> RemainingRows { get; set; } = new();
+        public string? Warning { get; set; }
         public string? Error { get; set; }
     }
 
@@ -131,6 +134,8 @@ namespace HemisAudit.ViewModels
         public int ClientId { get; set; }
         public string EngagementName { get; set; } = "";
         public string MaconomyNumber { get; set; } = "";
+        public string SourceServer { get; set; } = "";
+        public string GeneratedSql { get; set; } = "";
         public Rule32ValidationSummary Summary { get; set; } = new();
         public List<RunSignoffViewModel> Signoffs { get; set; } = new();
         public string CurrentUserEngagementRole { get; set; } = "";
@@ -140,15 +145,8 @@ namespace HemisAudit.ViewModels
             Signoffs.Any(s =>
                 s.IsCurrentUser &&
                 string.Equals(s.SignoffRole, CurrentUserEngagementRole, StringComparison.OrdinalIgnoreCase));
-        public bool CanCurrentUserSignOff =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase);
-        public bool CanCurrentUserDownload =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+        public bool CanCurrentUserSignOff => ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
     }
 
     public class Rule32WorkspaceStateViewModel

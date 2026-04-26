@@ -2,6 +2,7 @@ using Microsoft.Data.SqlClient;
 using Newtonsoft.Json;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using HemisAudit.ViewModels;
 
 namespace HemisAudit.Services
@@ -9,6 +10,7 @@ namespace HemisAudit.Services
     public class Rule32Service : IRule32Service
     {
         private static readonly string[] DefaultExclusions = ["02202", "02301", "02302", "00708", "07201", "01501", "1501"];
+        private static readonly Regex ExclusionSplitPattern = new(@"[\s,;]+", RegexOptions.Compiled);
         private readonly IConfiguration _configuration;
 
         public Rule32Service(IConfiguration configuration)
@@ -57,9 +59,15 @@ namespace HemisAudit.Services
                     tables.Add(reader.GetString(0));
 
                 var autoTable = tables.FirstOrDefault(t =>
-                    t.Equals("dbo_STUD_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase) ||
-                    t.Equals("STUD_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase) ||
-                    t.Equals("dbo_CESM_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase));
+                        t.Equals("dbo_STUD_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase))
+                    ?? tables.FirstOrDefault(t =>
+                        t.Equals("STUD_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase))
+                    ?? tables.FirstOrDefault(t =>
+                        t.Equals("dbo_CESM_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase))
+                    ?? tables.FirstOrDefault(t =>
+                        t.EndsWith("STUD_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase))
+                    ?? tables.FirstOrDefault(t =>
+                        t.Contains("STUD_VALIDATION_DETAIL", StringComparison.OrdinalIgnoreCase));
 
                 return new TableListResult
                 {
@@ -134,7 +142,7 @@ ORDER BY COUNT(*) DESC, FilterValue ASC;";
                 while (await reader.ReadAsync())
                 {
                     var value = reader.IsDBNull(0) ? "" : reader.GetString(0);
-                    var count = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetInt64(1));
+                    var count = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
                     options.Add(new Rule32FilterValueOption
                     {
                         Value = value,
@@ -242,7 +250,14 @@ WHERE UPPER(LTRIM(RTRIM(ISNULL(CAST([{safeErrorTypeColumn}] AS nvarchar(255)), '
                 var summary = await AnalyseAsync(request);
                 if (summary.Success && request.ClientId > 0)
                 {
-                    summary.SavedRunId = await SaveValidationRunAsync(request, summary, userEmail, userName);
+                    try
+                    {
+                        summary.SavedRunId = await SaveValidationRunAsync(request, summary, userEmail, userName);
+                    }
+                    catch (Exception ex)
+                    {
+                        summary.Warning = $"Analysis completed, but the workspace could not be saved automatically: {ex.Message}";
+                    }
                 }
 
                 return summary;
@@ -337,7 +352,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
 
             await using var command = connection.CreateCommand();
             command.CommandText = @"
-SELECT vr.RunID, vr.ClientID, c.EngagementName, c.MaconomyNumber, vr.ResultsJSON
+SELECT vr.RunID, vr.ClientID, c.EngagementName, c.MaconomyNumber, vr.HemisServer, vr.ResultsJSON
 FROM dbo.ValidationRuns vr
 INNER JOIN dbo.Clients c ON c.ClientID = vr.ClientID
 WHERE vr.RunID = @RunID
@@ -348,7 +363,7 @@ WHERE vr.RunID = @RunID
             if (!await reader.ReadAsync())
                 return null;
 
-            var summary = DeserializeSummary(reader.IsDBNull(4) ? null : reader.GetString(4));
+            var summary = DeserializeSummary(reader.IsDBNull(5) ? null : reader.GetString(5));
             if (summary == null)
                 return null;
 
@@ -358,6 +373,7 @@ WHERE vr.RunID = @RunID
                 ClientId = reader.GetInt32(1),
                 EngagementName = reader.IsDBNull(2) ? "" : reader.GetString(2),
                 MaconomyNumber = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                SourceServer = reader.IsDBNull(4) ? "" : reader.GetString(4),
                 Summary = summary
             };
 
@@ -828,30 +844,34 @@ WHERE UPPER(LTRIM(RTRIM(ISNULL(CAST([{safeErrorTypeColumn}] AS nvarchar(255)), '
             await MarkPreviousRunsHistoricalAsync(connection, request.ClientId, 32);
 
             var systemUserId = await GetSystemUserIdByEmailAsync(connection, userEmail);
+            if (!systemUserId.HasValue)
+                throw new InvalidOperationException("The current analyst could not be resolved in the system database.");
+
             var previousHash = await GetLatestValidationHashAsync(connection, request.ClientId, 32);
 
             await using var command = connection.CreateCommand();
             command.CommandText = @"
 INSERT INTO dbo.ValidationRuns
 (
-    ClientID, RuleNumber, RuleName, Status, TotalValidated, FailCount, ExceptionRate, RunByUserID, RunTimestamp,
+    ClientID, UserID, RuleNumber, RuleName, Status, TotalRecords, PassCount, FailCount, ExceptionRate, RunTimestamp,
     HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
     ExceptionsJSON, ResultsJSON, RunByUserName, LastEditedByUserName, LastEditedAt, PreviousHash, RecordHash, IsCurrent
 )
 VALUES
 (
-    @ClientID, 32, @RuleName, @Status, @TotalValidated, @FailCount, @ExceptionRate, @RunByUserID, GETDATE(),
+    @ClientID, @UserID, 32, @RuleName, @Status, @TotalRecords, @PassCount, @FailCount, @ExceptionRate, GETDATE(),
     @HemisServer, @AuditDatabase, @StudTable, @DeceasedTable, @StudColumn, @DeceasedColumn,
     @ExceptionsJSON, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, 1
 );
 SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@ClientID", request.ClientId);
+            command.Parameters.AddWithValue("@UserID", systemUserId.Value);
             command.Parameters.AddWithValue("@RuleName", "Fatal Errors with Exclusions (STUD)");
             command.Parameters.AddWithValue("@Status", summary.Status);
-            command.Parameters.AddWithValue("@TotalValidated", summary.TotalValidated);
+            command.Parameters.AddWithValue("@TotalRecords", summary.TotalValidated);
+            command.Parameters.AddWithValue("@PassCount", summary.PassCount);
             command.Parameters.AddWithValue("@FailCount", summary.FailCount);
             command.Parameters.AddWithValue("@ExceptionRate", summary.ExceptionRate);
-            command.Parameters.AddWithValue("@RunByUserID", (object?)systemUserId ?? DBNull.Value);
             command.Parameters.AddWithValue("@HemisServer", request.Server);
             command.Parameters.AddWithValue("@AuditDatabase", request.Database);
             command.Parameters.AddWithValue("@StudTable", request.TableName);
@@ -872,7 +892,7 @@ UPDATE dbo.ValidationRuns
 SET RecordHash = @RecordHash
 WHERE RunID = @RunID;";
             hashCommand.Parameters.AddWithValue("@RunID", runId);
-            hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash($@"ValidationRun|Rule32|{runId}|{request.ClientId}|{systemUserId}|{summary.Status}|{summary.TotalValidated}|{summary.FailCount}|{summary.ExceptionRate}|{summary.Timestamp}|{previousHash}"));
+            hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash($@"ValidationRun|Rule32|{runId}|{request.ClientId}|{systemUserId.Value}|{summary.Status}|{summary.TotalValidated}|{summary.FailCount}|{summary.ExceptionRate}|{summary.Timestamp}|{previousHash}"));
             await hashCommand.ExecuteNonQueryAsync();
 
             return runId;
@@ -958,12 +978,16 @@ ORDER BY ORDINAL_POSITION;";
                 ? string.Join(", ", DefaultExclusions)
                 : exclusionCodes;
 
-            return source
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            var values = ExclusionSplitPattern
+                .Split(source)
                 .Select(s => s.Trim().Trim('"', '\''))
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            return values.Count > 0
+                ? values
+                : DefaultExclusions.ToList();
         }
 
         private static string NormalizeErrorCode(string? code)

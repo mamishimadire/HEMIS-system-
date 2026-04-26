@@ -8,9 +8,11 @@ namespace HemisAudit.Services
     {
         byte[] ExportExcel(ValidationSummary summary);
         byte[] ExportExcel(Rule34ValidationSummary summary);
+        byte[] ExportExcel(Rule31ValidationSummary summary);
         byte[] ExportExcel(Rule32ValidationSummary summary);
         byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportCsv(Rule31ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportCsv(Rule32ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportSql(string sql);
     }
@@ -316,13 +318,19 @@ namespace HemisAudit.Services
         }
 
         public byte[] ExportExcel(Rule32ValidationSummary summary)
+            => ExportFatalErrorExcel(summary, 32, "STUD");
+
+        public byte[] ExportExcel(Rule31ValidationSummary summary) =>
+            ExportFatalErrorExcel(ToRule32Summary(summary), 31, "QUAL");
+
+        private byte[] ExportFatalErrorExcel(Rule32ValidationSummary summary, int ruleNumber, string tableScope)
         {
             using var wb = new XLWorkbook();
 
             var allHeaders = GetRule32Headers(summary);
 
             var wsSummary = wb.Worksheets.Add("Summary");
-            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 32: FATAL ERRORS WITH EXCLUSIONS", 2);
+            StyleHeaderRow(wsSummary, 1, $"HEMIS RULE {ruleNumber}: FATAL ERRORS WITH EXCLUSIONS ({tableScope})", 2);
             var summaryData = new[]
             {
                 ("Database", summary.Database),
@@ -374,17 +382,17 @@ namespace HemisAudit.Services
             wsSummary.Column(2).Width = 70;
 
             var wsExcluded = wb.Worksheets.Add("Excluded");
-            StyleHeaderRow(wsExcluded, 1, "RULE 32 EXCLUDED FATAL ERRORS", allHeaders.Count);
+            StyleHeaderRow(wsExcluded, 1, $"RULE {ruleNumber} EXCLUDED FATAL ERRORS", allHeaders.Count);
             WriteRule32HeaderRow(wsExcluded, 2, allHeaders);
             WriteRule32Rows(wsExcluded, 3, summary.ExcludedRows, allHeaders, "#F3FFF3");
 
             var wsRemaining = wb.Worksheets.Add("Remaining");
-            StyleHeaderRow(wsRemaining, 1, "RULE 32 REMAINING FATAL ERRORS", allHeaders.Count);
+            StyleHeaderRow(wsRemaining, 1, $"RULE {ruleNumber} REMAINING FATAL ERRORS", allHeaders.Count);
             WriteRule32HeaderRow(wsRemaining, 2, allHeaders);
             WriteRule32Rows(wsRemaining, 3, summary.RemainingRows, allHeaders, "#FFF3F3");
 
             var wsStats = wb.Worksheets.Add("Breakdown");
-            StyleHeaderRow(wsStats, 1, "RULE 32 ERROR CODE BREAKDOWN", 4);
+            StyleHeaderRow(wsStats, 1, $"RULE {ruleNumber} ERROR CODE BREAKDOWN", 4);
             wsStats.Cell(2, 1).Value = "Excluded Code";
             wsStats.Cell(2, 2).Value = "Excluded Count";
             wsStats.Cell(2, 3).Value = "Remaining Code";
@@ -513,6 +521,9 @@ namespace HemisAudit.Services
             return Encoding.UTF8.GetBytes(sb.ToString());
         }
 
+        public byte[] ExportCsv(Rule31ValidationSummary summary, bool exceptionsOnly = false) =>
+            ExportCsv(ToRule32Summary(summary), exceptionsOnly);
+
         // ─── SQL Export ───────────────────────────────────────────────────────
         public byte[] ExportSql(string sql) => Encoding.UTF8.GetBytes(sql);
 
@@ -632,6 +643,54 @@ namespace HemisAudit.Services
             for (var c = 1; c <= headers.Count; c++)
                 ws.Column(c).AdjustToContents();
         }
+
+        private static Rule32ValidationSummary ToRule32Summary(Rule31ValidationSummary summary) =>
+            new()
+            {
+                Success = summary.Success,
+                TotalValidated = summary.TotalValidated,
+                TotalFatal = summary.TotalFatal,
+                ExcludedCount = summary.ExcludedCount,
+                RemainingCount = summary.RemainingCount,
+                PassCount = summary.PassCount,
+                FailCount = summary.FailCount,
+                ExceptionRate = summary.ExceptionRate,
+                Status = summary.Status,
+                Timestamp = summary.Timestamp,
+                Database = summary.Database,
+                TableName = summary.TableName,
+                ErrorTypeColumn = summary.ErrorTypeColumn,
+                ErrorColumn = summary.ErrorColumn,
+                ErrorTypeValue = summary.ErrorTypeValue,
+                ClientId = summary.ClientId,
+                SavedRunId = summary.SavedRunId,
+                Exclusions = summary.Exclusions.ToList(),
+                NormalizedExclusions = summary.NormalizedExclusions.ToList(),
+                ExcludedBreakdown = summary.ExcludedBreakdown
+                    .Select(item => new Rule32BreakdownItemViewModel { ErrorCode = item.ErrorCode, Count = item.Count })
+                    .ToList(),
+                RemainingBreakdown = summary.RemainingBreakdown
+                    .Select(item => new Rule32BreakdownItemViewModel { ErrorCode = item.ErrorCode, Count = item.Count })
+                    .ToList(),
+                ExcludedRows = summary.ExcludedRows.Select(ToRule32Row).ToList(),
+                RemainingRows = summary.RemainingRows.Select(ToRule32Row).ToList(),
+                Warning = summary.Warning,
+                Error = summary.Error
+            };
+
+        private static Rule32ValidationRowRecord ToRule32Row(Rule31ValidationRowRecord row) =>
+            new()
+            {
+                ValidationNumber = row.ValidationNumber,
+                ErrorTypeValue = row.ErrorTypeValue,
+                ErrorCode = row.ErrorCode,
+                NormalizedErrorCode = row.NormalizedErrorCode,
+                Classification = row.Classification,
+                ErrorMessage = row.ErrorMessage,
+                Description = row.Description,
+                ElementInformation = row.ElementInformation,
+                DisplayValues = new Dictionary<string, string?>(row.DisplayValues, StringComparer.OrdinalIgnoreCase)
+            };
 
         private static string CsvEscape(string? val)
         {

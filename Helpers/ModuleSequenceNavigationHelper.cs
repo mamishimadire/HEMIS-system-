@@ -6,6 +6,7 @@ namespace HemisAudit.Helpers
     {
         private static readonly ModuleSequenceItem[] Modules =
         {
+            new(31, "Rule 31", "Fatal Errors with Exclusions (QUAL)"),
             new(32, "Rule 32", "Fatal Errors with Exclusions"),
             new(34, "Rule 34", "Census Date Validation"),
             new(36, "Rule 36", "Deceased Students Validation")

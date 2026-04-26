@@ -1,3 +1,4 @@
+@using HemisAudit.Helpers
 @model HemisAudit.ViewModels.ClientDetailViewModel
 @{
     ViewData["Title"] = Model.EngagementName;
@@ -9,6 +10,7 @@
     var isArchived = Model.IsArchived;
     var canReviewUnsignedRuns =
         string.Equals(currentSystemRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+    var showModulesWorkspaceUi = ViewBag.ShowModulesWorkspaceUi is bool showModules && showModules;
 }
 
 @if (TempData["Success"] != null)
@@ -40,11 +42,11 @@
         </p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
-        @if (canOpenModule || Model.IsArchived)
+        @if (showModulesWorkspaceUi && (canOpenModule || Model.IsArchived))
         {
             <a href="#modules-panel" class="btn btn-secondary">Modules</a>
         }
-        else
+        else if (showModulesWorkspaceUi)
         {
             <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Modules Locked</span>
         }
@@ -109,13 +111,13 @@
                 Open the latest signed-off validation run or download it directly. No edits are allowed on archived engagements.
             </p>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <a asp-controller="@(Model.CurrentRunRuleNumber == 32 ? "Rule32" : Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@RuleRouteHelper.GetControllerName(Model.CurrentRunRuleNumber ?? 0)"
                    asp-action="Run"
                    asp-route-id="@Model.CurrentRunId"
                    class="btn btn-primary">
                     Open Latest Results
                 </a>
-                <a asp-controller="@(Model.CurrentRunRuleNumber == 32 ? "Rule32" : Model.CurrentRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@RuleRouteHelper.GetControllerName(Model.CurrentRunRuleNumber ?? 0)"
                    asp-action="DownloadSavedExcel"
                    asp-route-runId="@Model.CurrentRunId"
                    class="btn btn-success">
@@ -131,67 +133,66 @@
     <div class="alert alert--info" style="margin-bottom:24px">@Model.ArchiveEligibilityMessage</div>
 }
 
-<details class="collapsible-section" id="modules-panel" style="margin-bottom:24px">
-    <summary class="collapsible-trigger">
-        <div>
-            <span class="collapsible-trigger__title">Modules</span>
-            <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
+@if (showModulesWorkspaceUi)
+{
+    <details class="collapsible-section" id="modules-panel" style="margin-bottom:24px">
+        <summary class="collapsible-trigger">
+            <div>
+                <span class="collapsible-trigger__title">Modules</span>
+                <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
+            </div>
+            <span class="collapsible-trigger__meta">Rules 31, 32, 34 and 36</span>
+            <span class="collapsible-trigger__icon" aria-hidden="true"></span>
+        </summary>
+        <div class="collapsible-panel">
+            <div class="card" style="padding:18px 20px">
+                @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
+                {
+                    <div class="module-card-grid">
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 31</div>
+                            <h4 class="module-card__title">Fatal Errors with Exclusions (QUAL)</h4>
+                            <p class="module-card__text">Filter fatal QUAL validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule31?clientId=@Model.Id" class="btn btn-success">Open Rule 31</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 32</div>
+                            <h4 class="module-card__title">Fatal Errors with Exclusions</h4>
+                            <p class="module-card__text">Filter fatal STUD validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule32?clientId=@Model.Id" class="btn btn-success">Open Rule 32</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 34</div>
+                            <h4 class="module-card__title">Census Date Validation</h4>
+                            <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it with the stored census date, and evaluate weekends and SA public holidays.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule34?clientId=@Model.Id" class="btn btn-success">Open Rule 34</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 36</div>
+                            <h4 class="module-card__title">Deceased Students Validation</h4>
+                            <p class="module-card__text">Match student records against the deceased students reference table and save exceptions for review and signoff.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">Open Rule 36</a>
+                            </div>
+                        </article>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-card" style="margin:0">
+                        <p>This engagement must be approved before users can access modules.</p>
+                    </div>
+                }
+            </div>
         </div>
-        <span class="collapsible-trigger__meta">Rules 34 and 36</span>
-        <span class="collapsible-trigger__icon" aria-hidden="true"></span>
-    </summary>
-    <div class="collapsible-panel">
-        <div class="card" style="padding:18px 20px">
-            @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
-            {
-                <div class="module-card-grid">
-                    <article class="module-card">
-                        <div class="module-card__eyebrow">Rule 32</div>
-                        <h4 class="module-card__title">Fatal Errors with Exclusions</h4>
-                        <p class="module-card__text">Filter fatal STUD validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
-                        <div class="module-card__actions">
-                            <a href="/Rule32?clientId=@Model.Id" class="btn btn-success">Open Rule 32</a>
-                        </div>
-                    </article>
-                    <article class="module-card">
-                        <div class="module-card__eyebrow">Rule 34</div>
-                        <h4 class="module-card__title">Census Date Validation</h4>
-                        <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it with the stored census date, and evaluate weekends and SA public holidays.</p>
-                        <div class="module-card__actions">
-                            <a href="/Rule34?clientId=@Model.Id" class="btn btn-success">Open Rule 34</a>
-                        </div>
-                    </article>
-                    <article class="module-card">
-                        <div class="module-card__eyebrow">Rule 36</div>
-                        <h4 class="module-card__title">Deceased Students Validation</h4>
-                        <p class="module-card__text">Match student records against the deceased students reference table and save exceptions for review and signoff.</p>
-                        <div class="module-card__actions">
-                            <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">Open Rule 36</a>
-                        </div>
-                    </article>
-                </div>
-            }
-            else if (Model.IsArchived)
-            {
-                <div class="empty-card" style="margin:0">
-                    <p>This engagement is archived. Modules are read-only now, and saved results stay available through archived results and validation runs.</p>
-                </div>
-            }
-            else if (canOpenModule)
-            {
-                <div class="empty-card" style="margin:0">
-                    <p>This engagement is results-only for your role. Open saved validation runs below to review outputs and signoff progress.</p>
-                </div>
-            }
-            else
-            {
-                <div class="empty-card" style="margin:0">
-                    <p>This engagement must be approved before users can access modules.</p>
-                </div>
-            }
-        </div>
-    </div>
-</details>
+    </details>
+}
 
 <details class="collapsible-section" style="margin-bottom:24px">
     <summary class="collapsible-trigger">
@@ -356,7 +357,7 @@
                         <td>
             @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
             {
-                <a asp-controller="@(run.RuleNumber == 32 ? "Rule32" : run.RuleNumber == 34 ? "Rule34" : "Rule36")"
+                <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
                    asp-action="Run"
                    asp-route-id="@run.Id"
                    class="btn btn-sm btn-secondary">Review</a>
@@ -377,7 +378,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
         }
         else if (Model.IsArchived)
         {

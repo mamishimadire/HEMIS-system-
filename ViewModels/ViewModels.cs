@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using System.ComponentModel.DataAnnotations;
 
+using HemisAudit.Helpers;
+
 namespace HemisAudit.ViewModels
 {
     // ═══════════════════════════════════════════════════════════════════════════
@@ -361,6 +363,8 @@ namespace HemisAudit.ViewModels
         public int ClientId { get; set; }
         public string EngagementName { get; set; } = "";
         public string MaconomyNumber { get; set; } = "";
+        public string SourceServer { get; set; } = "";
+        public string GeneratedSql { get; set; } = "";
         public ValidationSummary Summary { get; set; } = new();
         public List<RunSignoffViewModel> Signoffs { get; set; } = new();
         public string CurrentUserEngagementRole { get; set; } = "";
@@ -370,15 +374,8 @@ namespace HemisAudit.ViewModels
             Signoffs.Any(s =>
                 s.IsCurrentUser &&
                 string.Equals(s.SignoffRole, CurrentUserEngagementRole, StringComparison.OrdinalIgnoreCase));
-        public bool CanCurrentUserSignOff =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase);
-        public bool CanCurrentUserDownload =>
-            string.Equals(CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Director", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(CurrentUserEngagementRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+        public bool CanCurrentUserSignOff => ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
     }
 
     public class Rule36WorkspaceStateViewModel

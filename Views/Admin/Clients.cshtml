@@ -1,3 +1,4 @@
+@using HemisAudit.Helpers
 @model List<HemisAudit.ViewModels.ClientListViewModel>
 @{ ViewData["Title"] = "Engagements"; Layout = "~/Views/Shared/_Layout.cshtml"; }
 
@@ -79,7 +80,7 @@
 
                             @if (c.LatestRunId.HasValue)
                             {
-                                <a asp-controller="@(c.LatestRunRuleNumber == 32 ? "Rule32" : c.LatestRunRuleNumber == 34 ? "Rule34" : "Rule36")"
+                                <a asp-controller="@RuleRouteHelper.GetControllerName(c.LatestRunRuleNumber ?? 0)"
                                    asp-action="Run"
                                    asp-route-id="@c.LatestRunId"
                                    class="btn btn-sm btn-secondary">Review</a>
