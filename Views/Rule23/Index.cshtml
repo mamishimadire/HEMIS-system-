@@ -1,0 +1,1041 @@
+@using HemisAudit.Models
+@using HemisAudit.ViewModels
+@{
+    ViewData["Title"] = "Rule 23 - Reconcile Datasets";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
+}
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <div class="engagement-selector">
+        <label for="clientId">Engagement</label>
+        <select id="clientId">
+            <option value="">Select engagement (results saved here)</option>
+            @foreach (var client in clients)
+            {
+                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                    @client.Name (@client.FiscalYear)
+                </option>
+            }
+        </select>
+        <small>Each run is auto-saved as the current Rule 23 workspace for the selected engagement.</small>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R23</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 23: Reconcile Datasets</h1>
+            <p class="rule-header__sub">Compare student number, qualification code, and ID number across dbo_STUD, MT-audit-prod-std, and H16STUD and isolate missing or mismatched rows for review.</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="accordion-stack">
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="server">Server Name</label>
+                        <input id="server" type="text" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                    </div>
+                    <div class="field-group">
+                        <label for="driver">Driver</label>
+                        <select id="driver">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label for="database">Database</label>
+                        <select id="database"></select>
+                    </div>
+                </div>
+                <div class="action-bar" style="justify-content:flex-start;margin:12px 0 0">
+                    <button type="button" class="btn btn-primary" id="connectBtn">Connect</button>
+                    <button type="button" class="btn btn-info" id="verifyBtn">Verify Tables</button>
+                </div>
+                <div id="connectionOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('config')">
+                <span class="acc-icon">CF</span>
+                <span>Rule Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-config" style="display:none">
+                <div class="info-box info-box--red">
+                    <strong>Rule 23 Logic:</strong><br />
+                    Flag a row when H16 is missing, when STUD ID or qualification does not match H16, when Audit is missing, or when STUD ID or qualification does not match Audit.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="studTable">dbo_STUD Table</label>
+                        <select id="studTable"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="auditTable">Audit Student Table</label>
+                        <select id="auditTable"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="h16Table">H16 Student Table</label>
+                        <select id="h16Table"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="studStudentNumberColumn">dbo_STUD Student #</label>
+                        <input id="studStudentNumberColumn" type="text" value="_007" />
+                    </div>
+                    <div class="field-group">
+                        <label for="studQualificationColumn">dbo_STUD Qualification</label>
+                        <input id="studQualificationColumn" type="text" value="_001" />
+                    </div>
+                    <div class="field-group">
+                        <label for="studIdNumberColumn">dbo_STUD ID #</label>
+                        <input id="studIdNumberColumn" type="text" value="_008" />
+                    </div>
+                    <div class="field-group">
+                        <label for="auditStudentNumberColumn">Audit Student #</label>
+                        <select id="auditStudentNumberColumn"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="auditQualificationColumn">Audit Qualification</label>
+                        <select id="auditQualificationColumn"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="auditIdNumberColumn">Audit ID #</label>
+                        <select id="auditIdNumberColumn"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="h16StudentNumberColumn">H16 Student #</label>
+                        <input id="h16StudentNumberColumn" type="text" value="_007" />
+                    </div>
+                    <div class="field-group">
+                        <label for="h16QualificationColumn">H16 Qualification</label>
+                        <input id="h16QualificationColumn" type="text" value="_001" />
+                    </div>
+                    <div class="field-group">
+                        <label for="h16IdNumberColumn">H16 ID #</label>
+                        <input id="h16IdNumberColumn" type="text" value="_008" />
+                    </div>
+                </div>
+                <div style="color:#64748b;font-size:13px;margin-top:8px">
+                    Filter: <code>ISBLANK(H16._007) OR STUD._008 &lt;&gt; H16._008 OR STUD._001 &lt;&gt; H16._001 OR ISBLANK(AUDIT.Student#) OR STUD._008 &lt;&gt; AUDIT.ID# OR STUD._001 &lt;&gt; AUDIT.Qual</code>
+                </div>
+                <div id="configOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Export Options</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 23 connection, configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the saved Rule 23 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
+                <div id="workspaceRunLabel">No saved run yet</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                <div id="workspaceStatusLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
+                <div id="workspaceEditedLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
+                <div id="workspaceRoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <label for="workspaceSignoffComment">Signoff Comment</label>
+                <textarea id="workspaceSignoffComment" rows="3" placeholder="Add review or completion notes"></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
+            <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
+            <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button type="button" class="btn btn-info" id="verifyBtnBar">Verify Tables</button>
+        <button type="button" class="btn btn-success" id="runBtn">Run Reconciliation</button>
+        <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+        <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
+    </div>
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="results">Analysis</button>
+            <button class="tab-btn" type="button" data-tab="details">Exceptions</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+            <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
+        </div>
+        <div class="tab-pane active" data-tab-panel="results"></div>
+        <div class="tab-pane" data-tab-panel="details"></div>
+        <div class="tab-pane" data-tab-panel="charts"></div>
+        <div class="tab-pane" data-tab-panel="sql">
+            <textarea id="sqlText" rows="18" readonly></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="downloads">
+            <div class="alert alert--info" style="margin-bottom:16px">
+                Excel includes the run summary, pass sample, fail exceptions, and issue breakdown. CSV includes fail exceptions only.
+            </div>
+            <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<form id="antiForgeryForm" method="post" style="display:none">
+    @Html.AntiForgeryToken()
+</form>
+
+<script>
+(() => {
+    const currentSystemRole = '@currentSystemRole';
+    const apiBasePath = '/Rule23';
+    const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
+    const state = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        currentRunId: null,
+        summary: null,
+        sql: '',
+        currentUserEngagementRole: '',
+        currentStatus: '',
+        currentUserHasSignedOff: false,
+        hasDataAnalystSignoff: false,
+        workspaceIsHistorical: false,
+        resultsVisible: true
+    };
+
+    const els = {
+        clientId: document.getElementById('clientId'),
+        server: document.getElementById('server'),
+        driver: document.getElementById('driver'),
+        database: document.getElementById('database'),
+        connectBtn: document.getElementById('connectBtn'),
+        studTable: document.getElementById('studTable'),
+        auditTable: document.getElementById('auditTable'),
+        h16Table: document.getElementById('h16Table'),
+        studStudentNumberColumn: document.getElementById('studStudentNumberColumn'),
+        studQualificationColumn: document.getElementById('studQualificationColumn'),
+        studIdNumberColumn: document.getElementById('studIdNumberColumn'),
+        auditStudentNumberColumn: document.getElementById('auditStudentNumberColumn'),
+        auditQualificationColumn: document.getElementById('auditQualificationColumn'),
+        auditIdNumberColumn: document.getElementById('auditIdNumberColumn'),
+        h16StudentNumberColumn: document.getElementById('h16StudentNumberColumn'),
+        h16QualificationColumn: document.getElementById('h16QualificationColumn'),
+        h16IdNumberColumn: document.getElementById('h16IdNumberColumn'),
+        connectionOutput: document.getElementById('connectionOutput'),
+        configOutput: document.getElementById('configOutput'),
+        workspaceInfo: document.getElementById('workspaceInfo'),
+        workspaceRunLabel: document.getElementById('workspaceRunLabel'),
+        workspaceStatusLabel: document.getElementById('workspaceStatusLabel'),
+        workspaceEditedLabel: document.getElementById('workspaceEditedLabel'),
+        workspaceRoleLabel: document.getElementById('workspaceRoleLabel'),
+        workspaceRunState: document.getElementById('workspaceRunState'),
+        workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
+        beginEditBtn: document.getElementById('beginEditBtn'),
+        saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
+        signoffBtn: document.getElementById('signoffBtn'),
+        removeSignoffBtn: document.getElementById('removeSignoffBtn'),
+        statusBadge: document.getElementById('statusBadge'),
+        sqlText: document.getElementById('sqlText'),
+        spinner: document.getElementById('spinner'),
+        spinnerMsg: document.getElementById('spinnerMsg')
+    };
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function normalizeRole(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function setOutput(target, kind, message) {
+        target.innerHTML = `<div class="alert alert--${kind}">${escapeHtml(message)}</div>`;
+    }
+
+    function setWorkspaceInfo(kind, message) {
+        els.workspaceInfo.className = `alert alert--${kind}`;
+        els.workspaceInfo.textContent = message;
+    }
+
+    function showSpinner(message) {
+        els.spinnerMsg.textContent = message || 'Processing...';
+        els.spinner.style.display = 'flex';
+    }
+
+    function hideSpinner() {
+        els.spinner.style.display = 'none';
+    }
+
+    function updateStatusBadge(status) {
+        if (!status) {
+            els.statusBadge.style.display = 'none';
+            return;
+        }
+        els.statusBadge.style.display = 'inline-flex';
+        els.statusBadge.textContent = status;
+        els.statusBadge.className = `rule-header__badge ${status === 'PASS' ? 'rule-header__badge--success' : 'rule-header__badge--fail'}`;
+    }
+
+    function postJson(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(body || {})
+        }).then(async response => {
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || 'Request failed.');
+            }
+            return data;
+        });
+    }
+
+    async function downloadBlob(url, body, fileName) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(body || {})
+        });
+
+        if (!response.ok) {
+            let payload = {};
+            try { payload = await response.json(); } catch {}
+            throw new Error(payload.error || 'Download failed.');
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(objectUrl);
+    }
+
+    function getRequest() {
+        return {
+            clientId: Number(els.clientId.value || 0),
+            runId: state.currentRunId,
+            server: els.server.value.trim(),
+            database: els.database.value || '',
+            driver: els.driver.value,
+            studTable: els.studTable.value || '',
+            auditTable: els.auditTable.value || '',
+            h16Table: els.h16Table.value || '',
+            studStudentNumberColumn: els.studStudentNumberColumn.value.trim(),
+            studQualificationColumn: els.studQualificationColumn.value.trim(),
+            studIdNumberColumn: els.studIdNumberColumn.value.trim(),
+            auditStudentNumberColumn: els.auditStudentNumberColumn.value || '',
+            auditQualificationColumn: els.auditQualificationColumn.value || '',
+            auditIdNumberColumn: els.auditIdNumberColumn.value || '',
+            h16StudentNumberColumn: els.h16StudentNumberColumn.value.trim(),
+            h16QualificationColumn: els.h16QualificationColumn.value.trim(),
+            h16IdNumberColumn: els.h16IdNumberColumn.value.trim()
+        };
+    }
+
+    function setTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+        document.querySelectorAll('[data-tab-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.tabPanel === tabName));
+    }
+
+    function renderResults(summary) {
+        const resultsPane = document.querySelector('[data-tab-panel="results"]');
+        const detailsPane = document.querySelector('[data-tab-panel="details"]');
+        const chartsPane = document.querySelector('[data-tab-panel="charts"]');
+
+        if (!summary) {
+            resultsPane.innerHTML = '<div class="empty-card"><p>Run Rule 23 to see reconciliation results.</p></div>';
+            detailsPane.innerHTML = '<div class="empty-card"><p>Exceptions will appear after running Rule 23.</p></div>';
+            chartsPane.innerHTML = '<div class="empty-card"><p>Charts will appear after running Rule 23.</p></div>';
+            updateStatusBadge('');
+            document.getElementById('downloadAllBtn').disabled = true;
+            return;
+        }
+
+        updateStatusBadge(summary.status || '');
+        document.getElementById('downloadAllBtn').disabled = false;
+
+        const issueRows = (summary.issueCounts || []).map(item => `
+            <tr>
+                <td>${escapeHtml(item.status)}</td>
+                <td>${Number(item.count || 0).toLocaleString()}</td>
+            </tr>`).join('');
+        const passRows = summary.passSampleRows || [];
+        const failRows = summary.failRows || [];
+        const combinedRows = [
+            ...passRows.map(row => ({
+                ...row,
+                resultType: row.resultType || 'PASS',
+                controlType: row.controlType || 'CONTROL 1'
+            })),
+            ...failRows.map(row => ({
+                ...row,
+                resultType: row.resultType || 'FAIL',
+                controlType: row.controlType || (String(row.reconciliationStatus || '').includes('MISSING') ? 'CONTROL 2' : 'CONTROL 1')
+            }))
+        ];
+        const issueOptions = Array.from(new Set(combinedRows.map(row => row.reconciliationStatus || 'MATCH')))
+            .sort((a, b) => String(a).localeCompare(String(b)));
+        const warningMarkup = summary.warning
+            ? `<div class="alert alert--warning" style="margin-bottom:16px">${escapeHtml(summary.warning)}</div>`
+            : '';
+
+        resultsPane.innerHTML = `
+            <div class="stats-grid" style="margin-bottom:18px">
+                <div class="stat-card"><div class="stat-card__label">Reconciled Rows</div><div class="stat-card__value">${Number(summary.totalValidated || 0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">Matches</div><div class="stat-card__value">${Number(summary.matches || 0).toLocaleString()}</div></div>
+                <div class="stat-card stat-card--fail"><div class="stat-card__label">Mismatches</div><div class="stat-card__value">${Number(summary.mismatches || 0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">Mismatch Rate</div><div class="stat-card__value">${Number(summary.exceptionRate || 0).toFixed(2)}%</div></div>
+            </div>
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Run Summary</h3>
+                ${warningMarkup}
+                <div class="form-grid">
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Database</div><div>${escapeHtml(summary.database)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div><div>${escapeHtml(summary.status)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">dbo_STUD</div><div>${escapeHtml(summary.studTable)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Audit</div><div>${escapeHtml(summary.auditTable)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">H16</div><div>${escapeHtml(summary.h16Table)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Validated</div><div>${Number(summary.totalValidated || 0).toLocaleString()}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Pass Sample Saved</div><div>${Number(summary.passSampleCount || 0).toLocaleString()}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Fail Rows Saved</div><div>${Number(summary.savedFailRowCount || 0).toLocaleString()}</div></div>
+                </div>
+                <div style="margin-top:20px">
+                    <h4 style="margin:0 0 10px 0">Issue Breakdown</h4>
+                    ${issueRows ? `<table class="data-table"><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody>${issueRows}</tbody></table>` : '<div class="alert alert--success">No reconciliation exceptions were found.</div>'}
+                </div>
+            </div>`;
+
+        if (!combinedRows.length) {
+            detailsPane.innerHTML = '<div class="alert alert--info">No saved review rows are available yet.</div>';
+        } else {
+            detailsPane.innerHTML = `
+                <div class="card" style="padding:20px">
+                    <div class="alert alert--info" style="margin-bottom:16px">
+                        Use the filters below to review saved PASS and FAIL rows by CONTROL 1 or CONTROL 2. PASS rows come from the saved sample; FAIL rows come from the saved exception set.
+                    </div>
+                    <div class="form-grid" style="margin-bottom:16px">
+                        <div class="field-group">
+                            <label for="rule23ResultFilter">Result</label>
+                            <select id="rule23ResultFilter">
+                                <option value="ALL">All</option>
+                                <option value="PASS">PASS</option>
+                                <option value="FAIL">FAIL</option>
+                            </select>
+                        </div>
+                        <div class="field-group">
+                            <label for="rule23ControlFilter">Control</label>
+                            <select id="rule23ControlFilter">
+                                <option value="ALL">All</option>
+                                <option value="CONTROL 1">CONTROL 1</option>
+                                <option value="CONTROL 2">CONTROL 2</option>
+                            </select>
+                        </div>
+                        <div class="field-group">
+                            <label for="rule23IssueFilter">Issue</label>
+                            <select id="rule23IssueFilter">
+                                <option value="ALL">All</option>
+                                ${issueOptions.map(issue => `<option value="${escapeHtml(issue)}">${escapeHtml(issue)}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    <div id="rule23FilterInfo" class="alert alert--info" style="margin-bottom:16px"></div>
+                    <div style="overflow:auto">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Result</th><th>Control</th><th>Validation #</th><th>STUD Student #</th><th>STUD Qual</th><th>STUD ID</th>
+                                    <th>Audit Student #</th><th>Audit Qual</th><th>Audit ID</th>
+                                    <th>H16 Student #</th><th>H16 Qual</th><th>H16 ID</th><th>Status</th><th>Issue</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rule23FilterBody"></tbody>
+                        </table>
+                    </div>
+                </div>`;
+
+            const resultFilter = document.getElementById('rule23ResultFilter');
+            const controlFilter = document.getElementById('rule23ControlFilter');
+            const issueFilter = document.getElementById('rule23IssueFilter');
+            const filterInfo = document.getElementById('rule23FilterInfo');
+            const filterBody = document.getElementById('rule23FilterBody');
+            const renderFilteredRows = () => {
+                const resultValue = resultFilter.value;
+                const controlValue = controlFilter.value;
+                const issueValue = issueFilter.value;
+                const filteredRows = combinedRows.filter(row =>
+                    (resultValue === 'ALL' || row.resultType === resultValue) &&
+                    (controlValue === 'ALL' || row.controlType === controlValue) &&
+                    (issueValue === 'ALL' || row.reconciliationStatus === issueValue));
+                const visibleRows = filteredRows.slice(0, 250);
+                const previewNote = filteredRows.length > visibleRows.length
+                    ? ` Showing the first ${visibleRows.length.toLocaleString()} row(s) in the browser.`
+                    : '';
+                filterInfo.textContent = `${filteredRows.length.toLocaleString()} saved row(s) match the selected filters.${previewNote}`;
+                filterBody.innerHTML = visibleRows.map(row => `
+                    <tr>
+                        <td>${escapeHtml(row.resultType)}</td>
+                        <td>${escapeHtml(row.controlType)}</td>
+                        <td>${Number(row.validationNumber || 0).toLocaleString()}</td>
+                        <td>${escapeHtml(row.studStudentNumber)}</td>
+                        <td>${escapeHtml(row.studQualificationCode)}</td>
+                        <td>${escapeHtml(row.studIdNumber)}</td>
+                        <td>${escapeHtml(row.auditStudentNumber)}</td>
+                        <td>${escapeHtml(row.auditQualificationCode)}</td>
+                        <td>${escapeHtml(row.auditIdNumber)}</td>
+                        <td>${escapeHtml(row.h16StudentNumber)}</td>
+                        <td>${escapeHtml(row.h16QualificationCode)}</td>
+                        <td>${escapeHtml(row.h16IdNumber)}</td>
+                        <td>${escapeHtml(row.reconciliationStatus)}</td>
+                        <td>${escapeHtml(row.issueDescription)}</td>
+                    </tr>`).join('');
+            };
+            resultFilter.addEventListener('change', renderFilteredRows);
+            controlFilter.addEventListener('change', renderFilteredRows);
+            issueFilter.addEventListener('change', renderFilteredRows);
+            renderFilteredRows();
+        }
+
+        const issueMax = Math.max(...((summary.issueCounts || []).map(x => Number(x.count || 0))), 1);
+        chartsPane.innerHTML = `
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Issue Distribution</h3>
+                ${(summary.issueCounts || []).length ? (summary.issueCounts || []).map(item => `
+                    <div style="margin-bottom:14px">
+                        <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px">
+                            <strong>${escapeHtml(item.status)}</strong>
+                            <span>${Number(item.count || 0).toLocaleString()}</span>
+                        </div>
+                        <div style="height:12px;background:#e5e7eb;border-radius:999px;overflow:hidden">
+                            <div style="height:100%;width:${Math.max(6, Math.round((Number(item.count || 0) / issueMax) * 100))}%;background:linear-gradient(135deg,#ef4444,#f97316)"></div>
+                        </div>
+                    </div>`).join('') : '<div class="alert alert--success">No exception categories to chart.</div>'}
+            </div>`;
+    }
+
+    async function loadDatabases() {
+        if (!els.server.value.trim()) {
+            setOutput(els.connectionOutput, 'warning', 'Enter the server name first.');
+            return;
+        }
+
+        showSpinner('Connecting to server...');
+        try {
+            const data = await postJson(`${apiBasePath}/GetDatabases`, {
+                server: els.server.value.trim(),
+                driver: els.driver.value
+            });
+
+            if (!data.success) {
+                setOutput(els.connectionOutput, 'danger', data.error || 'Connection failed.');
+                return;
+            }
+
+            els.database.innerHTML = (data.databases || []).map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+            setOutput(els.connectionOutput, 'success', `Connected. Found ${Number((data.databases || []).length).toLocaleString()} database(s).`);
+            if (els.database.value) {
+                await loadTables();
+            }
+        } catch (error) {
+            setOutput(els.connectionOutput, 'danger', error.message || 'Connection failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadTables() {
+        if (!els.database.value || !els.server.value.trim()) {
+            return;
+        }
+
+        showSpinner('Discovering tables...');
+        try {
+            const data = await postJson(`${apiBasePath}/GetTables`, {
+                server: els.server.value.trim(),
+                database: els.database.value,
+                driver: els.driver.value
+            });
+
+            if (!data.success) {
+                setOutput(els.configOutput, 'danger', data.error || 'Table discovery failed.');
+                return;
+            }
+
+            const options = (data.tables || []).map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+            els.studTable.innerHTML = options;
+            els.auditTable.innerHTML = options;
+            els.h16Table.innerHTML = options;
+            if (data.autoStudTable) els.studTable.value = data.autoStudTable;
+            if (data.autoAuditTable) els.auditTable.value = data.autoAuditTable;
+            if (data.autoH16Table) els.h16Table.value = data.autoH16Table;
+            await loadAuditColumns();
+            setOutput(els.configOutput, 'success', `Loaded ${Number((data.tables || []).length).toLocaleString()} table(s).`);
+        } catch (error) {
+            setOutput(els.configOutput, 'danger', error.message || 'Table discovery failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadAuditColumns() {
+        if (!els.auditTable.value || !els.database.value || !els.server.value.trim()) {
+            return;
+        }
+
+        try {
+            const data = await postJson(`${apiBasePath}/GetAuditColumns`, {
+                server: els.server.value.trim(),
+                database: els.database.value,
+                driver: els.driver.value,
+                auditTable: els.auditTable.value
+            });
+
+            if (!data.success) {
+                setOutput(els.configOutput, 'danger', data.error || 'Could not load audit columns.');
+                return;
+            }
+
+            const options = (data.columns || []).map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+            els.auditStudentNumberColumn.innerHTML = options;
+            els.auditQualificationColumn.innerHTML = options;
+            els.auditIdNumberColumn.innerHTML = options;
+            if (data.autoStudentNumberColumn) els.auditStudentNumberColumn.value = data.autoStudentNumberColumn;
+            if (data.autoQualificationColumn) els.auditQualificationColumn.value = data.autoQualificationColumn;
+            if (data.autoIdNumberColumn) els.auditIdNumberColumn.value = data.autoIdNumberColumn;
+        } catch (error) {
+            setOutput(els.configOutput, 'danger', error.message || 'Audit column detection failed.');
+        }
+    }
+
+    async function verifyTables() {
+        const request = getRequest();
+        if (!request.server || !request.database || !request.studTable || !request.auditTable || !request.h16Table) {
+            setOutput(els.configOutput, 'warning', 'Select the server, database, and Rule 23 tables first.');
+            return;
+        }
+
+        showSpinner('Verifying tables...');
+        try {
+            const data = await postJson(`${apiBasePath}/VerifyTables`, request);
+            if (!data.success) {
+                setOutput(els.configOutput, 'danger', data.error || 'Verification failed.');
+                return;
+            }
+
+            setOutput(els.configOutput, 'success', `Verified tables. ${request.studTable}: ${Number(data.studCount || 0).toLocaleString()} rows, ${request.auditTable}: ${Number(data.auditCount || 0).toLocaleString()} rows, ${request.h16Table}: ${Number(data.h16Count || 0).toLocaleString()} rows.`);
+        } catch (error) {
+            setOutput(els.configOutput, 'danger', error.message || 'Verification failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function runValidation() {
+        const request = getRequest();
+        if (!request.clientId) {
+            setWorkspaceInfo('warning', 'Select an engagement before running Rule 23.');
+            return;
+        }
+
+        showSpinner('Running Rule 23 reconciliation...');
+        try {
+            const result = await postJson(`${apiBasePath}/RunValidation`, request);
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Rule 23 failed.');
+                renderResults(null);
+                return;
+            }
+
+            state.summary = result;
+            state.currentRunId = result.savedRunId || null;
+            state.currentStatus = result.status || '';
+            renderResults(result);
+            setWorkspaceInfo('success', `Rule 23 completed: ${result.status}. The run was auto-saved${result.savedRunId ? ` as Run #${result.savedRunId}` : ''}. Save the workspace and sign off when the review is complete.`);
+            updateWorkspaceCard({
+                runId: result.savedRunId,
+                currentStatus: result.status,
+                currentUserEngagementRole: state.currentUserEngagementRole || currentSystemRole,
+                currentUserHasSignedOff: false,
+                currentUserSignoffComment: '',
+                hasDataAnalystSignoff: false,
+                lastEditedByUserName: 'Current analyst',
+                summary: result
+            });
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Rule 23 failed.');
+            renderResults(null);
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function generateSql() {
+        const request = getRequest();
+        if (!request.clientId) {
+            setWorkspaceInfo('warning', 'Select an engagement before generating SQL.');
+            return;
+        }
+
+        showSpinner('Generating SQL...');
+        try {
+            const result = await postJson(`${apiBasePath}/GenerateSql`, request);
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'SQL generation failed.');
+                return;
+            }
+
+            state.sql = result.sql || '';
+            els.sqlText.value = state.sql;
+            setWorkspaceInfo('success', 'SQL generated for the current Rule 23 configuration.');
+            setTab('sql');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'SQL generation failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    function updateWorkspaceCard(workspace) {
+        state.currentRunId = workspace?.runId || null;
+        state.currentUserEngagementRole = workspace?.currentUserEngagementRole || '';
+        state.currentUserHasSignedOff = !!workspace?.currentUserHasSignedOff;
+        state.hasDataAnalystSignoff = !!workspace?.hasDataAnalystSignoff;
+        state.currentStatus = workspace?.currentStatus || workspace?.summary?.status || '';
+        state.workspaceIsHistorical = false;
+
+        els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
+        els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+        els.workspaceEditedLabel.textContent = workspace?.lastEditedByUserName
+            ? `${workspace.lastEditedByUserName}${workspace.lastEditedAt ? ` on ${new Date(workspace.lastEditedAt).toLocaleString()}` : ''}`
+            : '-';
+        els.workspaceRunState.textContent = state.currentRunId ? 'Saved run loaded' : 'No saved run loaded';
+        els.workspaceRoleLabel.textContent = state.currentUserEngagementRole || currentSystemRole || '-';
+        els.workspaceSignoffComment.value = workspace?.currentUserSignoffComment || '';
+
+        updateWorkspaceActions();
+    }
+
+    function updateWorkspaceActions() {
+        const role = state.currentUserEngagementRole || currentSystemRole || '';
+        const normalizedRole = normalizeRole(role);
+        const normalizedSystemRole = normalizeRole(currentSystemRole);
+        const canEdit = normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst';
+        const canSign = !!state.currentRunId &&
+            !state.workspaceIsHistorical &&
+            (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
+        const locked = !!state.currentUserHasSignedOff;
+
+        [els.connectBtn, document.getElementById('verifyBtn'), document.getElementById('verifyBtnBar'), document.getElementById('runBtn'), document.getElementById('sqlBtn')]
+            .forEach(btn => {
+                if (btn) {
+                    btn.disabled = locked || !canEdit;
+                }
+            });
+
+        els.beginEditBtn.disabled = locked || !canEdit || !state.currentRunId;
+        els.saveWorkspaceBtn.disabled = locked || !canEdit || !state.currentRunId || !state.summary;
+        els.signoffBtn.disabled = locked || !canSign;
+        els.signoffBtn.textContent = state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff';
+        els.removeSignoffBtn.style.display = state.currentUserHasSignedOff ? '' : 'none';
+        els.removeSignoffBtn.disabled = !state.currentUserHasSignedOff;
+        els.workspaceSignoffComment.disabled = locked || !canSign;
+    }
+
+    async function beginWorkspaceEdit() {
+        if (!state.currentRunId) {
+            setWorkspaceInfo('warning', 'Select a saved run before editing the workspace.');
+            return;
+        }
+
+        showSpinner('Clearing signoffs for the edited workspace...');
+        try {
+            const result = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, {
+                ...getRequest(),
+                runId: state.currentRunId
+            });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to begin editing.');
+                return;
+            }
+
+            state.currentUserHasSignedOff = false;
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo('warning', result.message || 'Editing has begun. Existing signoffs were removed.');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to begin editing.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function saveWorkspace() {
+        if (!state.currentRunId) {
+            setWorkspaceInfo('warning', 'Run Rule 23 first so the workspace can be saved.');
+            return;
+        }
+
+        showSpinner('Saving workspace...');
+        try {
+            const result = await postJson(`${apiBasePath}/SaveWorkspace`, {
+                ...getRequest(),
+                runId: state.currentRunId
+            });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to save workspace.');
+                return;
+            }
+
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo(result.signoffsCleared ? 'warning' : 'success', result.message || 'Workspace saved.');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to save workspace.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function signoffWorkspace() {
+        if (!state.currentRunId) {
+            setWorkspaceInfo('warning', 'Run Rule 23 first so the saved workspace exists.');
+            return;
+        }
+
+        showSpinner('Saving signoff...');
+        try {
+            const result = await postJson(`${apiBasePath}/SignOffWorkspace`, {
+                clientId: Number(els.clientId.value || 0),
+                runId: state.currentRunId,
+                comment: els.workspaceSignoffComment.value.trim()
+            });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to save signoff.');
+                return;
+            }
+
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo('success', result.message || 'Signoff saved.');
+            setTab('downloads');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to save signoff.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function removeWorkspaceSignoff() {
+        if (!state.currentRunId || !state.currentUserHasSignedOff) {
+            setWorkspaceInfo('warning', 'You can only remove your own signoff.');
+            return;
+        }
+
+        showSpinner('Removing signoff...');
+        try {
+            const result = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
+                clientId: Number(els.clientId.value || 0),
+                runId: state.currentRunId,
+                comment: ''
+            });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to remove signoff.');
+                return;
+            }
+
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo('success', result.message || 'Signoff removed.');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to remove signoff.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadWorkspace() {
+        if (!state.clientId) {
+            setWorkspaceInfo('info', 'Select an engagement to load the saved Rule 23 workspace.');
+            renderResults(null);
+            updateWorkspaceCard(null);
+            return;
+        }
+
+        try {
+            const response = await fetch(`${apiBasePath}/GetWorkspaceState?clientId=${encodeURIComponent(state.clientId)}`);
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                setWorkspaceInfo('danger', data.error || 'Could not load the saved workspace.');
+                renderResults(null);
+                return;
+            }
+
+            if (!data.hasWorkspace || !data.workspace) {
+                setWorkspaceInfo('info', 'No saved Rule 23 workspace exists for this engagement yet. Run reconciliation to create the first saved run.');
+                renderResults(null);
+                updateWorkspaceCard(null);
+                return;
+            }
+
+            const workspace = data.workspace;
+            state.resultsVisible = !!data.resultsVisible;
+            state.currentRunId = workspace.runId || null;
+
+            els.server.value = workspace.server || '';
+            els.database.innerHTML = workspace.database ? `<option value="${escapeHtml(workspace.database)}">${escapeHtml(workspace.database)}</option>` : '';
+            els.database.value = workspace.database || '';
+            els.studTable.innerHTML = workspace.studTable ? `<option value="${escapeHtml(workspace.studTable)}">${escapeHtml(workspace.studTable)}</option>` : '';
+            els.auditTable.innerHTML = workspace.auditTable ? `<option value="${escapeHtml(workspace.auditTable)}">${escapeHtml(workspace.auditTable)}</option>` : '';
+            els.h16Table.innerHTML = workspace.h16Table ? `<option value="${escapeHtml(workspace.h16Table)}">${escapeHtml(workspace.h16Table)}</option>` : '';
+            els.studTable.value = workspace.studTable || '';
+            els.auditTable.value = workspace.auditTable || '';
+            els.h16Table.value = workspace.h16Table || '';
+            els.studStudentNumberColumn.value = workspace.studStudentNumberColumn || '_007';
+            els.studQualificationColumn.value = workspace.studQualificationColumn || '_001';
+            els.studIdNumberColumn.value = workspace.studIdNumberColumn || '_008';
+            els.h16StudentNumberColumn.value = workspace.h16StudentNumberColumn || '_007';
+            els.h16QualificationColumn.value = workspace.h16QualificationColumn || '_001';
+            els.h16IdNumberColumn.value = workspace.h16IdNumberColumn || '_008';
+
+            await loadAuditColumns();
+            if (workspace.auditStudentNumberColumn) els.auditStudentNumberColumn.value = workspace.auditStudentNumberColumn;
+            if (workspace.auditQualificationColumn) els.auditQualificationColumn.value = workspace.auditQualificationColumn;
+            if (workspace.auditIdNumberColumn) els.auditIdNumberColumn.value = workspace.auditIdNumberColumn;
+
+            updateWorkspaceCard(workspace);
+
+            if (state.resultsVisible && workspace.summary) {
+                state.summary = workspace.summary;
+                renderResults(workspace.summary);
+                setWorkspaceInfo('success', `Loaded the saved Rule 23 workspace for this engagement${workspace.runId ? ` (Run #${workspace.runId})` : ''}.`);
+            } else {
+                state.summary = null;
+                renderResults(null);
+                setWorkspaceInfo('info', 'This workspace is hidden until the assigned data analyst signs off the saved Rule 23 results.');
+            }
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Could not load the saved workspace.');
+            renderResults(null);
+        }
+    }
+
+    window.toggleAccordion = function (section) {
+        const body = document.getElementById(`body-${section}`);
+        if (!body) return;
+        body.style.display = body.style.display === 'none' ? '' : 'none';
+    };
+
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+    els.clientId.addEventListener('change', async () => {
+        state.clientId = Number(els.clientId.value || 0);
+        await loadWorkspace();
+    });
+    els.connectBtn.addEventListener('click', loadDatabases);
+    els.database.addEventListener('change', loadTables);
+    els.auditTable.addEventListener('change', loadAuditColumns);
+    document.getElementById('verifyBtn').addEventListener('click', verifyTables);
+    document.getElementById('verifyBtnBar').addEventListener('click', verifyTables);
+    document.getElementById('runBtn').addEventListener('click', runValidation);
+    document.getElementById('sqlBtn').addEventListener('click', generateSql);
+    els.beginEditBtn.addEventListener('click', beginWorkspaceEdit);
+    els.saveWorkspaceBtn.addEventListener('click', saveWorkspace);
+    els.signoffBtn.addEventListener('click', signoffWorkspace);
+    els.removeSignoffBtn.addEventListener('click', removeWorkspaceSignoff);
+    document.getElementById('downloadExcelBtn').addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule23_Dataset_Reconciliation.xlsx'));
+    document.getElementById('downloadCsvBtn').addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule23_Fail_Exceptions.csv'));
+    document.getElementById('downloadSqlBtn').addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule23.sql'));
+    document.getElementById('downloadAllBtn').addEventListener('click', async () => {
+        if (!state.summary) return;
+        if (document.getElementById('chkExcel').checked) await downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule23_Dataset_Reconciliation.xlsx');
+        if (document.getElementById('chkCsv').checked) await downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule23_Fail_Exceptions.csv');
+        if (document.getElementById('chkSql').checked) await downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule23.sql');
+    });
+
+    renderResults(null);
+    updateWorkspaceActions();
+    if (state.clientId > 0) {
+        loadWorkspace();
+    }
+})();
+</script>

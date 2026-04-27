@@ -2,8 +2,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Identity;
 using HemisAudit.Models;
+using HemisAudit.Services;
 
-namespace HemisAudit.Services
+namespace HemisAudit.Filters
 {
     public class PasswordAgeFilter : IAsyncActionFilter
     {

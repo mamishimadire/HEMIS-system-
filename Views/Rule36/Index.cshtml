@@ -4,7 +4,22 @@
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
     var selectedClientId = (int)(ViewBag.ClientId ?? 0);
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
     var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
 }
 
 <div id="app" class="rule-page-shell">
@@ -959,7 +974,10 @@ async function verifyTables() {
         setWorkspaceInfo('Archived engagements are read-only. Verification is disabled.', 'error');
         return;
     }
-    if (!validateConfig()) return;
+    if (!state.server || !state.database || !state.studTable || !state.deceasedTable || !state.studColumn || !state.deceasedColumn) {
+        setStatus('tableStatus', 'Select the server, database, STUD table, deceased table, and both columns first.', 'warning');
+        return;
+    }
     showSpinner('Verifying data...');
 
     try {

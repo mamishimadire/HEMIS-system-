@@ -304,6 +304,43 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
 .tab-btn:hover  { color: var(--text); background: #F0F0F0; }
 .tab-btn.active { color: var(--red-bright); border-bottom-color: var(--red-bright); font-weight: 600; background: white; }
 
+.review-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: #FAFAFA;
+    overflow-x: auto;
+    margin-bottom: 24px;
+}
+
+.review-tab {
+    padding: 12px 18px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all .15s;
+}
+
+.review-tab:hover {
+    color: var(--text);
+    background: #F0F0F0;
+}
+
+.review-tab.is-active {
+    color: var(--red-bright);
+    border-bottom-color: var(--red-bright);
+    font-weight: 600;
+    background: white;
+}
+
+.review-panel { display: none; }
+.review-panel.is-active { display: block; }
+
 .tab-pane { display: none; padding: 18px; min-height: 240px; }
 .tab-pane.active { display: block; }
 

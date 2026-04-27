@@ -14,7 +14,7 @@
             "console": "internalConsole",
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
-                "ASPNETCORE_URLS": "http://localhost:5080"
+                "ASPNETCORE_URLS": "http://localhost:5076"
             },
             "serverReadyAction": {
                 "action": "openExternally",

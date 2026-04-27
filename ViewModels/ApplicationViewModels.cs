@@ -342,6 +342,8 @@ namespace HemisAudit.ViewModels
         public int CurrentRuleNumber { get; set; }
         public string CurrentRuleLabel { get; set; } = "";
         public string CurrentRuleTitle { get; set; } = "";
+        public string? BackToValidationRunsUrl { get; set; }
+        public string? BackToEngagementUrl { get; set; }
         public ModuleSequenceLinkViewModel? Previous { get; set; }
         public ModuleSequenceLinkViewModel? Next { get; set; }
     }

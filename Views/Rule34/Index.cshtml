@@ -4,7 +4,22 @@
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
     var selectedClientId = (int)(ViewBag.ClientId ?? 0);
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
     var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
 }
 
 <div id="app" class="rule-page-shell">
@@ -770,8 +785,8 @@ function populateRule34ColumnSelects(result) {
 }
 
 async function verifyTable() {
-    if (!state.server || !state.database || !state.tableName) {
-        setStatus('configStatus', 'Select the server, database, and table first.', 'warning');
+    if (!state.server || !state.database || !state.tableName || !state.firstDayColumn || !state.lastDayColumn || !state.censusDateColumn) {
+        setStatus('configStatus', 'Select the server, database, table, and census-date columns first.', 'warning');
         return;
     }
 

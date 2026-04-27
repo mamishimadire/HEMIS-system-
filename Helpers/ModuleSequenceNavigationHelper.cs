@@ -6,6 +6,9 @@ namespace HemisAudit.Helpers
     {
         private static readonly ModuleSequenceItem[] Modules =
         {
+            new(23, "Rule 23", "Reconcile Datasets"),
+            new(24, "Rule 24", "Reconcile Qualification Datasets"),
+            new(25, "Rule 25", "Reconcile Course Datasets"),
             new(26, "Rule 26", "Bi-Directional 5-Control Validation"),
             new(27, "Rule 27", "Error Validation"),
             new(29, "Rule 29", "Single Column Filter"),
@@ -30,6 +33,8 @@ namespace HemisAudit.Helpers
                 CurrentRuleNumber = Modules[currentIndex].RuleNumber,
                 CurrentRuleLabel = Modules[currentIndex].RuleLabel,
                 CurrentRuleTitle = Modules[currentIndex].RuleTitle,
+                BackToValidationRunsUrl = $"/Admin/ClientDetail/{clientId}#validation-runs-panel",
+                BackToEngagementUrl = $"/Admin/ClientDetail/{clientId}",
                 Previous = currentIndex > 0 ? BuildWorkspaceLink(Modules[currentIndex - 1], clientId) : null,
                 Next = currentIndex < Modules.Length - 1 ? BuildWorkspaceLink(Modules[currentIndex + 1], clientId) : null
             };
@@ -87,7 +92,7 @@ namespace HemisAudit.Helpers
         {
             var canOpenAnyRun =
                 string.Equals(systemRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(currentEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+                ValidationRunAccessPolicy.CanAssignedUserDownload(currentEngagementRole);
 
             var candidateRun = validationRuns
                 .Where(run => run.RuleNumber == module.RuleNumber)
