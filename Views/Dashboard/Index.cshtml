@@ -25,6 +25,12 @@
     };
     var reviewedAndCompletedRuns = Model.ReviewedAndCompletedRuns;
     var needsReviewRuns = Model.NeedsReviewRuns;
+    var passedRuleRuns = Model.PassedRuleRuns;
+    var failedRuleRuns = Model.FailedRuleRuns;
+    var passedRuleRecords = Model.PassedRuleRecords;
+    var failedRuleRecords = Model.FailedRuleRecords;
+    var passedRuleRecordRate = Model.PassedRuleRecordRate;
+    var failedRuleRecordRate = Model.FailedRuleRecordRate;
     var analystSignedRuns = Model.AnalystSignedRuns;
     var managerSignedRuns = Model.ManagerSignedRuns;
     var directorSignedRuns = Model.DirectorSignedRuns;
@@ -336,6 +342,24 @@
 
         <div class="module-card-grid">
             <article class="module-card">
+                <div class="module-card__eyebrow">Rule 21</div>
+                <h4 class="module-card__title">First Time Entering Students Validation</h4>
+                <p class="module-card__text">Validate 100% of `dbo_STUD` against the typed `_010` filter value, classify every row as PASS or FAIL, and review results with signoff-controlled visibility.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule21" class="btn btn-success">Open Rule 21</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 22</div>
+                <h4 class="module-card__title">Staff Sampling (dbo_PROF)</h4>
+                <p class="module-card__text">Apply the three notebook staff controls to dbo_PROF, save the full classified result set, and let users filter rows by control and PASS or FAIL.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule22" class="btn btn-success">Open Rule 22</a>
+                </div>
+            </article>
+
+            <article class="module-card">
                 <div class="module-card__eyebrow">Rule 23</div>
                 <h4 class="module-card__title">Reconcile Datasets</h4>
                 <p class="module-card__text">Reconcile student number, qualification code, and ID number across dbo_STUD, MT-audit-prod-std, and H16STUD before review and export.</p>
@@ -548,6 +572,20 @@
                 <span>waiting on signoff</span>
             </div>
         </div>
+        <div class="dashboard-insight-card">
+            <div class="dashboard-insight-card__label">Passed rules</div>
+            <div class="dashboard-insight-card__value">
+                <strong>@passedRuleRuns</strong>
+                <span>@passedRuleRecords.ToString("N0") passing records | @passedRuleRecordRate.ToString("0.##")%</span>
+            </div>
+        </div>
+        <div class="dashboard-insight-card">
+            <div class="dashboard-insight-card__label">Failed rules</div>
+            <div class="dashboard-insight-card__value">
+                <strong>@failedRuleRuns</strong>
+                <span>@failedRuleRecords.ToString("N0") failing records | @failedRuleRecordRate.ToString("0.##")%</span>
+            </div>
+        </div>
     </div>
 
     <div class="dashboard-insight-layout">
@@ -565,6 +603,10 @@
                 <canvas id="industryChart"></canvas>
             </div>
             <div class="dashboard-insight-chart">
+                <h4>Rule pass vs fail</h4>
+                <canvas id="ruleOutcomeChart"></canvas>
+            </div>
+            <div class="dashboard-insight-chart">
                 <h4>Signoff coverage</h4>
                 <canvas id="signoffChart"></canvas>
             </div>
@@ -577,7 +619,7 @@
                 <div class="dashboard-activity-list">
                     @foreach (var run in recentInsightRuns)
                     {
-                        var complete = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.HasAllRequiredSignoffs;
+                        var complete = run.IsReviewedAndCompleted;
                         var reviewed = run.HasDataAnalystSignoff && !complete;
                         var pending = !run.HasDataAnalystSignoff;
                         <div class="dashboard-activity-item">
@@ -590,7 +632,7 @@
                                     Rule @run.RuleNumber | @run.Status | @run.RunAt.ToString("dd MMM yyyy HH:mm")
                                 </div>
                                 <div class="dashboard-activity-item__meta">
-                                    Run by @run.RunByUserName
+                                    Run by @run.RunByUserName | @run.PassCount.ToString("N0") PASS | @run.FailCount.ToString("N0") FAIL
                                 </div>
                             </div>
                         </div>
@@ -723,6 +765,61 @@
         }));
     }
 
+    function makeStackedBar(id, labels, passedValues, failedValues) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        charts.push(new Chart(el, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'PASS',
+                    data: passedValues,
+                    backgroundColor: green,
+                    borderColor: green,
+                    borderWidth: 1,
+                    borderRadius: 8
+                }, {
+                    label: 'FAIL',
+                    data: failedValues,
+                    backgroundColor: red,
+                    borderColor: red,
+                    borderWidth: 1,
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { color: mutedText },
+                        grid: { color: border }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        ticks: { color: mutedText, precision: 0 },
+                        grid: { color: border }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: mutedText,
+                            boxWidth: 10,
+                            usePointStyle: true,
+                            pointStyle: 'circle'
+                        }
+                    },
+                    tooltip: { enabled: true }
+                }
+            }
+        }));
+    }
+
     function renderInsightsCharts() {
         if (insightsChartsReady)
             return;
@@ -748,8 +845,12 @@
 
         const industryLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.IndustryBreakdown.Select(i => i.Industry).ToArray()));
         const industryValues = [@string.Join(",", Model.IndustryBreakdown.Select(i => i.Count))];
+        const ruleOutcomeLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.RuleOutcomeBreakdown.Select(i => i.RuleLabel).ToArray()));
+        const rulePassedValues = [@string.Join(",", Model.RuleOutcomeBreakdown.Select(i => i.PassedCount))];
+        const ruleFailedValues = [@string.Join(",", Model.RuleOutcomeBreakdown.Select(i => i.FailedCount))];
 
         makeBar('industryChart', industryLabels, industryValues, blue);
+        makeStackedBar('ruleOutcomeChart', ruleOutcomeLabels, rulePassedValues, ruleFailedValues);
 
         makeDoughnut('signoffChart',
             ['Analyst', 'Manager', 'Director'],

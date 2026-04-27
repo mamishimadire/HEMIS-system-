@@ -617,6 +617,11 @@ WHERE RunID = @RunID
             await command.ExecuteNonQueryAsync();
 
             await SetRunStatusAsync(connection, runId, "Needs Review");
+
+            if (string.Equals(engagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
+            {
+                await SetRunCurrentStateAsync(connection, runId, false);
+            }
         }
 
         public Task<string> GenerateSqlAsync(Rule27ValidationRequest request)
@@ -1038,6 +1043,15 @@ SELECT
             command.CommandText = "UPDATE dbo.ValidationRuns SET Status = @Status WHERE RunID = @RunID;";
             command.Parameters.AddWithValue("@RunID", runId);
             command.Parameters.AddWithValue("@Status", status);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task SetRunCurrentStateAsync(SqlConnection connection, int runId, bool isCurrent)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE dbo.ValidationRuns SET IsCurrent = @IsCurrent WHERE RunID = @RunID;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            command.Parameters.AddWithValue("@IsCurrent", isCurrent);
             await command.ExecuteNonQueryAsync();
         }
 

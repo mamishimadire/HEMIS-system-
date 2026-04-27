@@ -6,6 +6,8 @@ namespace HemisAudit.Helpers
     {
         private static readonly ModuleSequenceItem[] Modules =
         {
+            new(21, "Rule 21", "First Time Entering Students Validation"),
+            new(22, "Rule 22", "Staff Sampling (dbo_PROF)"),
             new(23, "Rule 23", "Reconcile Datasets"),
             new(24, "Rule 24", "Reconcile Qualification Datasets"),
             new(25, "Rule 25", "Reconcile Course Datasets"),

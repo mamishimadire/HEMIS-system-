@@ -305,6 +305,7 @@ function setWorkspaceInfo(msg, type) {
     const el = document.getElementById('workspaceInfo');
     el.className = `alert alert--${type || 'info'}`;
     el.innerHTML = msg;
+    window.showWorkspaceActionToast?.(msg, type || 'info');
 }
 
 function setWorkspaceRunState(text, type) {

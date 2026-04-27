@@ -238,6 +238,90 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
     gap: 12px;
 }
 
+.app-toast-region {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 2200;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+    max-width: min(380px, calc(100vw - 24px));
+}
+
+.app-toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border-left: 4px solid transparent;
+    background: rgba(255, 255, 255, 0.98);
+    color: var(--text);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
+    transform: translateY(-8px);
+    opacity: 0;
+    transition: opacity .18s ease, transform .18s ease;
+}
+
+.app-toast--visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.app-toast--closing {
+    opacity: 0;
+    transform: translateY(-8px);
+}
+
+.app-toast--success { border-left-color: var(--green); }
+.app-toast--warning { border-left-color: var(--orange); }
+.app-toast--error { border-left-color: var(--red-bright); }
+.app-toast--info { border-left-color: #0277BD; }
+
+.app-toast__body {
+    min-width: 0;
+    flex: 1;
+}
+
+.app-toast__title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 4px;
+}
+
+.app-toast__message {
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.app-toast__close {
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px;
+}
+
+.app-toast__close:hover {
+    color: var(--text);
+}
+
+@media (max-width: 640px) {
+    .app-toast-region {
+        left: 12px;
+        right: 12px;
+        top: 12px;
+        max-width: none;
+    }
+}
+
 /* ── Info Boxes ──────────────────────────────────────────────────────────── */
 .info-box {
     padding: 12px 16px; border-radius: 6px;

@@ -314,6 +314,7 @@
     function setWorkspaceInfo(type, message) {
         els.workspaceInfo.className = `alert alert--${type}`;
         els.workspaceInfo.textContent = message;
+        window.showWorkspaceActionToast?.(message, type);
     }
 
     function setStatusBadge(text, type) {
