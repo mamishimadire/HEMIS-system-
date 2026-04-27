@@ -34,12 +34,36 @@ namespace HemisAudit.Controllers
             var normalizedScope = NormalizeScope(scope);
             var portfolioClients = await _systemDb.GetClientsAsync(user, role, search: q, scope: normalizedScope);
             var recentRuns = await _systemDb.GetRecentRunsAsync(user, role, 12);
+            var currentRuns = await _systemDb.GetCurrentRunsAsync(user, role);
+            var visibleClientIds = portfolioClients
+                .Select(client => client.Id)
+                .ToHashSet();
+
+            recentRuns = recentRuns
+                .Where(run => visibleClientIds.Contains(run.ClientId))
+                .ToList();
+
+            currentRuns = currentRuns
+                .Where(run => visibleClientIds.Contains(run.ClientId))
+                .ToList();
+
             if (!isAdmin && !isDataAnalyst)
             {
                 recentRuns = recentRuns
                     .Where(run => ValidationRunAccessPolicy.CanViewSignedResults(role, role, run.HasDataAnalystSignoff))
                     .ToList();
+
+                currentRuns = currentRuns
+                    .Where(run => ValidationRunAccessPolicy.CanViewSignedResults(role, role, run.HasDataAnalystSignoff))
+                    .ToList();
             }
+            var latestRuleRuns = recentRuns
+                .GroupBy(run => new { run.ClientId, run.RuleNumber })
+                .Select(group => group
+                    .OrderByDescending(run => run.IsCurrent)
+                    .ThenByDescending(run => run.RunAt)
+                    .First())
+                .ToList();
             var activeClientsCount = await _systemDb.GetClientCountAsync(user, role, "active");
             var archivedClientsCount = await _systemDb.GetClientCountAsync(user, role, "archived");
             var favoriteClientsCount = await _systemDb.GetClientCountAsync(user, role, "favorites");
@@ -50,12 +74,19 @@ namespace HemisAudit.Controllers
                 .Where(c => string.Equals(c.Status, "Pending", StringComparison.OrdinalIgnoreCase))
                 .Take(8)
                 .ToList();
-            var reviewedAndCompletedRuns = recentRuns.Count(run =>
-                string.Equals(run.Status, "Reviewed and Completed", StringComparison.OrdinalIgnoreCase) ||
-                run.HasAllRequiredSignoffs);
-            var needsReviewRuns = recentRuns.Count(run =>
-                !string.Equals(run.Status, "Reviewed and Completed", StringComparison.OrdinalIgnoreCase) &&
-                !run.HasAllRequiredSignoffs);
+            var reviewedAndCompletedRuns = currentRuns.Count(run => run.IsReviewedAndCompleted);
+            var needsReviewRuns = currentRuns.Count(run => !run.IsReviewedAndCompleted);
+            var passedRuleRuns = latestRuleRuns.Count(IsPassedRun);
+            var failedRuleRuns = latestRuleRuns.Count(IsFailedRun);
+            var passedRuleRecords = latestRuleRuns.Sum(run => Math.Max(run.PassCount, 0));
+            var failedRuleRecords = latestRuleRuns.Sum(run => Math.Max(run.FailCount, 0));
+            var totalRuleRecords = latestRuleRuns.Sum(run => Math.Max(run.TotalValidated, 0));
+            var passedRuleRecordRate = totalRuleRecords > 0
+                ? Math.Round(passedRuleRecords * 100m / totalRuleRecords, 2)
+                : 0m;
+            var failedRuleRecordRate = totalRuleRecords > 0
+                ? Math.Round(failedRuleRecords * 100m / totalRuleRecords, 2)
+                : 0m;
             var analystSignedRuns = recentRuns.Count(run => run.HasDataAnalystSignoff);
             var managerSignedRuns = recentRuns.Count(run => run.HasManagerSignoff);
             var directorSignedRuns = recentRuns.Count(run => run.HasDirectorSignoff);
@@ -73,6 +104,17 @@ namespace HemisAudit.Controllers
                 .ThenBy(item => item.Industry)
                 .Take(8)
                 .ToList();
+            var ruleOutcomeBreakdown = latestRuleRuns
+                .GroupBy(run => run.RuleNumber)
+                .Select(group => new DashboardRuleOutcomeMetric
+                {
+                    RuleNumber = group.Key,
+                    RuleLabel = $"Rule {group.Key}",
+                    PassedCount = group.Count(IsPassedRun),
+                    FailedCount = group.Count(IsFailedRun)
+                })
+                .OrderBy(metric => metric.RuleNumber)
+                .ToList();
 
             var vm = new DashboardViewModel
             {
@@ -87,6 +129,12 @@ namespace HemisAudit.Controllers
                 DisplayedClientCount = portfolioClients.Count,
                 ReviewedAndCompletedRuns = reviewedAndCompletedRuns,
                 NeedsReviewRuns = needsReviewRuns,
+                PassedRuleRuns = passedRuleRuns,
+                FailedRuleRuns = failedRuleRuns,
+                PassedRuleRecords = passedRuleRecords,
+                FailedRuleRecords = failedRuleRecords,
+                PassedRuleRecordRate = passedRuleRecordRate,
+                FailedRuleRecordRate = failedRuleRecordRate,
                 AnalystSignedRuns = analystSignedRuns,
                 ManagerSignedRuns = managerSignedRuns,
                 DirectorSignedRuns = directorSignedRuns,
@@ -94,6 +142,7 @@ namespace HemisAudit.Controllers
                 ArchivedPortfolioClients = portfolioClients.Where(c => c.IsArchived).ToList(),
                 PendingApprovalQueue = pendingApprovals,
                 IndustryBreakdown = industryBreakdown,
+                RuleOutcomeBreakdown = ruleOutcomeBreakdown,
                 RecentRuns = recentRuns,
                 CurrentUserName = user?.FullName ?? "",
                 CurrentUserRole = role,
@@ -144,6 +193,28 @@ namespace HemisAudit.Controllers
                 "all" => "all",
                 _ => "active"
             };
+        }
+
+        private static bool IsPassedRun(ValidationRunRow run)
+        {
+            if (string.Equals(run.Status, "PASS", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (string.Equals(run.Status, "FAIL", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return run.TotalValidated > 0 && run.FailCount <= 0;
+        }
+
+        private static bool IsFailedRun(ValidationRunRow run)
+        {
+            if (string.Equals(run.Status, "FAIL", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (string.Equals(run.Status, "PASS", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return run.FailCount > 0;
         }
     }
 }

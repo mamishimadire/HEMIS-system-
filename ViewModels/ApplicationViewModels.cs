@@ -311,6 +311,7 @@ namespace HemisAudit.ViewModels
         public string RuleName { get; set; } = "";
         public string Status { get; set; } = "";
         public int TotalValidated { get; set; }
+        public int PassCount { get; set; }
         public int FailCount { get; set; }
         public decimal ExceptionRate { get; set; }
         public DateTime RunAt { get; set; }
@@ -322,6 +323,9 @@ namespace HemisAudit.ViewModels
         public bool HasDataAnalystSignoff { get; set; }
         public bool HasManagerSignoff { get; set; }
         public bool HasDirectorSignoff { get; set; }
+        public bool IsReviewedAndCompleted =>
+            Status.Contains("Reviewed and Completed", StringComparison.OrdinalIgnoreCase) ||
+            HasAllRequiredSignoffs;
         public bool HasAllRequiredSignoffs =>
             HasDataAnalystSignoff &&
             HasManagerSignoff &&
@@ -440,6 +444,12 @@ namespace HemisAudit.ViewModels
         public int DisplayedClientCount { get; set; }
         public int ReviewedAndCompletedRuns { get; set; }
         public int NeedsReviewRuns { get; set; }
+        public int PassedRuleRuns { get; set; }
+        public int FailedRuleRuns { get; set; }
+        public int PassedRuleRecords { get; set; }
+        public int FailedRuleRecords { get; set; }
+        public decimal PassedRuleRecordRate { get; set; }
+        public decimal FailedRuleRecordRate { get; set; }
         public int AnalystSignedRuns { get; set; }
         public int ManagerSignedRuns { get; set; }
         public int DirectorSignedRuns { get; set; }
@@ -449,6 +459,7 @@ namespace HemisAudit.ViewModels
         public List<ClientListViewModel> ArchivedPortfolioClients { get; set; } = new();
         public List<ClientListViewModel> PendingApprovalQueue { get; set; } = new();
         public List<DashboardIndustryMetric> IndustryBreakdown { get; set; } = new();
+        public List<DashboardRuleOutcomeMetric> RuleOutcomeBreakdown { get; set; } = new();
         public List<ValidationRunRow> RecentRuns { get; set; } = new();
         public string CurrentUserName { get; set; } = "";
         public string CurrentUserRole { get; set; } = "";
@@ -467,6 +478,14 @@ namespace HemisAudit.ViewModels
     {
         public string Industry { get; set; } = "";
         public int Count { get; set; }
+    }
+
+    public class DashboardRuleOutcomeMetric
+    {
+        public int RuleNumber { get; set; }
+        public string RuleLabel { get; set; } = "";
+        public int PassedCount { get; set; }
+        public int FailedCount { get; set; }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

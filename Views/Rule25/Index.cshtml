@@ -364,6 +364,7 @@
     function setWorkspaceInfo(kind, message) {
         els.workspaceInfo.className = `alert alert--${kind}`;
         els.workspaceInfo.textContent = message;
+        window.showWorkspaceActionToast?.(message, kind);
     }
 
     function updateStatusBadge(status) {

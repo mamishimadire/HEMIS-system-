@@ -359,6 +359,12 @@
         els.spinner.style.display = 'none';
     }
 
+    function setWorkspaceInfo(type, message) {
+        els.workspaceInfo.className = `alert alert--${type}`;
+        els.workspaceInfo.textContent = message;
+        window.showWorkspaceActionToast?.(message, type);
+    }
+
     function toFriendlyRequestError(error) {
         if (!error) return 'Unexpected error.';
         if (error.message) return error.message;
@@ -1163,11 +1169,9 @@
             const result = await postJson(`${apiBasePath}/SaveWorkspace`, buildValidationRequest());
             if (!result.success) throw new Error(result.error || 'Could not save workspace.');
             hydrateWorkspace(result.workspace || null, true);
-            els.workspaceInfo.className = 'alert alert--success';
-            els.workspaceInfo.textContent = result.message || 'Workspace saved.';
+            setWorkspaceInfo('success', result.message || 'Workspace saved.');
         } catch (error) {
-            els.workspaceInfo.className = 'alert alert--error';
-            els.workspaceInfo.textContent = toFriendlyRequestError(error);
+            setWorkspaceInfo('error', toFriendlyRequestError(error));
         } finally {
             hideSpinner();
         }
@@ -1183,12 +1187,10 @@
             });
             if (!result.success) throw new Error(result.error || 'Could not save signoff.');
             hydrateWorkspace(result.workspace || null, true);
-            els.workspaceInfo.className = 'alert alert--success';
-            els.workspaceInfo.textContent = result.message || 'Signoff saved.';
+            setWorkspaceInfo('success', result.message || 'Signoff saved.');
             switchTab('downloads');
         } catch (error) {
-            els.workspaceInfo.className = 'alert alert--error';
-            els.workspaceInfo.textContent = toFriendlyRequestError(error);
+            setWorkspaceInfo('error', toFriendlyRequestError(error));
         } finally {
             hideSpinner();
         }
@@ -1204,11 +1206,9 @@
             });
             if (!result.success) throw new Error(result.error || 'Could not remove signoff.');
             hydrateWorkspace(result.workspace || null, true);
-            els.workspaceInfo.className = 'alert alert--success';
-            els.workspaceInfo.textContent = result.message || 'Signoff removed.';
+            setWorkspaceInfo('success', result.message || 'Signoff removed.');
         } catch (error) {
-            els.workspaceInfo.className = 'alert alert--error';
-            els.workspaceInfo.textContent = toFriendlyRequestError(error);
+            setWorkspaceInfo('error', toFriendlyRequestError(error));
         } finally {
             hideSpinner();
         }

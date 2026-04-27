@@ -332,6 +332,7 @@ function setWorkspaceInfo(msg, type = 'info') {
     if (!el) return;
     el.className = `alert alert--${type}`;
     el.innerHTML = msg;
+    window.showWorkspaceActionToast?.(msg, type);
 }
 
 function setWorkspaceRunState(text, type = 'neutral') {

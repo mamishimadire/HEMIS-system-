@@ -141,6 +141,7 @@
         </div>
     </main>
 </div>
+<div id="appToastRegion" class="app-toast-region" aria-live="polite" aria-atomic="true"></div>
 
 <script>
 (function(){
@@ -161,6 +162,61 @@
             syncIcons(isLight);
         });
     }
+
+    window.showAppToast = function (message, type) {
+        var region = document.getElementById('appToastRegion');
+        if (!region) return;
+
+        var parser = document.createElement('div');
+        parser.innerHTML = String(message || '');
+        var text = (parser.textContent || parser.innerText || '').trim();
+        if (!text) return;
+
+        var normalizedType = String(type || 'info').toLowerCase();
+        if (normalizedType === 'danger') normalizedType = 'error';
+
+        var toast = document.createElement('div');
+        toast.className = 'app-toast app-toast--' + normalizedType;
+        toast.setAttribute('role', normalizedType === 'error' ? 'alert' : 'status');
+
+        var title = normalizedType === 'success'
+            ? 'Success'
+            : normalizedType === 'warning'
+                ? 'Warning'
+                : normalizedType === 'error'
+                    ? 'Error'
+                    : 'Info';
+
+        toast.innerHTML = '<div class="app-toast__body"><div class="app-toast__title"></div><div class="app-toast__message"></div></div><button type="button" class="app-toast__close" aria-label="Close notification">x</button>';
+        toast.querySelector('.app-toast__title').textContent = title;
+        toast.querySelector('.app-toast__message').textContent = text;
+
+        var dismiss = function () {
+            toast.classList.add('app-toast--closing');
+            window.setTimeout(function () {
+                if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 180);
+        };
+
+        toast.querySelector('.app-toast__close').addEventListener('click', dismiss);
+        region.appendChild(toast);
+        window.setTimeout(function () {
+            toast.classList.add('app-toast--visible');
+        }, 10);
+        window.setTimeout(dismiss, 4500);
+    };
+
+    window.showWorkspaceActionToast = function (message, type) {
+        var parser = document.createElement('div');
+        parser.innerHTML = String(message || '');
+        var text = (parser.textContent || parser.innerText || '').trim();
+        if (!text) return;
+
+        var isWorkspaceActionMessage = /workspace saved|failed to save workspace|unable to save workspace|could not save workspace|could not save the workspace|signoff saved|failed to save signoff|unable to save signoff|could not save signoff|signoff failed|signoff removed|failed to remove signoff|unable to remove signoff|could not remove signoff|your signoff was removed|you can only remove your own signoff|run .* first so the workspace can be saved|run .* first so the saved workspace exists|run validation first so the workspace can be signed off|this workspace can only be signed off|save the workspace first/i.test(text);
+        if (!isWorkspaceActionMessage) return;
+
+        window.showAppToast(text, type);
+    };
 
 })();
 </script>
