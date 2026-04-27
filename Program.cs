@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using HemisAudit.Data;
+using HemisAudit.Filters;
 using HemisAudit.Models;
 using HemisAudit.Services;
 

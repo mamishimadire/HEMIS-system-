@@ -2,9 +2,17 @@ bin/
 bin2/
 obj/
 artifacts/
+.run/
+.run-system-build/
+build_verify*/
 
 *.log
+*.pid
 *.db-shm
 *.db-wal
 
 .vscode/
+wwwroot/uploads/messages/*
+!wwwroot/uploads/messages/.gitkeep
+wwwroot/uploads/profiles/*
+!wwwroot/uploads/profiles/.gitkeep

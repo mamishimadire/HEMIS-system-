@@ -1,14 +1,17 @@
 $ErrorActionPreference = "Stop"
 
-$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $scriptRoot
 Set-Location $projectRoot
 
 $preferredPort = 5076
 $launchPath = "/Dashboard#engagements"
-$buildFolder = Join-Path $projectRoot ".run-system-build"
-$stdoutLog = Join-Path $projectRoot "run_system.stdout.log"
-$stderrLog = Join-Path $projectRoot "run_system.stderr.log"
-$pidFile = Join-Path $projectRoot ".run-system.pid"
+$runRoot = Join-Path $projectRoot ".run"
+$buildFolder = Join-Path $runRoot "build"
+$logFolder = Join-Path $runRoot "logs"
+$stdoutLog = Join-Path $logFolder "run_system.stdout.log"
+$stderrLog = Join-Path $logFolder "run_system.stderr.log"
+$pidFile = Join-Path $runRoot "hemisaudit.pid"
 $healthTimeoutSeconds = 90
 
 function Get-HemisAuditProcessInfo {
@@ -100,6 +103,12 @@ function Start-HemisAudit {
     }
 
     $baseUrl = "http://localhost:$Port"
+
+    foreach ($path in @($runRoot, $buildFolder, $logFolder)) {
+        if (-not (Test-Path $path)) {
+            New-Item -ItemType Directory -Path $path | Out-Null
+        }
+    }
 
     Write-Host "Building HemisAudit for startup..." -ForegroundColor Cyan
     dotnet build ".\HemisAudit.csproj" -o $buildFolder | Out-Host
