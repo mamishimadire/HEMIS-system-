@@ -6,7 +6,21 @@
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
     var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
 }
 
 <div id="app" class="rule-page-shell">
@@ -607,6 +621,10 @@
         try {
             showSpinner('Verifying table...');
             const request = getRequest();
+            if (!request.server || !request.database || !request.tableName) {
+                setAlert(els.connectionOutput, 'warning', 'Select the server, database, and table first.');
+                return;
+            }
             const data = await postJson(`${apiBasePath}/VerifyTable`, request);
             if (!data.success) {
                 setAlert(els.connectionOutput, 'danger', data.error || 'Verification failed.');

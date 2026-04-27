@@ -13,7 +13,21 @@
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
     var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
 }
 
 <div id="app" class="rule-page-shell">
@@ -1212,7 +1226,13 @@
     }
 
     async function verifyTable() {
-        const result = await post(`${apiBasePath}/VerifyTable`, buildRequest());
+        const request = buildRequest();
+        if (!request.server || !request.database || !request.tableName || !request.errorTypeColumn || !request.errorColumn) {
+            setConnectionText('Select the server, database, table, error type column, and error column first.', 'warning');
+            return;
+        }
+
+        const result = await post(`${apiBasePath}/VerifyTable`, request);
         if (!result.success) {
             setConnectionText(result.error || 'Verification failed.', 'error');
             return;

@@ -6,7 +6,21 @@
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
     var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
 }
 
 <div id="app" class="rule-page-shell">
@@ -1062,9 +1076,15 @@
     }
 
     async function verifyTables() {
+        const request = buildVerifyRequest();
+        if (!request.server || !request.database || !request.profTable || !request.payrollTable || !request.profPersonnelColumn || !request.payrollPersonnelColumn) {
+            els.connectionOutput.innerHTML = `<div class="alert alert--warning">Select the server, database, PROF table, Payroll table, and personnel columns first.</div>`;
+            return;
+        }
+
         try {
             showSpinner('Verifying populations...');
-            const result = await postJson(`${apiBasePath}/VerifyTables`, buildVerifyRequest());
+            const result = await postJson(`${apiBasePath}/VerifyTables`, request);
             if (!result.success) throw new Error(result.error || 'Verification failed.');
             els.connectionOutput.innerHTML = `
                 <div class="alert alert--success">

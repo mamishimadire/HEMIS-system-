@@ -8,8 +8,6 @@
     var canManageAssignments = ViewBag.CanManageAssignments is bool manageAssignments && manageAssignments;
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
     var isArchived = Model.IsArchived;
-    var canReviewUnsignedRuns =
-        string.Equals(currentSystemRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
     var showModulesWorkspaceUi = ViewBag.ShowModulesWorkspaceUi is bool showModules && showModules;
     var currentValidationRuns = Model.ValidationRuns.Where(run => run.IsCurrent).ToList();
     var historicalValidationRuns = Model.ValidationRuns.Where(run => !run.IsCurrent).ToList();
@@ -143,7 +141,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
+            <span class="collapsible-trigger__meta">Rules 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -151,6 +149,24 @@
                 @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
                 {
                     <div class="module-card-grid">
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 23</div>
+                            <h4 class="module-card__title">Reconcile Datasets</h4>
+                            <p class="module-card__text">Reconcile student number, qualification code, and ID number across dbo_STUD, MT-audit-prod-std, and H16STUD and isolate missing or mismatched student rows for review.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule23?clientId=@Model.Id" class="btn btn-success">Open Rule 23</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 24</div>
+                            <h4 class="module-card__title">Reconcile Qualification Datasets</h4>
+                            <p class="module-card__text">Reconcile qualification codes across dbo_QUAL, MT-audit-prod-QUAL, and H16QUAL with separate missing-record and qualification-validation controls.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule24?clientId=@Model.Id" class="btn btn-success">Open Rule 24</a>
+                            </div>
+                        </article>
+
                         <article class="module-card">
                             <div class="module-card__eyebrow">Rule 25</div>
                             <h4 class="module-card__title">Reconcile Course Datasets</h4>
@@ -406,17 +422,10 @@
                                 <td>@run.RunByUserName</td>
                                 <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
                                 <td>
-                                    @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
-                                    {
-                                        <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
-                                           asp-action="Run"
-                                           asp-route-id="@run.Id"
-                                           class="btn btn-sm btn-secondary">Review</a>
-                                    }
-                                    else
-                                    {
-                                        <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
-                                    }
+                                    <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
+                                       asp-action="Index"
+                                       asp-route-clientId="@Model.Id"
+                                       class="btn btn-sm btn-secondary">Open Results</a>
                                 </td>
                             </tr>
                         }
@@ -477,17 +486,10 @@
                                 <td>@run.RunByUserName</td>
                                 <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
                                 <td>
-                                    @if (canReviewUnsignedRuns || run.HasDataAnalystSignoff)
-                                    {
-                                        <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
-                                           asp-action="Run"
-                                           asp-route-id="@run.Id"
-                                           class="btn btn-sm btn-secondary">Review</a>
-                                    }
-                                    else
-                                    {
-                                        <span class="btn btn-sm btn-secondary" style="pointer-events:none;opacity:.7">Awaiting Analyst Signoff</span>
-                                    }
+                                    <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
+                                       asp-action="Run"
+                                       asp-route-id="@run.Id"
+                                       class="btn btn-sm btn-secondary">Review</a>
                                 </td>
                             </tr>
                         }
@@ -506,7 +508,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="/Rule23?clientId=@Model.Id">Open Rule 23</a>, <a href="/Rule24?clientId=@Model.Id">Open Rule 24</a>, <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
         }
         else if (Model.IsArchived)
         {

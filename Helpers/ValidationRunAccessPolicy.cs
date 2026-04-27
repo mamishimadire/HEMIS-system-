@@ -19,10 +19,10 @@ namespace HemisAudit.Helpers
 
         public static bool CanViewSignedResults(string? systemRole, string? engagementRole, bool hasDataAnalystSignoff)
         {
-            if (IsAdmin(systemRole) || IsAssignedDataAnalyst(engagementRole))
+            if (IsAdmin(systemRole))
                 return true;
 
-            return hasDataAnalystSignoff;
+            return CanAssignedUserDownload(engagementRole);
         }
 
         public static bool CanDownloadSignedResults(string? systemRole, string? engagementRole, bool hasDataAnalystSignoff)

@@ -55,22 +55,6 @@ namespace HemisAudit.Controllers
                 return RedirectToAction("Index", "Dashboard");
             }
 
-            if (IsResultsOnlyRole(role))
-            {
-                if (clientId <= 0)
-                {
-                    TempData["Error"] = "Open an analyst-signed saved run to review results, sign off, or download exports.";
-                    return RedirectToAction("Index", "Dashboard", new { scope = "active" });
-                }
-
-                var selectedClient = clients.FirstOrDefault(c => c.Id == clientId);
-                if (selectedClient?.LatestSignedOffRunId is int signedRunId)
-                    return RedirectToAction(nameof(Run), new { id = signedRunId });
-
-                TempData["Error"] = "No analyst-signed Rule 34 result is available for this engagement yet.";
-                return RedirectToAction("ClientDetail", "Admin", new { id = clientId });
-            }
-
             ViewBag.Clients = clients
                 .Select(c => new Client
                 {

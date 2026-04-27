@@ -9,6 +9,18 @@
                 <div>@Model.CurrentRuleLabel | @Model.CurrentRuleTitle</div>
             </div>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
+                @if (!string.IsNullOrWhiteSpace(Model.BackToValidationRunsUrl))
+                {
+                    <a href="@Model.BackToValidationRunsUrl" class="btn btn-secondary">
+                        Back to Validation Runs
+                    </a>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.BackToEngagementUrl))
+                {
+                    <a href="@Model.BackToEngagementUrl" class="btn btn-secondary">
+                        Back to Engagement
+                    </a>
+                }
                 @if (Model.Previous != null)
                 {
                     <a href="@Model.Previous.Url" class="btn btn-secondary">

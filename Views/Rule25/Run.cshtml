@@ -25,14 +25,6 @@
     @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
 }
 
-<style>
-    .review-tabs { display:flex; gap:0; border-bottom:1px solid #e5e7eb; margin-bottom:24px; overflow:auto; }
-    .review-tab { background:none; border:0; border-bottom:3px solid transparent; color:#334155; cursor:pointer; font:inherit; padding:14px 18px; white-space:nowrap; }
-    .review-tab.is-active { border-bottom-color:#ef4444; color:#dc2626; font-weight:700; }
-    .review-panel { display:none; }
-    .review-panel.is-active { display:block; }
-</style>
-
 <div class="page-header">
     <div>
         <h1>Rule 25 Saved Run</h1>
@@ -348,3 +340,4 @@
     });
 })();
 </script>
+

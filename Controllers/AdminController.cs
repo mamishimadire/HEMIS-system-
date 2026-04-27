@@ -418,19 +418,19 @@ namespace HemisAudit.Controllers
             await _systemDb.NormalizeCompletedRunStatusesAsync();
             var detail = await _systemDb.GetClientDetailAsync(id, currentUser, role);
             if (detail == null) return NotFound();
-            var canAccessModule = await _systemDb.CanAccessClientResultsAsync(id, currentUser, role);
+            var canAccessModule = await _systemDb.CanAccessClientModuleAsync(id, currentUser, role);
+            var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+            var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             ViewBag.CanOpenModule = canAccessModule;
             ViewBag.CanRunModules =
-                await _systemDb.CanAccessClientModuleAsync(id, currentUser, role) &&
-                string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(detail.CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
+                canAccessModule &&
+                isDataAnalyst;
             ViewBag.CanManageAssignments =
-                string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) &&
+                isAdmin &&
                 !detail.IsArchived;
             ViewBag.ShowModulesWorkspaceUi =
-                string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) ||
-                (string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) &&
-                 string.Equals(detail.CurrentUserEngagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
+                isAdmin ||
+                (isDataAnalyst && canAccessModule);
 
             detail.CanArchive = false;
             detail.ArchiveEligibilityMessage = detail.IsArchived
@@ -463,7 +463,7 @@ namespace HemisAudit.Controllers
 
             ViewBag.CurrentSystemRole = role;
 
-            if (string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) && !detail.IsArchived)
+            if (isAdmin && !detail.IsArchived)
             {
                 var allUsers = await _users.Users.ToListAsync();
                 var assignedIds = detail.AssignedUsers.Select(cu => cu.UserId).ToHashSet(StringComparer.OrdinalIgnoreCase);

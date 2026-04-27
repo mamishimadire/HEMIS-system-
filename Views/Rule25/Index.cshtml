@@ -6,7 +6,21 @@
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
     var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
 }
 
 <div id="app" class="rule-page-shell">
@@ -842,8 +856,8 @@
 
     async function verifyTables() {
         const request = getRequest();
-        if (!request.clientId) {
-            setWorkspaceInfo('warning', 'Select an engagement before verifying Rule 25.');
+        if (!request.server || !request.database || !request.crseTable || !request.auditTable || !request.h16Table) {
+            setOutput(els.configOutput, 'warning', 'Select the server, database, and Rule 25 tables first.');
             return;
         }
 
