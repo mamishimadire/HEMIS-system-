@@ -5,7 +5,7 @@ $projectRoot = Split-Path -Parent $scriptRoot
 Set-Location $projectRoot
 
 $preferredPort = 5076
-$launchPath = "/Dashboard#engagements"
+$launchPath = "/Account/Login?force=true"
 $runRoot = Join-Path $projectRoot ".run"
 $buildFolder = Join-Path $runRoot "build"
 $logFolder = Join-Path $runRoot "logs"

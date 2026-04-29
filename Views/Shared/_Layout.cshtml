@@ -27,6 +27,31 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
         (function () {
+            var markerKey = 'hemis-auth-tab';
+
+            try {
+                var url = new URL(window.location.href);
+                var hasSessionStart = url.searchParams.get('sessionStart') === '1';
+                var hasMarker = window.sessionStorage.getItem(markerKey) === '1';
+
+                if (hasSessionStart) {
+                    window.sessionStorage.setItem(markerKey, '1');
+                    url.searchParams.delete('sessionStart');
+                    window.history.replaceState(null, document.title, url.pathname + url.search + url.hash);
+                    return;
+                }
+
+                if (!hasMarker) {
+                    var returnUrl = window.location.pathname + window.location.search + window.location.hash;
+                    window.location.replace('/Account/Login?force=true&returnUrl=' + encodeURIComponent(returnUrl));
+                }
+            } catch (_) {
+                window.location.replace('/Account/Login?force=true');
+            }
+        })();
+    </script>
+    <script>
+        (function () {
             var theme = localStorage.getItem('hemis-theme') || 'dark';
             if (theme === 'light') document.documentElement.classList.add('light');
         })();

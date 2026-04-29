@@ -36,7 +36,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.LoginPath = "/Account/Login";
     options.AccessDeniedPath = "/Account/AccessDenied";
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
-    options.SlidingExpiration = true;
+    options.SlidingExpiration = false;
 });
 
 builder.Services.AddScoped<IPasswordPolicyService, PasswordPolicyService>();
@@ -122,6 +122,23 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        if (context.User.Identity?.IsAuthenticated == true &&
+            HttpMethods.IsGet(context.Request.Method))
+        {
+            context.Response.Headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate";
+            context.Response.Headers["Pragma"] = "no-cache";
+            context.Response.Headers["Expires"] = "0";
+        }
+
+        return Task.CompletedTask;
+    });
+
+    await next();
+});
 
 app.MapControllerRoute(
     name: "dashboard-short",
