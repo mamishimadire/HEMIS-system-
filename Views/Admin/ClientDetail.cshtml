@@ -170,7 +170,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
+            <span class="collapsible-trigger__meta">Rules 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -178,6 +178,15 @@
                 @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
                 {
                     <div class="module-card-grid">
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 18</div>
+                            <h4 class="module-card__title">NSFAS Student Validation</h4>
+                            <p class="module-card__text">Test 100% of the NSFAS student population through <code>dbo_STUD -&gt; dbo_CREG -&gt; dbo_CRSE</code>, classify all rows across the three controls, and review saved PASS or FAIL results.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule18?clientId=@Model.Id" class="btn btn-success">Open Rule 18</a>
+                            </div>
+                        </article>
+
                         <article class="module-card">
                             <div class="module-card__eyebrow">Rule 19</div>
                             <h4 class="module-card__title">Masters and PhD Population Validation</h4>
@@ -634,7 +643,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="/Rule21?clientId=@Model.Id">Open Rule 21</a>, <a href="/Rule22?clientId=@Model.Id">Open Rule 22</a>, <a href="/Rule23?clientId=@Model.Id">Open Rule 23</a>, <a href="/Rule24?clientId=@Model.Id">Open Rule 24</a>, <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="/Rule18?clientId=@Model.Id">Open Rule 18</a>, <a href="/Rule21?clientId=@Model.Id">Open Rule 21</a>, <a href="/Rule22?clientId=@Model.Id">Open Rule 22</a>, <a href="/Rule23?clientId=@Model.Id">Open Rule 23</a>, <a href="/Rule24?clientId=@Model.Id">Open Rule 24</a>, <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
         }
         else if (Model.IsArchived)
         {

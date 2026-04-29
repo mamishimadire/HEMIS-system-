@@ -1,0 +1,357 @@
+@model HemisAudit.ViewModels.Rule18RunReviewViewModel
+@{
+    ViewData["Title"] = $"Rule 18 Run {Model.RunId}";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var canDownload = ViewBag.CanDownloadSavedRun is bool allowed && allowed;
+    var canManageEngagement = ViewBag.CanManageEngagement is bool manageEngagement && manageEngagement;
+    var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool openWorkspace && openWorkspace;
+    var isArchived = ViewBag.IsArchived is bool archived && archived;
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+@if (moduleNavigation != null)
+{
+    @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+}
+
+<style>
+    .review-tabs { display:flex; gap:0; border-bottom:1px solid #e5e7eb; margin-bottom:24px; overflow:auto; }
+    .review-tab { background:none; border:0; border-bottom:3px solid transparent; color:#334155; cursor:pointer; font:inherit; padding:14px 18px; white-space:nowrap; }
+    .review-tab.is-active { border-bottom-color:#dc2626; color:#dc2626; font-weight:700; }
+    .review-panel { display:none; }
+    .review-panel.is-active { display:block; }
+    .rule18-filterbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:18px; }
+    .rule18-filterbar label { font-size:12px; font-weight:700; text-transform:uppercase; color:#475569; display:block; margin-bottom:6px; }
+    .rule18-control-card { background:#fff; padding:0 0 4px 0; margin-bottom:20px; }
+    .rule18-control-title { font-weight:800; font-size:15px; margin:0 0 14px 0; }
+    .rule18-grid { width:100%; min-width:1140px; border-collapse:collapse; table-layout:fixed; }
+    .rule18-grid th, .rule18-grid td { border:2px solid #222; padding:4px 8px; text-align:center; white-space:normal; word-break:break-word; vertical-align:middle; font-family:Consolas, "Courier New", monospace; font-size:12px; }
+    .rule18-grid .group-stud { background:#e8c2e8; }
+    .rule18-grid .group-bridge { background:#f4c9ab; }
+    .rule18-grid .group-crse { background:#bfe4a6; }
+    .rule18-grid .group-final { background:#fff; }
+    .rule18-grid .criteria-head, .rule18-grid .criteria-cell, .rule18-grid .mid-pass-cell { background:#5bb7dd; }
+    .rule18-grid .criteria-head, .rule18-grid .criteria-cell { width:132px; }
+    .rule18-grid .mid-pass-cell { width:120px; font-weight:700; }
+    .rule18-grid .final-head { width:210px; }
+    .rule18-grid .final-cell { width:210px; line-height:1.25; }
+    .rule18-table-wrap { overflow:auto; }
+    .rule18-grid .is-pass { color:#166534; font-weight:800; }
+    .rule18-grid .is-fail { color:#b91c1c; font-weight:800; }
+    .rule18-grid .result-text { font-weight:800; margin-bottom:4px; display:block; }
+    .rule18-grid .message-text { display:block; }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>Rule 18 Saved Run</h1>
+        <p>
+            @Model.EngagementName
+            <span style="padding:0 8px">|</span>
+            @Model.MaconomyNumber
+            <span style="padding:0 8px">|</span>
+            Run #@Model.RunId
+            <span style="padding:0 8px">|</span>
+            @Model.Summary.Timestamp
+        </p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+        @if (canOpenWorkspace)
+        {
+            <a asp-action="Index" asp-route-clientId="@Model.ClientId" class="btn btn-secondary">Back to Workspace</a>
+        }
+        <a asp-controller="Dashboard" asp-action="Index" class="btn btn-secondary">Back to Dashboard</a>
+        <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" asp-fragment="validation-runs-panel" class="btn btn-secondary">Back to Validation Runs</a>
+        @if (canManageEngagement)
+        {
+            <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" class="btn btn-secondary">Back to Engagement</a>
+        }
+    </div>
+</div>
+
+@if (isArchived)
+{
+    <div class="alert alert--info" style="margin-bottom:24px">
+        This engagement is archived. The saved run is available for review and download only.
+    </div>
+}
+
+<div class="card" style="margin-bottom:24px;padding:20px">
+    <h3 class="section-title" style="margin-top:0">Signoffs</h3>
+
+    @if (Model.CanCurrentUserSignOff && !isArchived)
+    {
+        <form asp-action="AddSignoff" method="post" style="margin-bottom:16px">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="RunId" value="@Model.RunId" />
+            <div class="field-group" style="margin-bottom:12px">
+                <label>Comment</label>
+                <textarea name="Comment" rows="3" placeholder="Add review or completion notes" disabled="@(Model.CurrentUserHasSignedOff ? "disabled" : null)">@Model.Signoffs.FirstOrDefault(s => s.IsCurrentUser)?.Comment</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@(Model.CurrentUserHasSignedOff ? "disabled" : null)">
+                @(Model.CurrentUserHasSignedOff ? $"Signed Off as {Model.CurrentUserEngagementRole}" : $"Sign Off as {Model.CurrentUserEngagementRole}")
+            </button>
+        </form>
+
+        @if (Model.CanCurrentUserRemoveSignoff)
+        {
+            <form asp-action="RemoveSignoff" method="post" style="margin-bottom:16px">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="runId" value="@Model.RunId" />
+                <button type="submit" class="btn btn-warning" onclick="return confirm('Remove your signoff for this validation run?')">Remove My Signoff</button>
+            </form>
+        }
+    }
+
+    @if (Model.Signoffs.Any())
+    {
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    <th>Reviewer</th>
+                    <th>Comment</th>
+                    <th>Signed At</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var signoff in Model.Signoffs)
+                {
+                    <tr>
+                        <td><span class="badge badge--role">@signoff.SignoffRole</span></td>
+                        <td><strong>@signoff.ReviewerName</strong><br /><small style="color:#757575">@signoff.ReviewerEmail</small></td>
+                        <td>@(string.IsNullOrWhiteSpace(signoff.Comment) ? "-" : signoff.Comment)</td>
+                        <td>@signoff.SignedOffAt.ToString("dd MMM yyyy HH:mm")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <div style="color:#757575">No signoffs recorded yet.</div>
+    }
+</div>
+
+<div class="card" style="padding:0 0 24px">
+    <div class="review-tabs">
+        <button type="button" class="review-tab is-active" data-review-tab="analysis">Analysis</button>
+        <button type="button" class="review-tab" data-review-tab="results">Results</button>
+        <button type="button" class="review-tab" data-review-tab="sql">SQL Code</button>
+        <button type="button" class="review-tab" data-review-tab="downloads">Downloads</button>
+    </div>
+
+    <div class="review-panel is-active" data-review-panel="analysis" style="padding:24px">
+        <div class="stats-grid" style="margin-bottom:24px">
+            <div class="stat-card">
+                <div class="stat-card__label">NSFAS Population</div>
+                <div class="stat-card__value">@Model.Summary.NsfasPopulationCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card__label">Control Result Rows</div>
+                <div class="stat-card__value">@Model.Summary.TotalValidated.ToString("N0")</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card__label">Matching Rows</div>
+                <div class="stat-card__value">@Model.Summary.PassCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card stat-card--fail">
+                <div class="stat-card__label">Non-Matching Rows</div>
+                <div class="stat-card__value">@Model.Summary.FailCount.ToString("N0")</div>
+            </div>
+        </div>
+
+        <div class="card" style="padding:20px">
+            <h3 class="section-title" style="margin-top:0">Control Summary</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Control</th>
+                        <th>Criteria</th>
+                        <th>Matched Rows</th>
+                        <th>PASS</th>
+                        <th>FAIL</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model.Summary.ControlSummaries)
+                    {
+                        <tr>
+                            <td>@item.ControlLabel</td>
+                            <td>@item.CriteriaText</td>
+                            <td>@item.TotalCount.ToString("N0")</td>
+                            <td>@item.PassCount.ToString("N0")</td>
+                            <td>@item.FailCount.ToString("N0")</td>
+                            <td>@item.Status</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="review-panel" data-review-panel="results" style="padding:24px">
+        <div class="rule18-filterbar">
+            <div class="field-group" style="margin:0;min-width:180px">
+                <label for="resultFilter">Result Filter</label>
+                <select id="resultFilter">
+                    <option value="ALL">All results</option>
+                    <option value="PASS">PASS</option>
+                    <option value="FAIL">FAIL</option>
+                </select>
+            </div>
+            <div class="field-group" style="margin:0;min-width:180px">
+                <label for="controlFilter">Control Filter</label>
+                <select id="controlFilter">
+                    <option value="ALL">All controls</option>
+                    <option value="Control_1">Control 1</option>
+                    <option value="Control_2">Control 2</option>
+                    <option value="Control_3">Control 3</option>
+                </select>
+            </div>
+        </div>
+        <div id="resultsHost"></div>
+    </div>
+
+    <div class="review-panel" data-review-panel="sql" style="padding:24px">
+        <div class="code-panel"><pre>@Model.GeneratedSql</pre></div>
+    </div>
+
+    <div class="review-panel" data-review-panel="downloads" style="padding:24px">
+        @if (canDownload)
+        {
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <a asp-action="DownloadSavedExcel" asp-route-runId="@Model.RunId" class="btn btn-success">Download Excel</a>
+                <a asp-action="DownloadSavedCsv" asp-route-runId="@Model.RunId" class="btn btn-info">Download CSV</a>
+                <a asp-action="DownloadSavedSql" asp-route-runId="@Model.RunId" class="btn btn-secondary">Download SQL</a>
+            </div>
+        }
+        else
+        {
+            <div class="alert alert--info">The assigned data analyst must sign off before other assigned users can download this run.</div>
+        }
+    </div>
+</div>
+
+<script>
+    const rule18Summary = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        Model.Summary,
+        new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
+
+    document.querySelectorAll('[data-review-tab]').forEach(button => {
+        button.addEventListener('click', () => {
+            const tab = button.dataset.reviewTab;
+            document.querySelectorAll('[data-review-tab]').forEach(item => item.classList.toggle('is-active', item === button));
+            document.querySelectorAll('[data-review-panel]').forEach(panel => panel.classList.toggle('is-active', panel.dataset.reviewPanel === tab));
+            if (tab === 'results') renderRule18Results();
+        });
+    });
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function renderControlSection(summary, controlType, include024, resultFilter, controlFilter) {
+        if (controlFilter !== 'ALL' && controlFilter !== controlType) return '';
+        const controlMeta = (summary.controlSummaries || []).find(item => item.controlType === controlType);
+        const rows = (summary.reviewRows || []).filter(row =>
+            row.controlType === controlType &&
+            (resultFilter === 'ALL' || String(row.validationResult || '').toUpperCase() === resultFilter));
+        const criteriaText = controlMeta?.criteriaText || '';
+        const bridgeTableName = summary.bridgeTable || summary.cregTable || 'dbo_CREG';
+
+        const rowHtml = rows.map(row => {
+            const v = row.displayValues || {};
+            const resultText = row.validationResult === 'FAIL' ? 'Fail' : 'Pass';
+            const studCriteriaMessage = v.STUD_CRITERIA_MESSAGE || `${resultText} this criteria on dbo_STUD: ${criteriaText}`;
+            const bridgeMessage = v.BRIDGE_LINK_MESSAGE || `${resultText} bridge linkage check`;
+            const finalRuleText = v.FINAL_RULE_TEXT || criteriaText;
+            const finalMessage = v.FINAL_RESULT_MESSAGE || `${resultText} this Criteria: ${criteriaText}`;
+            return `
+                <tr>
+                    <td>${escapeHtml(v.STUD__001 || '')}</td>
+                    <td>${escapeHtml(v.STUD__007 || '')}</td>
+                    <td>${escapeHtml(v.STUD__019 || '')}</td>
+                    ${include024 ? `<td>${escapeHtml(v.STUD__024 || '')}</td>` : ''}
+                    <td class="criteria-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">
+                        <span class="result-text">${escapeHtml(resultText)}:</span>
+                        <span class="message-text">${escapeHtml(studCriteriaMessage)}</span>
+                    </td>
+                    <td>${escapeHtml(v.BRIDGE__001 || '')}</td>
+                    <td>${escapeHtml(v.BRIDGE__030 || '')}</td>
+                    <td class="mid-pass-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">
+                        <span class="message-text">${escapeHtml(bridgeMessage)}</span>
+                    </td>
+                    <td>${escapeHtml(v.CRSE__030 || '')}</td>
+                    <td>${escapeHtml(v.CRSE__091 || '')}</td>
+                    <td class="final-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">
+                        <div>${escapeHtml(finalRuleText)}</div>
+                        <div>${escapeHtml(finalMessage)}</div>
+                    </td>
+                </tr>`;
+        }).join('');
+
+        return `
+            <div class="rule18-control-card">
+                <div class="rule18-control-title">${escapeHtml(`CONTROL ${String(controlType || '').replace('Control_', '').trim()}: ${criteriaText}`)}</div>
+                ${rows.length === 0 ? `<div class="alert alert--info" style="margin:0">No rows match the selected filter.</div>` : `
+                <div class="rule18-table-wrap">
+                    <table class="rule18-grid">
+                        <thead>
+                            <tr>
+                                <th colspan="${include024 ? 4 : 3}" class="group-stud">dbo_STUD</th>
+                                <th class="criteria-head">Criteria:<br />${escapeHtml(criteriaText)}</th>
+                                <th colspan="2" class="group-bridge">${escapeHtml(bridgeTableName)}</th>
+                                <th class="criteria-head"></th>
+                                <th colspan="2" class="group-crse">dbo_CRSE</th>
+                                <th class="group-final">Final results</th>
+                            </tr>
+                            <tr>
+                                <th>_001</th>
+                                <th>_007</th>
+                                <th>_019</th>
+                                ${include024 ? '<th>_024</th>' : ''}
+                                <th></th>
+                                <th>_001</th>
+                                <th>_030</th>
+                                <th></th>
+                                <th>_030</th>
+                                <th>_091</th>
+                                <th class="final-head">${escapeHtml(criteriaText)}</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowHtml}</tbody>
+                    </table>
+                </div>`}
+            </div>`;
+    }
+
+    function renderRule18Results() {
+        const resultFilter = document.getElementById('resultFilter')?.value || 'ALL';
+        const controlFilter = document.getElementById('controlFilter')?.value || 'ALL';
+        document.getElementById('resultsHost').innerHTML = `
+            ${renderControlSection(rule18Summary, 'Control_1', false, resultFilter, controlFilter)}
+            ${renderControlSection(rule18Summary, 'Control_2', true, resultFilter, controlFilter)}
+            ${renderControlSection(rule18Summary, 'Control_3', true, resultFilter, controlFilter)}`;
+    }
+
+    document.getElementById('resultFilter')?.addEventListener('change', renderRule18Results);
+    document.getElementById('controlFilter')?.addEventListener('change', renderRule18Results);
+    renderRule18Results();
+</script>

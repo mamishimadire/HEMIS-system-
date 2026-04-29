@@ -133,7 +133,9 @@ namespace HemisAudit.Services
                     }
                     catch (Exception ex)
                     {
-                        summary.Warning = $"Validation completed, but the saved run could not be persisted automatically: {ex.Message}";
+                        summary.Success = false;
+                        summary.Error = $"Validation completed, but the saved run could not be written to the system database: {ex.Message}";
+                        return summary;
                     }
                 }
 
@@ -685,8 +687,9 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@QualTable", request.QualTable);
             command.Parameters.AddWithValue("@CregTable", request.CregTable);
             command.Parameters.AddWithValue("@CrseTable", request.CrseTable);
+            var persistedSummary = CreateBrowserPreview(summary);
             command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(failRows)));
-            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary)));
+            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary)));
             command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
 

@@ -144,17 +144,15 @@ function Start-HemisAudit {
     }
 }
 
-$existing = Get-HemisAuditProcessInfo | Select-Object -First 1
+$existingProcesses = @(Get-HemisAuditProcessInfo)
 
-if ($existing -and (Test-UrlReady -Url $existing.Url -TimeoutSeconds 5)) {
-    Write-Host "HemisAudit is already running on $($existing.Url) (PID $($existing.ProcessId))." -ForegroundColor Yellow
-    Open-Browser -Url "$($existing.Url)$launchPath"
-    exit 0
-}
+if ($existingProcesses.Count -gt 0) {
+    foreach ($existing in $existingProcesses) {
+        $statusText = if (Test-UrlReady -Url $existing.Url -TimeoutSeconds 5) { "running" } else { "stale" }
+        Write-Host "Stopping $statusText HemisAudit process on $($existing.Url) (PID $($existing.ProcessId)) so the latest build is always launched..." -ForegroundColor Yellow
+        Stop-Process -Id $existing.ProcessId -Force -ErrorAction SilentlyContinue
+    }
 
-if ($existing) {
-    Write-Host "Found a stale HemisAudit process (PID $($existing.ProcessId)). Stopping it before restart..." -ForegroundColor Yellow
-    Stop-Process -Id $existing.ProcessId -Force
     Start-Sleep -Seconds 2
 }
 

@@ -70,6 +70,7 @@ builder.Services.AddControllersWithViews(options =>
 }).AddNewtonsoftJson();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRule22Service, Rule22Service>();
+builder.Services.AddScoped<IRule18Service, Rule18Service>();
 builder.Services.AddScoped<IRule19Service, Rule19Service>();
 builder.Services.AddScoped<IRule20Service, Rule20Service>();
 builder.Services.AddScoped<IRule21Service, Rule21Service>();
@@ -126,6 +127,11 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule18-short",
+    pattern: "Rule18",
+    defaults: new { controller = "Rule18", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule19-short",

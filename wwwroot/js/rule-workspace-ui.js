@@ -1,6 +1,112 @@
 (function () {
+    var saveLockPrefix = 'ruleWorkspaceSaveLock:';
+
     function hasOwn(source, key) {
         return Object.prototype.hasOwnProperty.call(source || {}, key);
+    }
+
+    function getCurrentRuleNumber() {
+        var match = window.location.pathname.match(/\/Rule(\d+)(?:\/|$)/i);
+        return match && match[1] ? match[1] : '';
+    }
+
+    function getClientIdFromValue(value) {
+        var parsed = parseInt(String(value || '').trim(), 10);
+        return isFinite(parsed) && parsed > 0 ? parsed : 0;
+    }
+
+    function getCurrentClientId() {
+        var clientInput = document.getElementById('clientId');
+        if (clientInput) {
+            var selectedClientId = getClientIdFromValue(clientInput.value);
+            if (selectedClientId > 0) {
+                return selectedClientId;
+            }
+        }
+
+        var query = new URLSearchParams(window.location.search || '');
+        return getClientIdFromValue(query.get('clientId'));
+    }
+
+    function buildSaveLockKey(ruleNumber, clientId) {
+        return saveLockPrefix + String(ruleNumber || '') + ':' + String(clientId || 0);
+    }
+
+    function setWorkspaceSaveLocked(ruleNumber, clientId, isLocked) {
+        if (!ruleNumber || !clientId || typeof window.localStorage === 'undefined') return;
+
+        var key = buildSaveLockKey(ruleNumber, clientId);
+        if (isLocked) {
+            window.localStorage.setItem(key, '1');
+        } else {
+            window.localStorage.removeItem(key);
+        }
+    }
+
+    function isWorkspaceSaveLocked(ruleNumber, clientId) {
+        if (!ruleNumber || !clientId || typeof window.localStorage === 'undefined') return false;
+        return window.localStorage.getItem(buildSaveLockKey(ruleNumber, clientId)) === '1';
+    }
+
+    function isCurrentWorkspaceSaveLocked() {
+        return isWorkspaceSaveLocked(getCurrentRuleNumber(), getCurrentClientId());
+    }
+
+    function extractClientIdFromRequestOptions(requestOptions) {
+        if (!requestOptions || typeof requestOptions.body !== 'string') return 0;
+
+        try {
+            var payload = JSON.parse(requestOptions.body);
+            return getClientIdFromValue(payload && payload.clientId);
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function extractClientIdFromResponsePayload(result) {
+        if (!result || typeof result !== 'object') return 0;
+        if (result.workspace) {
+            return getClientIdFromValue(result.workspace.clientId);
+        }
+
+        return getClientIdFromValue(result.clientId);
+    }
+
+    function refreshWorkspaceSaveLock() {
+        var saveButton = document.getElementById('saveWorkspaceBtn');
+        if (!saveButton) return;
+
+        var locked = isCurrentWorkspaceSaveLocked();
+        saveButton.classList.toggle('is-workspace-save-locked', locked);
+
+        if (locked) {
+            saveButton.disabled = true;
+            saveButton.title = 'Run the validation again before saving this workspace again.';
+        } else if (saveButton.title === 'Run the validation again before saving this workspace again.') {
+            saveButton.title = '';
+        }
+    }
+
+    function syncWorkspaceSaveLock(url, method, requestOptions, result) {
+        var normalizedUrl = String(url || '').toLowerCase();
+        var normalizedMethod = String(method || 'GET').toUpperCase();
+        if (normalizedMethod !== 'POST') return;
+
+        var ruleMatch = normalizedUrl.match(/\/rule(\d+)\//);
+        var ruleNumber = ruleMatch && ruleMatch[1] ? ruleMatch[1] : getCurrentRuleNumber();
+        var clientId = extractClientIdFromResponsePayload(result) || extractClientIdFromRequestOptions(requestOptions) || getCurrentClientId();
+        if (!ruleNumber || !clientId) return;
+
+        if (normalizedUrl.indexOf('/saveworkspace') >= 0 && result && result.success) {
+            setWorkspaceSaveLocked(ruleNumber, clientId, true);
+            refreshWorkspaceSaveLock();
+            return;
+        }
+
+        if (normalizedUrl.indexOf('/runvalidation') >= 0 && result && result.success) {
+            setWorkspaceSaveLocked(ruleNumber, clientId, false);
+            refreshWorkspaceSaveLock();
+        }
     }
 
     function resolveElement(target) {
@@ -114,6 +220,19 @@
             element.disabled = !!config.disabled;
         }
 
+        if (element.id === 'saveWorkspaceBtn' && isCurrentWorkspaceSaveLocked()) {
+            element.disabled = true;
+            if (!element.title) {
+                element.title = 'Run the validation again before saving this workspace again.';
+            }
+            element.classList.add('is-workspace-save-locked');
+        } else if (element.id === 'saveWorkspaceBtn') {
+            element.classList.remove('is-workspace-save-locked');
+            if (element.title === 'Run the validation again before saving this workspace again.') {
+                element.title = '';
+            }
+        }
+
         if (hasOwn(config, 'text') && config.text != null) {
             element.textContent = config.text;
         }
@@ -135,6 +254,20 @@
         setFormSectionReadonly: setFormSectionReadonly,
         setButtonGroupReadonly: setButtonGroupReadonly,
         applyState: applyState,
-        applyStates: applyStates
+        applyStates: applyStates,
+        refreshWorkspaceSaveLock: refreshWorkspaceSaveLock,
+        syncWorkspaceSaveLock: syncWorkspaceSaveLock
     };
+
+    document.addEventListener('change', function (event) {
+        if (event.target && event.target.id === 'clientId') {
+            refreshWorkspaceSaveLock();
+        }
+    });
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', refreshWorkspaceSaveLock);
+    } else {
+        refreshWorkspaceSaveLock();
+    }
 })();
