@@ -79,7 +79,7 @@
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
-        The assigned data analyst must sign off before managers, directors, and trainees can download this run.
+        The data analyst signoff is still outstanding. Assigned users can still review and download this run.
     </div>
 }
 
@@ -209,7 +209,7 @@
         {
             <div class="card" style="padding:20px">
                 <div class="alert alert--info" style="margin-bottom:16px">
-                    100% testing found @Model.Summary.MatchingCount.ToString("N0") matching records, and all matching rows are shown below.
+                    100% testing found @Model.Summary.MatchingCount.ToString("N0") matching records. The browser shows only the first @Model.Summary.MatchingRows.Take(10).Count().ToString("N0") row(s) to stay responsive.
                 </div>
                 <h3 class="section-title" style="margin-top:0">Matching Records</h3>
                 <div style="overflow:auto">
@@ -223,7 +223,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var row in Model.Summary.MatchingRows)
+                            @foreach (var row in Model.Summary.MatchingRows.Take(10))
                             {
                                 <tr>
                                     @foreach (var header in headers)
@@ -285,7 +285,7 @@
             <h3 class="section-title" style="margin-top:0">Downloads</h3>
             <div class="alert alert--info" style="margin-bottom:16px">
                 Excel includes the 100% tested summary and all matching records.
-                CSV includes the same matching records shown in the Matching Records tab.
+                CSV download is not limited by the browser preview.
             </div>
             @if (canDownload)
             {

@@ -237,8 +237,8 @@
                 <tbody>
                     @foreach (var client in Model.PortfolioClients)
                     {
-                        var reviewStatus = (isAdmin || isDataAnalyst) ? client.LastRunStatus : client.LatestSignedOffStatus;
-                        var reviewRunAt = (isAdmin || isDataAnalyst) ? client.LastRunAt : client.LatestSignedOffAt;
+                        var reviewStatus = client.LastRunStatus;
+                        var reviewRunAt = client.LastRunAt;
                         var reviewBadge = !string.IsNullOrWhiteSpace(reviewStatus) && (reviewStatus.Contains("Completed", StringComparison.OrdinalIgnoreCase) || reviewStatus == "Pass")
                             ? "badge--pass"
                             : reviewStatus == "Fail" || reviewStatus == "Needs Review"
@@ -267,10 +267,6 @@
                                     <span class="badge @reviewBadge">@reviewStatus</span>
                                     <br />
                                     <small class="table-meta">@reviewRunAt?.ToString("dd MMM yyyy HH:mm")</small>
-                                }
-                                else if (!isAdmin && !isDataAnalyst && client.ValidationRunsCount > 0)
-                                {
-                                    <span class="table-meta">Awaiting analyst signoff</span>
                                 }
                                 else
                                 {
@@ -342,9 +338,27 @@
 
         <div class="module-card-grid">
             <article class="module-card">
+                <div class="module-card__eyebrow">Rule 19</div>
+                <h4 class="module-card__title">Masters and PhD Population Validation</h4>
+                <p class="module-card__text">Test 100% of the linked Masters and PhD student population through the <code>dbo_STUD -> dbo_QUAL</code> path using fulfilled and qualification-type filters.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule19" class="btn btn-success">Open Rule 19</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 20</div>
+                <h4 class="module-card__title">Foundation Validation</h4>
+                <p class="module-card__text">Run the foundation validation across all students, keep CRSE rows where _091 = 'Y', and review PASS or FAIL results from the saved workspace.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule20" class="btn btn-success">Open Rule 20</a>
+                </div>
+            </article>
+
+            <article class="module-card">
                 <div class="module-card__eyebrow">Rule 21</div>
                 <h4 class="module-card__title">First Time Entering Students Validation</h4>
-                <p class="module-card__text">Validate 100% of `dbo_STUD` against the typed `_010` filter value, classify every row as PASS or FAIL, and review results with signoff-controlled visibility.</p>
+                <p class="module-card__text">Validate 100% of `dbo_STUD` against the typed `_010` filter value, classify every row as PASS or FAIL, and keep the saved results visible across the engagement workspace.</p>
                 <div class="module-card__actions">
                     <a href="/Rule21" class="btn btn-success">Open Rule 21</a>
                 </div>
@@ -510,13 +524,10 @@
                                        asp-action="Run"
                                        asp-route-id="@run.Id"
                                        class="btn btn-sm btn-secondary">Open</a>
-                                    @if (!isResultsOnlyRole || run.HasDataAnalystSignoff)
-                                    {
-                                        <a asp-controller="@controllerForRule(run.RuleNumber)"
-                                           asp-action="DownloadSavedExcel"
-                                           asp-route-runId="@run.Id"
-                                           class="btn btn-sm btn-success">Download</a>
-                                    }
+                                    <a asp-controller="@controllerForRule(run.RuleNumber)"
+                                       asp-action="DownloadSavedExcel"
+                                       asp-route-runId="@run.Id"
+                                       class="btn btn-sm btn-success">Download</a>
                                 </div>
                             </td>
                         </tr>

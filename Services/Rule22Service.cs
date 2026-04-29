@@ -7,8 +7,9 @@ namespace HemisAudit.Services
 {
     public class Rule22Service : IRule22Service
     {
-        private const int SqlCommandTimeoutSeconds = 180;
+        private const int SqlCommandTimeoutSeconds = SqlLargeDataExtensions.LargeDataCommandTimeoutSeconds;
         private const int ReviewPreviewRowsPerControl = 100;
+        private const int BrowserPreviewRowLimit = 10;
         private static readonly string[] IncludedControlTypes = ["Control 1", "Control 2", "Control 3"];
         private readonly IConfiguration _configuration;
 
@@ -25,7 +26,7 @@ namespace HemisAudit.Services
                 await using var conn = new SqlConnection(connStr);
                 await conn.OpenAsync();
 
-                await using var cmd = conn.CreateCommand();
+                await using var cmd = conn.CreateConfiguredCommand();
                 cmd.CommandText = "SELECT name FROM sys.databases WHERE name NOT IN ('master','tempdb','model','msdb') ORDER BY name;";
                 await using var reader = await cmd.ExecuteReaderAsync();
 
@@ -49,7 +50,7 @@ namespace HemisAudit.Services
                 await using var conn = new SqlConnection(connStr);
                 await conn.OpenAsync();
 
-                await using var cmd = conn.CreateCommand();
+                await using var cmd = conn.CreateConfiguredCommand();
                 cmd.CommandText = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME;";
                 await using var reader = await cmd.ExecuteReaderAsync();
 
@@ -155,6 +156,7 @@ namespace HemisAudit.Services
                     }
                 }
 
+                ApplyBrowserPreview(summary);
                 return summary;
             }
             catch (Exception ex)
@@ -185,7 +187,7 @@ namespace HemisAudit.Services
             await using var connection = await OpenSystemConnectionAsync();
             var currentUserId = await GetSystemUserIdByEmailAsync(connection, currentUserEmail);
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT TOP 1
     vr.RunID,
@@ -211,6 +213,10 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 return null;
 
             var deserializedSummary = DeserializeSummary(reader.IsDBNull(10) ? null : reader.GetString(10));
+            if (includeSummary && deserializedSummary != null)
+            {
+                ApplyBrowserPreview(deserializedSummary);
+            }
             var summary = includeSummary ? deserializedSummary : null;
 
             var workspace = new Rule22WorkspaceStateViewModel
@@ -256,7 +262,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             await using var connection = await OpenSystemConnectionAsync();
             var currentUserId = await GetSystemUserIdByEmailAsync(connection, currentUserEmail);
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT vr.RunID, vr.ClientID, vr.IsCurrent, c.EngagementName, c.MaconomyNumber, vr.HemisServer, vr.ResultsJSON
 FROM dbo.ValidationRuns vr
@@ -325,21 +331,7 @@ WHERE vr.RunID = @RunID
 
                 var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
                 var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
-                var existingSummary = await GetValidationSummaryAsync(connection, request.RunId.Value);
-                if (existingSummary != null)
-                {
-                    existingSummary.ClientId = request.ClientId;
-                    existingSummary.Database = request.Database;
-                    existingSummary.ProfTable = request.ProfTable;
-                    existingSummary.Column041 = request.Column041;
-                    existingSummary.Column039 = request.Column039;
-                    existingSummary.Control1SampleSize = request.Control1SampleSize;
-                    existingSummary.Control2SampleSize = request.Control2SampleSize;
-                    existingSummary.Control3SampleSize = request.Control3SampleSize;
-                    existingSummary.SavedRunId = request.RunId.Value;
-                }
-
-                await using var command = connection.CreateCommand();
+                await using var command = connection.CreateConfiguredCommand();
                 command.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET HemisServer = @HemisServer,
@@ -349,7 +341,6 @@ SET HemisServer = @HemisServer,
     StudColumn = @Column039,
     LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
-    ResultsJSON = @ResultsJSON,
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review',
@@ -364,9 +355,6 @@ WHERE RunID = @RunID
                 command.Parameters.AddWithValue("@Column041", request.Column041);
                 command.Parameters.AddWithValue("@Column039", request.Column039);
                 command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
-                command.Parameters.AddWithValue("@ResultsJSON", existingSummary == null
-                    ? DBNull.Value
-                    : JsonConvert.SerializeObject(existingSummary));
                 command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
                 command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule22|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.ProfTable}|{request.Column041}|{request.Column039}|{request.Control1SampleSize}|{request.Control2SampleSize}|{request.Control3SampleSize}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
                 await command.ExecuteNonQueryAsync();
@@ -414,7 +402,7 @@ WHERE RunID = @RunID
                 var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, runId);
                 var previousHash = await GetValidationRecordHashAsync(connection, runId);
 
-                await using var markEdit = connection.CreateCommand();
+                await using var markEdit = connection.CreateConfiguredCommand();
                 markEdit.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET LastEditedByUserName = @LastEditedByUserName,
@@ -475,7 +463,7 @@ WHERE RunID = @RunID;";
                 throw new InvalidOperationException("The assigned data analyst must sign off before this review can be completed.");
             }
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 IF EXISTS (
     SELECT 1
@@ -520,27 +508,9 @@ END";
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
 
-            var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
-            if (!CanSignOffAsRole(engagementRole))
-                throw new InvalidOperationException("This user does not have a removable signoff role for the engagement.");
-
-            await using var command = connection.CreateCommand();
-            command.CommandText = @"
-DELETE FROM dbo.ReviewSignoffs
-WHERE RunID = @RunID
-  AND ReviewerID = @ReviewerID
-  AND SignoffRole = @SignoffRole;";
-            command.Parameters.AddWithValue("@RunID", runId);
-            command.Parameters.AddWithValue("@ReviewerID", reviewerId.Value);
-            command.Parameters.AddWithValue("@SignoffRole", engagementRole!);
-            await command.ExecuteNonQueryAsync();
-
-            await SetRunStatusAsync(connection, runId, "Needs Review");
-
-            if (string.Equals(engagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-            {
-                await SetRunCurrentStateAsync(connection, runId, false);
-            }
+            var removal = await ReviewSignoffSqlHelper.RemoveReviewerSignoffWithVersioningAsync(connection, runId, reviewerId.Value);
+            if (removal.RemovedCount <= 0)
+                return;
         }
 
         public Task<string> GenerateSqlAsync(Rule22ValidationRequest request)
@@ -740,7 +710,7 @@ ORDER BY
             var previousHash = await GetLatestValidationHashAsync(connection, request.ClientId, 22);
             var failRows = summary.ReviewRows.Where(row => string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)).ToList();
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 INSERT INTO dbo.ValidationRuns
 (
@@ -769,15 +739,15 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@Column041", request.Column041);
             command.Parameters.AddWithValue("@Column039", request.Column039);
             command.Parameters.AddWithValue("@SampleConfig", $"{request.Control1SampleSize}|{request.Control2SampleSize}|{request.Control3SampleSize}");
-            command.Parameters.AddWithValue("@ExceptionsJSON", JsonConvert.SerializeObject(failRows));
-            command.Parameters.AddWithValue("@ResultsJSON", JsonConvert.SerializeObject(summary));
+            command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(failRows)));
+            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary)));
             command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
 
             var runId = Convert.ToInt32(await command.ExecuteScalarAsync());
             summary.SavedRunId = runId;
 
-            await using var hashCommand = connection.CreateCommand();
+            await using var hashCommand = connection.CreateConfiguredCommand();
             hashCommand.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET RecordHash = @RecordHash
@@ -835,7 +805,7 @@ WHERE RunID = @RunID;";
             await using var conn = new SqlConnection(connStr);
             await conn.OpenAsync();
 
-            await using var cmd = conn.CreateCommand();
+            await using var cmd = conn.CreateConfiguredCommand();
             cmd.CommandText = @"
 SELECT COLUMN_NAME
 FROM INFORMATION_SCHEMA.COLUMNS
@@ -861,7 +831,7 @@ ORDER BY ORDINAL_POSITION;";
             string col039,
             int? perControlLimit)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandTimeout = SqlCommandTimeoutSeconds;
             command.CommandText = $@"
 WITH Rule22Classified AS
@@ -1039,12 +1009,12 @@ ORDER BY
 
         private async Task<int> ClearSignoffsAndFlagForReviewAsync(SqlConnection connection, int runId)
         {
-            await using var countCommand = connection.CreateCommand();
+            await using var countCommand = connection.CreateConfiguredCommand();
             countCommand.CommandText = "SELECT COUNT(1) FROM dbo.ReviewSignoffs WHERE RunID = @RunID;";
             countCommand.Parameters.AddWithValue("@RunID", runId);
             var clearedSignoffs = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
 
-            await using var deleteCommand = connection.CreateCommand();
+            await using var deleteCommand = connection.CreateConfiguredCommand();
             deleteCommand.CommandText = "DELETE FROM dbo.ReviewSignoffs WHERE RunID = @RunID;";
             deleteCommand.Parameters.AddWithValue("@RunID", runId);
             await deleteCommand.ExecuteNonQueryAsync();
@@ -1061,7 +1031,7 @@ ORDER BY
 
         private async Task<bool> HasAllRequiredSignoffsAsync(SqlConnection connection, int runId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT
     CASE WHEN EXISTS (SELECT 1 FROM dbo.ReviewSignoffs WHERE RunID = @RunID AND SignoffRole = 'DataAnalyst') THEN 1 ELSE 0 END,
@@ -1078,7 +1048,7 @@ SELECT
 
         private async Task SetRunStatusAsync(SqlConnection connection, int runId, string status)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "UPDATE dbo.ValidationRuns SET Status = @Status WHERE RunID = @RunID;";
             command.Parameters.AddWithValue("@RunID", runId);
             command.Parameters.AddWithValue("@Status", status);
@@ -1087,7 +1057,7 @@ SELECT
 
         private async Task SetRunCurrentStateAsync(SqlConnection connection, int runId, bool isCurrent)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "UPDATE dbo.ValidationRuns SET IsCurrent = @IsCurrent WHERE RunID = @RunID;";
             command.Parameters.AddWithValue("@RunID", runId);
             command.Parameters.AddWithValue("@IsCurrent", isCurrent);
@@ -1096,7 +1066,7 @@ SELECT
 
         private async Task MarkPreviousRunsHistoricalAsync(SqlConnection connection, int clientId, int ruleNumber)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET IsCurrent = 0
@@ -1110,7 +1080,7 @@ WHERE ClientID = @ClientID
 
         private async Task<List<RunSignoffViewModel>> GetRunSignoffsAsync(SqlConnection connection, int runId, int? currentUserId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT rs.SignoffID,
        ISNULL(rs.SignoffRole, '') AS SignoffRole,
@@ -1156,7 +1126,7 @@ ORDER BY CASE ISNULL(rs.SignoffRole, '')
             if (string.IsNullOrWhiteSpace(email))
                 return null;
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "SELECT TOP 1 UserID FROM dbo.Users WHERE Email = @Email;";
             command.Parameters.AddWithValue("@Email", email);
             var value = await command.ExecuteScalarAsync();
@@ -1165,7 +1135,7 @@ ORDER BY CASE ISNULL(rs.SignoffRole, '')
 
         private async Task<string?> GetEngagementRoleAsync(SqlConnection connection, int clientId, int userId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT TOP 1 EngagementRole
 FROM dbo.UserClientAssignments
@@ -1179,7 +1149,7 @@ WHERE ClientID = @ClientID
 
         private async Task<bool> HasSignoffRoleAsync(SqlConnection connection, int runId, string signoffRole)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT CASE WHEN EXISTS (
     SELECT 1
@@ -1194,7 +1164,7 @@ SELECT CASE WHEN EXISTS (
 
         private async Task<string?> GetValidationRecordHashAsync(SqlConnection connection, int runId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "SELECT TOP 1 RecordHash FROM dbo.ValidationRuns WHERE RunID = @RunID;";
             command.Parameters.AddWithValue("@RunID", runId);
             var value = await command.ExecuteScalarAsync();
@@ -1203,7 +1173,7 @@ SELECT CASE WHEN EXISTS (
 
         private async Task<Rule22ValidationSummary?> GetValidationSummaryAsync(SqlConnection connection, int runId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "SELECT TOP 1 ResultsJSON FROM dbo.ValidationRuns WHERE RunID = @RunID;";
             command.Parameters.AddWithValue("@RunID", runId);
             var value = await command.ExecuteScalarAsync();
@@ -1214,7 +1184,7 @@ SELECT CASE WHEN EXISTS (
 
         private async Task<string?> GetLatestValidationHashAsync(SqlConnection connection, int clientId, int ruleNumber)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT TOP 1 RecordHash
 FROM dbo.ValidationRuns
@@ -1230,7 +1200,7 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
 
         private async Task EnsureClientNotArchivedAsync(SqlConnection connection, int clientId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "SELECT TOP 1 Status FROM dbo.Clients WHERE ClientID = @ClientID;";
             command.Parameters.AddWithValue("@ClientID", clientId);
             var status = Convert.ToString(await command.ExecuteScalarAsync());
@@ -1251,7 +1221,7 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
                 IntegratedSecurity = true,
                 TrustServerCertificate = trust,
                 Encrypt = false,
-                ConnectTimeout = 30
+                ConnectTimeout = 180
             };
 
             var connection = new SqlConnection(builder.ConnectionString);
@@ -1260,14 +1230,14 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
         }
 
         private static string BuildConnectionString(string server, string database, string driver) =>
-            $"Server={server};Database={database};Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False;Connection Timeout=30;";
+            $"Server={server};Database={database};Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False;Connection Timeout=180;";
 
         private static string Sanitise(string name) =>
             name.Replace("]", "").Replace("[", "").Replace("'", "").Replace(";", "").Trim();
 
         private static async Task<int> CountAsync(SqlConnection connection, string sql)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandTimeout = SqlCommandTimeoutSeconds;
             command.CommandText = sql;
             return Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -1333,7 +1303,8 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
 
             try
             {
-                var summary = JsonConvert.DeserializeObject<Rule22ValidationSummary>(json);
+                var decoded = ValidationPayloadCodec.Decode(json);
+                var summary = JsonConvert.DeserializeObject<Rule22ValidationSummary>(decoded);
                 return summary == null ? null : NormalizeSummary(summary);
             }
             catch
@@ -1371,6 +1342,13 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             };
 
             return summary;
+        }
+
+        private static void ApplyBrowserPreview(Rule22ValidationSummary summary)
+        {
+            summary.ReviewRows = summary.ReviewRows
+                .Take(BrowserPreviewRowLimit)
+                .ToList();
         }
 
         private static Rule22ControlSummaryItemViewModel BuildControlSummary(
@@ -1433,7 +1411,7 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
 
         private static async Task<int?> GetClientIdForRunAsync(SqlConnection connection, int runId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "SELECT TOP 1 ClientID FROM dbo.ValidationRuns WHERE RunID = @RunID;";
             command.Parameters.AddWithValue("@RunID", runId);
             var value = await command.ExecuteScalarAsync();

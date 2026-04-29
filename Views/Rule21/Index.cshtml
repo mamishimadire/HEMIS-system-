@@ -381,12 +381,14 @@
     }
 
     async function postJson(url, data) {
-        const response = await fetch(url, {
+        return await window.fetchJsonWithProgress(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
             body: JSON.stringify(data)
         });
-        return await response.json();
     }
 
     async function fetchWorkspace() {
@@ -397,8 +399,7 @@
 
         const requestVersion = ++state.workspaceRequestVersion;
         const mutationVersionAtStart = state.uiMutationVersion;
-        const response = await fetch(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`);
-        const data = await response.json();
+        const data = await window.fetchJsonWithProgress(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`, { method: 'GET' });
         if (requestVersion !== state.workspaceRequestVersion || mutationVersionAtStart !== state.uiMutationVersion) {
             return;
         }
@@ -473,7 +474,7 @@
             els.downloadAllBtn.disabled = false;
             setWorkspaceInfo('success', 'Saved workspace loaded. The last analyst configuration and results are ready.');
         } else if (workspace.summary && !resultsVisible) {
-            setWorkspaceInfo('warning', 'A saved workspace exists, but results remain hidden until the assigned data analyst signs off.');
+            setWorkspaceInfo('warning', 'A saved workspace exists. The analyst signoff is still pending, but the saved results remain visible to assigned users.');
         }
 
         updateWorkspaceButtons();
@@ -499,39 +500,28 @@
         const canSign = !!state.currentRunId &&
             (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
         const signoffLocked = !!state.currentUserHasSignedOff;
-        const rootShell = document.getElementById('app');
-        const connectBtn = document.getElementById('connectBtn');
-        const verifyBtn = document.getElementById('verifyBtn');
-        const verifyBtnBar = document.getElementById('verifyBtnBar');
-        const loadValuesBtn = document.getElementById('loadValuesBtn');
-        const runBtn = document.getElementById('runBtn');
-        const sqlBtn = document.getElementById('sqlBtn');
-
-        if (rootShell) {
-            rootShell.classList.toggle('module-readonly', !canEdit);
-        }
-
-        if (connectBtn) connectBtn.disabled = !canEdit;
-        if (verifyBtn) verifyBtn.disabled = !canEdit;
-        if (verifyBtnBar) verifyBtnBar.disabled = !canEdit;
-        if (loadValuesBtn) loadValuesBtn.disabled = !canEdit;
-        if (runBtn) runBtn.disabled = !canEdit;
-        if (sqlBtn) sqlBtn.disabled = !canEdit;
-
-        if (els.beginEditBtn) els.beginEditBtn.disabled = signoffLocked || !canEdit || !state.currentRunId;
-        if (els.saveWorkspaceBtn) els.saveWorkspaceBtn.disabled = !canEdit || !state.currentRunId || !state.summary;
-        if (els.signoffBtn) {
-            els.signoffBtn.disabled = signoffLocked || !canSign;
-            els.signoffBtn.textContent = state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff';
-        }
-        if (els.removeSignoffBtn) {
-            els.removeSignoffBtn.style.display = state.currentUserHasSignedOff ? '' : 'none';
-            els.removeSignoffBtn.disabled = !state.currentUserHasSignedOff;
-        }
-
-        if (els.workspaceSignoffComment) {
-            els.workspaceSignoffComment.disabled = signoffLocked || !canSign;
-        }
+        window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signoffLocked);
+        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signoffLocked);
+        window.ruleWorkspaceUi.applyStates([
+            { target: 'connectBtn', disabled: !canEdit || signoffLocked },
+            { target: 'verifyBtn', disabled: !canEdit || signoffLocked },
+            { target: 'verifyBtnBar', disabled: !canEdit || signoffLocked },
+            { target: 'loadValuesBtn', disabled: !canEdit || signoffLocked },
+            { target: 'runBtn', disabled: !canEdit || signoffLocked },
+            { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
+            { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId },
+            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || !state.summary },
+            {
+                target: els.signoffBtn,
+                disabled: signoffLocked || !canSign,
+                text: state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff'
+            },
+            { target: els.removeSignoffBtn, show: state.currentUserHasSignedOff, display: '', disabled: !state.currentUserHasSignedOff },
+            { target: els.workspaceSignoffComment, disabled: signoffLocked || !canSign }
+        ]);
+        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signoffLocked, {
+            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
+        });
     }
 
     function getRequest() {
@@ -728,6 +718,10 @@
             showSpinner('Running Rule 21 filtered validation...');
             state.uiMutationVersion++;
             const request = getRequest();
+            if (!request.clientId) {
+                setWorkspaceInfo('warning', 'Select the approved engagement assigned to you before running this rule.');
+                return;
+            }
             const data = await postJson(`${apiBasePath}/RunValidation`, request);
             if (!data.success) {
                 setAlert(els.results, 'danger', data.error || 'Filter run failed.');
@@ -886,7 +880,7 @@
         const previewRows = allRows.length ? allRows : [];
         const headers = collectPreviewHeaders(previewRows);
         const headHtml = headers.map(header => `<th>${escapeHtml(header)}</th>`).join('');
-        const visibleRows = previewRows.slice(0, 25);
+        const visibleRows = previewRows.slice(0, 10);
         const bodyHtml = visibleRows.map(row => {
             const rowResult = String((row.displayValues || {}).Validation_Result || '').toUpperCase();
             const cells = headers.map(header => {
@@ -1020,21 +1014,17 @@
     }
 
     async function downloadBlob(url, payload, defaultName) {
-        const response = await fetch(url, {
+        await window.downloadFileWithProgress({
+            url,
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
-            body: JSON.stringify(payload)
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(payload),
+            defaultFileName: defaultName,
+            label: 'Downloading result'
         });
-
-        const blob = await response.blob();
-        const href = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = href;
-        a.download = defaultName;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(href);
     }
 
     function escapeHtml(value) {

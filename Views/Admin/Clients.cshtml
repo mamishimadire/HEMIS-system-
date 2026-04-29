@@ -11,6 +11,23 @@
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
 }
 
+@if (TempData["Success"] != null)
+{
+    <script>
+        window.addEventListener('load', function () {
+            window.showAppToast(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["Success"]?.ToString() ?? "")), 'success');
+        }, { once: true });
+    </script>
+}
+@if (TempData["Error"] != null)
+{
+    <script>
+        window.addEventListener('load', function () {
+            window.showAppToast(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["Error"]?.ToString() ?? "")), 'error');
+        }, { once: true });
+    </script>
+}
+
 <div class="page-header">
     <div>
         <h1>Engagements</h1>

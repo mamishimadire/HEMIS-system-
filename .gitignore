@@ -5,6 +5,9 @@ artifacts/
 .run/
 .run-system-build/
 build_verify*/
+.codex-build-rule20/
+bin_verify/
+obj_verify/
 
 *.log
 *.pid

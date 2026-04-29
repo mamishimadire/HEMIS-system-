@@ -240,6 +240,7 @@
     const currentSystemRole = '@currentSystemRole';
     const apiBasePath = '/Rule25';
     const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
+    const uiPreviewRowLimit = 10;
     const state = {
         clientId: @(selectedClientId > 0 ? selectedClientId : 0),
         currentRunId: null,
@@ -255,7 +256,7 @@
             resultFilter: 'ALL',
             issueFilter: 'ALL',
             page: 1,
-            pageSize: 100
+            pageSize: uiPreviewRowLimit
         },
         chartInstances: {}
     };
@@ -304,48 +305,29 @@
         return String(value || '').trim().toLowerCase();
     }
 
-    function postJson(url, body) {
-        return fetch(url, {
+    async function postJson(url, body) {
+        return await window.fetchJsonWithProgress(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'RequestVerificationToken': token
             },
             body: JSON.stringify(body || {})
-        }).then(async response => {
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || 'Request failed.');
-            }
-            return data;
         });
     }
 
     async function downloadBlob(url, body, fileName) {
-        const response = await fetch(url, {
+        await window.downloadFileWithProgress({
+            url,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'RequestVerificationToken': token
             },
-            body: JSON.stringify(body || {})
+            body: JSON.stringify(body || {}),
+            defaultFileName: fileName,
+            label: 'Downloading result'
         });
-
-        if (!response.ok) {
-            let payload = {};
-            try { payload = await response.json(); } catch {}
-            throw new Error(payload.error || 'Download failed.');
-        }
-
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = objectUrl;
-        anchor.download = fileName;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(objectUrl);
     }
 
     function showSpinner(message) {
@@ -406,7 +388,7 @@
             resultFilter: 'ALL',
             issueFilter: 'ALL',
             page: 1,
-            pageSize: 100
+            pageSize: uiPreviewRowLimit
         };
     }
 
@@ -446,7 +428,8 @@
     }
 
     function renderRule25Pager(totalRows, pageRows) {
-        const pageSize = state.detailView.pageSize || 100;
+        state.detailView.pageSize = uiPreviewRowLimit;
+        const pageSize = uiPreviewRowLimit;
         const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
         const currentPage = Math.min(Math.max(state.detailView.page || 1, 1), totalPages);
         state.detailView.page = currentPage;
@@ -528,22 +511,20 @@
         const combinedRows = getCombinedRows(summary);
         const filteredRows = filterRule25Rows(combinedRows);
         const pager = renderRule25Pager(filteredRows.length, []);
-        const pageRows = filteredRows.slice(pager.startIndex, pager.startIndex + state.detailView.pageSize);
+        const pageRows = filteredRows.slice(pager.startIndex, pager.startIndex + uiPreviewRowLimit);
         const pageInfo = renderRule25Pager(filteredRows.length, pageRows);
         const availableIssueFilters = ['ALL', ...new Set((summary.failRows || []).map(row => row.reconciliationStatus).filter(Boolean))];
         const passSampleCount = Number(summary.passSampleRows?.length || 0);
         const failCount = Number(summary.failRows?.length || 0);
 
-        let detailMessage = `Showing ${filteredRows.length.toLocaleString()} row(s) after filter.`;
+        let detailMessage = `Showing up to ${uiPreviewRowLimit} preview row(s) on the UI after filter. Download the results for the full population.`;
         if (state.detailView.resultFilter === 'PASS') {
-            detailMessage = `Showing the saved pass sample of ${passSampleCount.toLocaleString()} row(s)` +
+            detailMessage = `Showing up to ${uiPreviewRowLimit} saved pass sample preview row(s) on the UI` +
                 `${summary.passSampleTruncated ? ` out of ${Number(summary.matches || 0).toLocaleString()} total passes.` : '.'}`;
         } else if (state.detailView.resultFilter === 'FAIL') {
-            detailMessage = failCount > 200
-                ? `Showing fail exceptions with paging. ${failCount.toLocaleString()} fail row(s) were saved for this run.`
-                : `Showing all ${failCount.toLocaleString()} fail row(s) saved for this run.`;
+            detailMessage = `Showing up to ${uiPreviewRowLimit} fail exception preview row(s) on the UI. ${failCount.toLocaleString()} fail row(s) were saved for this run.`;
         } else {
-            detailMessage = `Showing all saved fail exceptions plus the saved pass sample. Pass rows are a sample only; fail rows are the saved exceptions.`;
+            detailMessage = `Showing up to ${uiPreviewRowLimit} preview row(s) on the UI from the saved fail exceptions and pass sample. Download the results for the full population.`;
         }
 
         detailsPane.innerHTML = `
@@ -885,7 +866,7 @@
     async function runValidation() {
         const request = getRequest();
         if (!request.clientId) {
-            setWorkspaceInfo('warning', 'Select an engagement before running Rule 25.');
+            setWorkspaceInfo('warning', 'Select the approved engagement assigned to you before running this rule.');
             return;
         }
 
@@ -977,23 +958,27 @@
             !state.workspaceIsHistorical &&
             (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
         const locked = !!state.currentUserHasSignedOff;
-
-        [els.connectBtn, document.getElementById('verifyBtn'), document.getElementById('verifyBtnBar'), document.getElementById('runBtn'), document.getElementById('sqlBtn')]
-            .forEach(btn => {
-                if (btn) {
-                    btn.disabled = locked || !canEdit;
-                }
-            });
-
-        els.beginEditBtn.disabled = locked || !canEdit || !state.currentRunId;
-        els.saveWorkspaceBtn.disabled = locked || !canEdit || !state.currentRunId || !state.summary;
-        els.signoffBtn.disabled = locked || !canSign;
-        els.signoffBtn.textContent = state.currentUserHasSignedOff
-            ? `Signed Off as ${role || currentSystemRole}`
-            : 'Save Signoff';
-        els.removeSignoffBtn.style.display = state.currentUserHasSignedOff ? '' : 'none';
-        els.removeSignoffBtn.disabled = !state.currentUserHasSignedOff;
-        els.workspaceSignoffComment.disabled = locked || !canSign;
+        window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || locked);
+        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || locked);
+        window.ruleWorkspaceUi.applyStates([
+            { target: els.connectBtn, disabled: locked || !canEdit },
+            { target: 'verifyBtn', disabled: locked || !canEdit },
+            { target: 'verifyBtnBar', disabled: locked || !canEdit },
+            { target: 'runBtn', disabled: locked || !canEdit },
+            { target: 'sqlBtn', disabled: locked || !canEdit },
+            { target: els.beginEditBtn, disabled: locked || !canEdit || !state.currentRunId },
+            { target: els.saveWorkspaceBtn, disabled: locked || !canEdit || !state.currentRunId || !state.summary },
+            {
+                target: els.signoffBtn,
+                disabled: locked || !canSign,
+                text: state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff'
+            },
+            { target: els.removeSignoffBtn, show: state.currentUserHasSignedOff, display: '', disabled: !state.currentUserHasSignedOff },
+            { target: els.workspaceSignoffComment, disabled: locked || !canSign }
+        ]);
+        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], locked, {
+            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
+        });
     }
 
     async function beginWorkspaceEdit() {
@@ -1126,9 +1111,8 @@
         }
 
         try {
-            const response = await fetch(`${apiBasePath}/GetWorkspaceState?clientId=${encodeURIComponent(state.clientId)}`);
-            const data = await response.json();
-            if (!response.ok || !data.success) {
+            const data = await window.fetchJsonWithProgress(`${apiBasePath}/GetWorkspaceState?clientId=${encodeURIComponent(state.clientId)}`, { method: 'GET' });
+            if (!data.success) {
                 setWorkspaceInfo('danger', data.error || 'Could not load the saved workspace.');
                 renderResults(null);
                 return;
@@ -1172,7 +1156,7 @@
             } else {
                 state.summary = null;
                 renderResults(null);
-                setWorkspaceInfo('info', 'This workspace is hidden until the assigned data analyst signs off the saved Rule 25 results.');
+                setWorkspaceInfo('info', 'The saved Rule 25 workspace is loaded from SQL. Analyst signoff is still pending, but the saved results remain visible to assigned users.');
             }
         } catch (error) {
             setWorkspaceInfo('danger', error.message || 'Could not load the saved workspace.');

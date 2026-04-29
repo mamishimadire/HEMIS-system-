@@ -266,6 +266,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 const currentSystemRole = '@(ViewBag.CurrentSystemRole ?? "")';
+const uiPreviewRowLimit = 10;
 const state = {
     server: '',
     database: '',
@@ -277,7 +278,7 @@ const state = {
     clientId: parseInt(document.getElementById('clientIdSelect')?.value || '0') || 0,
     currentRunId: null,
     validationResult: null,
-    validationView: { filter: 'ALL', page: 1, pageSize: 100 },
+    validationView: { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit },
     currentUserEngagementRole: '',
     currentStatus: '',
     currentUserHasSignedOff: false,
@@ -362,36 +363,26 @@ function updateHeaderBadge(status) {
 }
 
 async function post(url, data) {
-    const response = await fetch(url, {
+    return await window.fetchJsonWithProgress(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     });
-
-    return response.json();
 }
 
 async function getJson(url) {
-    const response = await fetch(url, { method: 'GET' });
-    return response.json();
+    return await window.fetchJsonWithProgress(url, { method: 'GET' });
 }
 
 async function downloadPost(url, data, filename) {
-    const r = await fetch(url, {
+    await window.downloadFileWithProgress({
+        url,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
+        defaultFileName: filename,
+        label: 'Downloading result'
     });
-    if (!r.ok) {
-        alert('Download failed');
-        return;
-    }
-
-    const blob = await r.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
 }
 
 async function markWorkspaceDirty() {
@@ -467,7 +458,7 @@ function resetWorkspaceState(clearClient = false) {
     state.deceasedColumn = '';
     state.currentRunId = null;
     state.validationResult = null;
-    state.validationView = { filter: 'ALL', page: 1, pageSize: 100 };
+    state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
     state.currentUserEngagementRole = '';
     state.currentStatus = '';
     state.currentUserHasSignedOff = false;
@@ -540,55 +531,51 @@ function renderWorkspaceState() {
     const signoffComment = document.getElementById('signoffComment');
     const signoffLabel = document.getElementById('workspaceSignoffLabel');
     const actionBar = document.querySelector('.action-bar');
-    const rootShell = document.getElementById('app');
+    const signedOffLock = !!state.currentUserHasSignedOff;
+    window.ruleWorkspaceUi.setReadonlyShell('app', !canEditWorkspace || signedOffLock);
+    window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEditWorkspace || signedOffLock);
+    window.ruleWorkspaceUi.applyStates([
+        { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateSqlBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
+        { target: signoffComment, disabled: archived || !canSignWorkspace || signedOffLock }
+    ]);
+    window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
+        allow: ['#downloadAllBtn', '#removeWorkspaceSignoffBtn']
+    });
 
-    if (rootShell) {
-        rootShell.classList.toggle('module-readonly', !canEditWorkspace);
-    }
-
-    if (runValidationBtn) {
-        runValidationBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-        runValidationBtn.disabled = !canEditWorkspace;
-    }
-
-    if (generateSqlBtn) {
-        generateSqlBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-        generateSqlBtn.disabled = !canEditWorkspace;
-    }
-
-    if (saveWorkspaceBtn) {
-        saveWorkspaceBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-        saveWorkspaceBtn.disabled = !canEditWorkspace || !state.currentRunId;
-    }
-
-    if (signOffBtn) {
-        if (showDisabledArchivedSignoff) {
-            signOffBtn.style.display = 'inline-flex';
-            signOffBtn.disabled = true;
-            signOffBtn.textContent = `Sign Off as ${role || 'Reviewer'}`;
-            signOffBtn.title = 'Archived engagements are read-only. Signoff is disabled.';
-        } else {
-            signOffBtn.style.display = canSignWorkspace ? 'inline-flex' : 'none';
-            signOffBtn.disabled = !canSignWorkspace || state.isDirty;
-            signOffBtn.textContent = `Sign Off as ${role || 'Reviewer'}`;
-            signOffBtn.title = '';
-        }
-    }
-
-    if (removeWorkspaceSignoffBtn) {
-        if (showDisabledArchivedSignoff && state.currentUserHasSignedOff) {
-            removeWorkspaceSignoffBtn.style.display = 'inline-flex';
-            removeWorkspaceSignoffBtn.disabled = true;
-            removeWorkspaceSignoffBtn.title = 'Archived engagements are read-only. Signoff removal is disabled.';
-        } else {
-            removeWorkspaceSignoffBtn.style.display = canRemoveWorkspaceSignoff ? 'inline-flex' : 'none';
-            removeWorkspaceSignoffBtn.disabled = !canRemoveWorkspaceSignoff;
-            removeWorkspaceSignoffBtn.title = '';
-        }
-    }
-
-    if (signoffComment) {
-        signoffComment.disabled = archived || !canSignWorkspace;
+    if (showDisabledArchivedSignoff) {
+        window.ruleWorkspaceUi.applyStates([
+            {
+                target: signOffBtn,
+                show: true,
+                disabled: true,
+                text: `Sign Off as ${role || 'Reviewer'}`,
+                title: 'Archived engagements are read-only. Signoff is disabled.'
+            },
+            {
+                target: removeWorkspaceSignoffBtn,
+                show: !!state.currentUserHasSignedOff,
+                disabled: true,
+                title: 'Archived engagements are read-only. Signoff removal is disabled.'
+            }
+        ]);
+    } else {
+        window.ruleWorkspaceUi.applyStates([
+            {
+                target: signOffBtn,
+                show: canSignWorkspace,
+                disabled: !canSignWorkspace || state.isDirty || signedOffLock,
+                text: `Sign Off as ${role || 'Reviewer'}`,
+                title: ''
+            },
+            {
+                target: removeWorkspaceSignoffBtn,
+                show: canRemoveWorkspaceSignoff,
+                disabled: !canRemoveWorkspaceSignoff,
+                title: ''
+            }
+        ]);
     }
 
     if (signoffLabel) {
@@ -653,7 +640,7 @@ function renderWorkspaceState() {
     setWorkspaceRunState(`Run #${state.currentRunId} saved`, 'info');
     setWorkspaceInfo(
         canEditWorkspace
-            ? `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL. The analyst signoff is still outstanding, so other users will not see this run yet.`
+            ? `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL. The analyst signoff is still outstanding, but the saved results remain visible to assigned users.`
             : `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL and is awaiting analyst signoff.`,
         'info'
     );
@@ -711,6 +698,7 @@ async function loadWorkspaceState() {
 
 async function hydrateWorkspace(workspace) {
     state.isHydrating = true;
+    let reconnectWarning = '';
 
     try {
         state.currentRunId = workspace.runId || null;
@@ -728,40 +716,50 @@ async function hydrateWorkspace(workspace) {
         state.server = workspace.server || '';
         state.driver = workspace.driver || 'ODBC Driver 17 for SQL Server';
 
-        if (!state.resultsVisible) {
-            renderWorkspaceState();
-            return;
-        }
-
-        if (workspace.server) {
-            await connectServer({
-                preferredDatabase: workspace.database || '',
-                silent: true,
-                statusMessage: workspace.database
-                    ? `Connected to <strong>${workspace.database}</strong>. Restored from saved run #${workspace.runId}.`
-                    : 'Connected using the saved Rule 36 workspace.'
-            });
-        }
-
-        if (workspace.database) {
-            await loadTables({
-                preferredStudTable: workspace.studTable || '',
-                preferredDeceasedTable: workspace.deceasedTable || '',
-                preferredStudColumn: workspace.studColumn || '',
-                preferredDeceasedColumn: workspace.deceasedColumn || '',
-                silent: true
-            });
-        }
-
         if (workspace.summary) {
-            applyValidationResult(workspace.summary, { switchToValidation: false, fromWorkspace: true });
+            if (state.resultsVisible) {
+                // Always paint the saved SQL results first so a live reconnect failure does not erase them.
+                applyValidationResult(workspace.summary, { switchToValidation: false, fromWorkspace: true });
+            } else {
+                updateHeaderBadge(workspace.summary.status || workspace.currentStatus || '');
+            }
         } else {
             updateHeaderBadge(workspace.currentStatus || '');
+        }
+
+        try {
+            if (workspace.server) {
+                await connectServer({
+                    preferredDatabase: workspace.database || '',
+                    silent: true,
+                    statusMessage: workspace.database
+                        ? `Connected to <strong>${workspace.database}</strong>. Restored from saved run #${workspace.runId}.`
+                        : 'Connected using the saved Rule 36 workspace.'
+                });
+            }
+
+            if (workspace.database) {
+                await loadTables({
+                    preferredStudTable: workspace.studTable || '',
+                    preferredDeceasedTable: workspace.deceasedTable || '',
+                    preferredStudColumn: workspace.studColumn || '',
+                    preferredDeceasedColumn: workspace.deceasedColumn || '',
+                    silent: true
+                });
+            }
+        } catch (error) {
+            reconnectWarning = state.resultsVisible
+                ? 'Saved workspace results are still loaded from SQL, but the live source could not be reconnected. The restored results remain on screen.'
+                : 'The saved workspace was found in SQL, but the live source could not be reconnected.';
+            setStatus('connectionStatus', `Warning: ${escapeHtml(error?.message || 'Live SQL reconnect failed.')}`, 'warning');
         }
     } finally {
         state.isHydrating = false;
         state.isDirty = false;
         renderWorkspaceState();
+        if (reconnectWarning) {
+            setWorkspaceInfo(reconnectWarning, 'warning');
+        }
     }
 }
 
@@ -1040,7 +1038,7 @@ async function runValidation(options = {}) {
 
 function applyValidationResult(result, options = {}) {
     state.validationResult = result;
-    state.validationView = { filter: 'ALL', page: 1, pageSize: 100 };
+    state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
     state.currentRunId = result.savedRunId || state.currentRunId;
     state.currentUserHasSignedOff = options.fromWorkspace ? !!state.currentUserHasSignedOff : false;
     state.hasDataAnalystSignoff = options.fromWorkspace ? !!state.hasDataAnalystSignoff : false;
@@ -1075,14 +1073,15 @@ function renderSectionHeader(title, subtitle, meta = '') {
 
 function renderValidationResults(r) {
     if (!state.validationView) {
-        state.validationView = { filter: 'ALL', page: 1, pageSize: 100 };
+        state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
     }
 
     const rate = parseFloat(r.exceptionRate);
     const rateColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
     const allRows = r.validationRows || [];
     const filteredRows = filterValidationRows(allRows, state.validationView.filter);
-    const pageSize = state.validationView.pageSize || 100;
+    state.validationView.pageSize = uiPreviewRowLimit;
+    const pageSize = uiPreviewRowLimit;
     const totalRows = filteredRows.length;
     const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
     const currentPage = Math.min(Math.max(state.validationView.page || 1, 1), totalPages);
@@ -1195,7 +1194,7 @@ function renderExceptions(r) {
         return;
     }
 
-    const rows = r.exceptions.map((ex, i) => `
+    const rows = (r.exceptions || []).slice(0, 10).map((ex, i) => `
         <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
             <td>${ex.validationNumber}</td>
             <td><strong>${ex.studentId}</strong></td>
@@ -1374,7 +1373,7 @@ function filterValidationRows(rows, filter) {
 }
 
 function setValidationFilter(filter) {
-    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: 100 };
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
     state.validationView.filter = filter;
     state.validationView.page = 1;
     if (state.validationResult) {
@@ -1384,7 +1383,7 @@ function setValidationFilter(filter) {
 
 function setValidationPage(delta) {
     if (!state.validationResult) return;
-    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: 100 };
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
     state.validationView.page = Math.max(1, (state.validationView.page || 1) + delta);
     renderValidationResults(state.validationResult);
 }
@@ -1409,6 +1408,9 @@ function validateConfig() {
     if (!state.deceasedColumn) missing.push('deceased column');
 
     if (missing.length) {
+        if (!state.clientId) {
+            setWorkspaceInfo('Select the approved engagement assigned to you before running this rule.', 'warning');
+        }
         setStatus('validationContent', `Please select ${missing.join(', ')} first.`, 'warning');
         switchTab('validation');
         return false;
@@ -1467,10 +1469,10 @@ async function downloadAll() {
     if (!state.validationResult) { alert('Run validation first.'); return; }
 
     const tasks = [];
-    if (document.getElementById('chkExcel')?.checked) tasks.push(downloadExcel());
-    if (document.getElementById('chkCsv')?.checked) tasks.push(downloadCsv());
-    if (document.getElementById('chkExceptionsCsv')?.checked) tasks.push(downloadExceptionsCsv());
-    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql')?.checked) tasks.push(downloadSql());
+    if (document.getElementById('chkExcel')?.checked) tasks.push(() => downloadExcel());
+    if (document.getElementById('chkCsv')?.checked) tasks.push(() => downloadCsv());
+    if (document.getElementById('chkExceptionsCsv')?.checked) tasks.push(() => downloadExceptionsCsv());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql')?.checked) tasks.push(() => downloadSql());
 
     if (!tasks.length) {
         alert('Select at least one download format.');
@@ -1478,7 +1480,7 @@ async function downloadAll() {
     }
 
     for (const task of tasks) {
-        await task;
+        await task();
     }
 }
 

@@ -437,8 +437,11 @@
 
     async function getJson(url) {
         try {
-            const response = await fetch(url, { cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            return await parseJsonResponse(response, 'Unable to load data from the server.');
+            return await window.fetchJsonWithProgress(url, {
+                method: 'GET',
+                cache: 'no-store',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
         } catch (error) {
             throw new Error(toFriendlyRequestError(error, 'Unable to load data from the server.'));
         }
@@ -446,7 +449,7 @@
 
     async function post(url, body) {
         try {
-            const response = await fetch(url, {
+            return await window.fetchJsonWithProgress(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -454,34 +457,23 @@
                 },
                 body: JSON.stringify(body)
             });
-            return await parseJsonResponse(response, 'The server could not process the request.');
         } catch (error) {
             throw new Error(toFriendlyRequestError(error, 'The server could not process the request.'));
         }
     }
 
     async function downloadPost(url, body, fileName) {
-        const response = await fetch(url, {
+        await window.downloadFileWithProgress({
+            url,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'RequestVerificationToken': token
             },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            defaultFileName: fileName,
+            label: 'Downloading result'
         });
-
-        if (!response.ok) {
-            const text = await response.text();
-            throw new Error(text || 'Download failed.');
-        }
-
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = fileName;
-        link.click();
-        URL.revokeObjectURL(objectUrl);
     }
 
     function normalizeSmartFilterValue(value) {
@@ -590,7 +582,7 @@
 
         const headers = unionDisplayHeaders(rows);
         const headHtml = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
-        const bodyHtml = rows.slice(0, 200).map(function (row) {
+        const bodyHtml = rows.slice(0, 10).map(function (row) {
             return `<tr>
                 ${headers.map(function (header) {
                     let value = '';
@@ -915,60 +907,28 @@
                 (state.resultsVisible && (role === 'Manager' || role === 'Director'))
             );
         const canRemoveWorkspaceSignoff = !!canSignWorkspace && state.currentUserHasSignedOff;
-        const rootShell = document.getElementById('app');
-        const runBtn = document.getElementById('runBtn');
-        const sqlBtn = document.getElementById('sqlBtn');
-        const beginEditBtn = document.getElementById('beginEditBtn');
-        const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
-        const signoffBtn = document.getElementById('signoffBtn');
-        const removeSignoffBtn = document.getElementById('removeSignoffBtn');
-        const connectBtn = document.getElementById('connectBtn');
-        const verifyBtn = document.getElementById('verifyBtn');
-        const verifyBtnBar = document.getElementById('verifyBtnBar');
-        const refreshFilterBtn = document.getElementById('refreshFilterBtn');
-
-        if (rootShell) {
-            rootShell.classList.toggle('module-readonly', !canEditWorkspace || signedOffLock);
-        }
-
-        if (runBtn) {
-            runBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-            runBtn.disabled = !canEditWorkspace || signedOffLock;
-        }
-
-        if (sqlBtn) {
-            sqlBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-            sqlBtn.disabled = !canEditWorkspace || signedOffLock;
-        }
-
-        if (beginEditBtn) {
-            beginEditBtn.style.display = canEditWorkspace && state.currentRunId ? 'inline-flex' : 'none';
-            beginEditBtn.disabled = !canEditWorkspace || !state.currentRunId || state.isDirty || signedOffLock;
-        }
-
-        if (saveWorkspaceBtn) {
-            saveWorkspaceBtn.style.display = canEditWorkspace ? 'inline-flex' : 'none';
-            saveWorkspaceBtn.disabled = !canEditWorkspace || !state.currentRunId || signedOffLock;
-        }
-
-        if (signoffBtn) {
-            signoffBtn.style.display = canSignWorkspace ? 'inline-flex' : 'none';
-            signoffBtn.disabled = !canSignWorkspace || state.isDirty || signedOffLock;
-        }
-
-        if (removeSignoffBtn) {
-            removeSignoffBtn.style.display = canRemoveWorkspaceSignoff ? 'inline-flex' : 'none';
-            removeSignoffBtn.disabled = !canRemoveWorkspaceSignoff;
-        }
-
-        if (connectBtn) connectBtn.disabled = !canEditWorkspace || signedOffLock;
-        if (verifyBtn) verifyBtn.disabled = !canEditWorkspace || signedOffLock;
-        if (verifyBtnBar) verifyBtnBar.disabled = !canEditWorkspace || signedOffLock;
-        if (refreshFilterBtn) refreshFilterBtn.disabled = !canEditWorkspace || signedOffLock;
-
-        if (els.workspaceSignoffComment) {
-            els.workspaceSignoffComment.disabled = archived || !canSignWorkspace || signedOffLock;
-        }
+        window.ruleWorkspaceUi.setReadonlyShell('app', !canEditWorkspace || signedOffLock);
+        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEditWorkspace || signedOffLock);
+        window.ruleWorkspaceUi.applyStates([
+            { target: 'runBtn', show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+            { target: 'sqlBtn', show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+            {
+                target: 'beginEditBtn',
+                show: canEditWorkspace && state.currentRunId,
+                disabled: !canEditWorkspace || !state.currentRunId || state.isDirty || signedOffLock
+            },
+            { target: 'saveWorkspaceBtn', show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
+            { target: 'signoffBtn', show: canSignWorkspace, disabled: !canSignWorkspace || state.isDirty || signedOffLock },
+            { target: 'removeSignoffBtn', show: canRemoveWorkspaceSignoff, disabled: !canRemoveWorkspaceSignoff },
+            { target: 'connectBtn', disabled: !canEditWorkspace || signedOffLock },
+            { target: 'verifyBtn', disabled: !canEditWorkspace || signedOffLock },
+            { target: 'verifyBtnBar', disabled: !canEditWorkspace || signedOffLock },
+            { target: 'refreshFilterBtn', disabled: !canEditWorkspace || signedOffLock },
+            { target: els.workspaceSignoffComment, disabled: archived || !canSignWorkspace || signedOffLock }
+        ]);
+        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
+            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadRemainingBtn', '#downloadSqlBtn', '#removeSignoffBtn']
+        });
 
         if (!state.currentRunId) {
             setWorkspaceRunState('No saved run loaded', 'neutral');
@@ -1245,6 +1205,10 @@
     async function runValidation() {
         if (currentSystemRole !== 'DataAnalyst') {
             setInfo(`Only the assigned data analyst can run Rule ${ruleNumber}.`, 'error');
+            return;
+        }
+        if (!state.clientId) {
+            setInfo('Select the approved engagement assigned to you before running this rule.', 'warning');
             return;
         }
 

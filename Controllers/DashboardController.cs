@@ -50,11 +50,11 @@ namespace HemisAudit.Controllers
             if (!isAdmin && !isDataAnalyst)
             {
                 recentRuns = recentRuns
-                    .Where(run => ValidationRunAccessPolicy.CanViewSignedResults(role, role, run.HasDataAnalystSignoff))
+                    .Where(run => run.HasDataAnalystSignoff)
                     .ToList();
 
                 currentRuns = currentRuns
-                    .Where(run => ValidationRunAccessPolicy.CanViewSignedResults(role, role, run.HasDataAnalystSignoff))
+                    .Where(run => run.HasDataAnalystSignoff)
                     .ToList();
             }
             var latestRuleRuns = recentRuns

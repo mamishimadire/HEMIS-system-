@@ -79,7 +79,7 @@
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
-        The assigned data analyst must sign off before managers, directors, and trainees can download this run.
+        The data analyst signoff is still outstanding. Assigned users can still review and download this run.
     </div>
 }
 
@@ -233,7 +233,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var item in Model.Summary.Exceptions.Take(200))
+                            @foreach (var item in Model.Summary.Exceptions.Take(10))
                             {
                                 <tr>
                                     <td>@item.ValidationNumber</td>
@@ -270,7 +270,7 @@
                         </select>
                     </div>
                     <div class="filter-toolbar__meta">
-                        <span id="rule36FilterCount">@Model.Summary.ValidationRows.Take(100).Count()</span> visible row(s)
+                        <span id="rule36FilterCount">@Model.Summary.ValidationRows.Take(10).Count()</span> visible row(s)
                     </div>
                 </div>
                 <div style="overflow:auto">
@@ -288,7 +288,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var item in Model.Summary.ValidationRows.Take(100))
+                            @foreach (var item in Model.Summary.ValidationRows.Take(10))
                             {
                                 <tr data-filter-result="@item.ValidationResult">
                                     <td>@item.ValidationNumber</td>

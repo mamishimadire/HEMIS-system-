@@ -7,7 +7,7 @@
     var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool openWorkspace && openWorkspace;
     var isArchived = ViewBag.IsArchived is bool archived && archived;
     var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
-    var displayedFailRows = Model.Summary.FailRows.Take(250).ToList();
+    var displayedFailRows = Model.Summary.FailRows.Take(10).ToList();
     var missingInH16Count = Model.Summary.IssueCounts.FirstOrDefault(item => item.Status == "MISSING_IN_H16")?.Count ?? 0;
     var missingInAuditCount = Model.Summary.IssueCounts.FirstOrDefault(item => item.Status == "MISSING_IN_AUDIT")?.Count ?? 0;
     var control1FailureCount = missingInH16Count + missingInAuditCount;
@@ -67,7 +67,7 @@
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
-        The assigned data analyst must sign off before managers, directors, and trainees can download this run.
+        The data analyst signoff is still outstanding. Assigned users can still review and download this run.
     </div>
 }
 
@@ -379,7 +379,7 @@
         else
         {
             <div class="alert alert--warning" style="margin:0">
-                The assigned data analyst must sign off before other assigned users can download this run.
+                Assigned users can download this run even while the data analyst signoff is still outstanding.
             </div>
         }
     </div>

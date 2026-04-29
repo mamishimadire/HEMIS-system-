@@ -6,6 +6,8 @@ namespace HemisAudit.Helpers
     {
         private static readonly ModuleSequenceItem[] Modules =
         {
+            new(19, "Rule 19", "Masters and PhD Population Validation"),
+            new(20, "Rule 20", "Foundation Validation"),
             new(21, "Rule 21", "First Time Entering Students Validation"),
             new(22, "Rule 22", "Staff Sampling (dbo_PROF)"),
             new(23, "Rule 23", "Reconcile Datasets"),
@@ -92,13 +94,12 @@ namespace HemisAudit.Helpers
             string systemRole,
             string currentEngagementRole)
         {
-            var canOpenAnyRun =
-                string.Equals(systemRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
-                ValidationRunAccessPolicy.CanAssignedUserDownload(currentEngagementRole);
-
             var candidateRun = validationRuns
                 .Where(run => run.RuleNumber == module.RuleNumber)
-                .Where(run => canOpenAnyRun || run.HasDataAnalystSignoff)
+                .Where(run => ValidationRunAccessPolicy.CanViewSignedResults(
+                    systemRole,
+                    currentEngagementRole,
+                    run.HasDataAnalystSignoff))
                 .OrderByDescending(run => run.IsCurrent)
                 .ThenByDescending(run => run.HasDataAnalystSignoff)
                 .ThenByDescending(run => run.RunAt)

@@ -9,18 +9,41 @@
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
     var isArchived = Model.IsArchived;
     var showModulesWorkspaceUi = ViewBag.ShowModulesWorkspaceUi is bool showModules && showModules;
-    var currentValidationRuns = Model.ValidationRuns.Where(run => run.IsCurrent).ToList();
-    var historicalValidationRuns = Model.ValidationRuns.Where(run => !run.IsCurrent).ToList();
+    var currentValidationRuns = Model.ValidationRuns
+        .Where(run => run.IsCurrent && run.HasDataAnalystSignoff)
+        .OrderBy(run => run.RuleNumber)
+        .ThenByDescending(run => run.RunAt)
+        .ToList();
+    var pendingAnalystSignoffRuns = Model.ValidationRuns
+        .Where(run => run.IsCurrent && !run.HasDataAnalystSignoff)
+        .OrderBy(run => run.RuleNumber)
+        .ThenByDescending(run => run.RunAt)
+        .ToList();
+    var historicalValidationRuns = Model.ValidationRuns
+        .Where(run => !run.IsCurrent)
+        .OrderByDescending(run => run.RunAt)
+        .ThenByDescending(run => run.Id)
+        .ToList();
 }
 
 @if (TempData["Success"] != null)
 {
     <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+    <script>
+        window.addEventListener('load', function () {
+            window.showAppToast(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["Success"]?.ToString() ?? "")), 'success');
+        }, { once: true });
+    </script>
 }
 
 @if (TempData["Error"] != null)
 {
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+    <script>
+        window.addEventListener('load', function () {
+            window.showAppToast(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["Error"]?.ToString() ?? "")), 'error');
+        }, { once: true });
+    </script>
 }
 
 <div class="page-header">
@@ -75,22 +98,28 @@
 
         @if (User.IsInRole("Director") && !isArchived)
         {
-            if (Model.CanArchive)
-            {
-                <form asp-action="ArchiveClient" method="post" style="display:inline">
-                    @Html.AntiForgeryToken()
-                    <input type="hidden" name="id" value="@Model.Id" />
-                    <input type="hidden" name="returnUrl" value="/Admin/ClientDetail/@Model.Id" />
-                    <button type="submit" class="btn btn-warning"
+            <form asp-action="ArchiveClient" method="post" style="display:inline">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.Id" />
+                <input type="hidden" name="returnUrl" value="/Admin/ClientDetail/@Model.Id" />
+                @if (Model.CanArchive)
+                {
+                    <button type="submit" class="btn btn-success"
                             onclick="return confirm('Archive this engagement? The workspace will close and only saved results will remain available.')">
                         Archive
                     </button>
-                </form>
-            }
-            else
-            {
-                <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Archive Locked</span>
-            }
+                }
+                else
+                {
+                    <button type="button"
+                            class="btn btn-secondary"
+                            disabled
+                            title="@Model.ArchiveEligibilityMessage"
+                            style="opacity:.55;filter:saturate(.2);cursor:not-allowed">
+                        Archive
+                    </button>
+                }
+            </form>
         }
 
         <a asp-action="Clients" class="btn btn-secondary">Back to Engagements</a>
@@ -141,7 +170,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
+            <span class="collapsible-trigger__meta">Rules 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -149,6 +178,24 @@
                 @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
                 {
                     <div class="module-card-grid">
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 19</div>
+                            <h4 class="module-card__title">Masters and PhD Population Validation</h4>
+                            <p class="module-card__text">Test 100% of the linked Masters and PhD student population through <code>dbo_STUD -> dbo_QUAL</code> using the fulfilled indicator and qualification type list.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule19?clientId=@Model.Id" class="btn btn-success">Open Rule 19</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 20</div>
+                            <h4 class="module-card__title">Foundation Validation</h4>
+                            <p class="module-card__text">Apply the Rule 20 foundation logic across all students, keep CRSE rows where _091 = 'Y', and let reviewers inspect the saved PASS or FAIL results.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule20?clientId=@Model.Id" class="btn btn-success">Open Rule 20</a>
+                            </div>
+                        </article>
+
                         <article class="module-card">
                             <div class="module-card__eyebrow">Rule 21</div>
                             <h4 class="module-card__title">First Time Entering Students Validation</h4>
@@ -395,7 +442,7 @@
         <div class="card">
             <div style="padding:18px 20px 0">
                 <h3 class="section-title" style="margin:0">Current Results (@currentValidationRuns.Count)</h3>
-                <p style="margin:6px 0 0;color:#64748b">These are the active runs currently in effect for each module.</p>
+                <p style="margin:6px 0 0;color:#64748b">These are the current module results that have been reviewed and signed off by the data analyst.</p>
             </div>
             @if (currentValidationRuns.Any())
             {
@@ -452,7 +499,68 @@
             }
             else
             {
-                <div style="padding:16px 20px;color:#757575">No current validation results are available.</div>
+                <div style="padding:16px 20px;color:#757575">No current analyst-signed validation results are available yet.</div>
+            }
+        </div>
+
+        <div class="card">
+            <div style="padding:18px 20px 0">
+                <h3 class="section-title" style="margin:0">Awaiting Analyst Signoff (@pendingAnalystSignoffRuns.Count)</h3>
+                <p style="margin:6px 0 0;color:#64748b">These current runs were executed or validated, but they are not counted in Current Results until the data analyst signs off.</p>
+            </div>
+            @if (pendingAnalystSignoffRuns.Any())
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Rule</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                            <th>Exceptions</th>
+                            <th>Rate</th>
+                            <th>Signoffs</th>
+                            <th>Run By</th>
+                            <th>Date</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in pendingAnalystSignoffRuns)
+                        {
+                            var runBadge = run.Status.Contains("Completed", StringComparison.OrdinalIgnoreCase) || run.Status == "Pass"
+                                ? "badge--pass"
+                                : run.Status == "Fail" || run.Status == "Needs Review"
+                                    ? "badge--fail"
+                                    : "badge--role";
+                            <tr>
+                                <td>@run.Id</td>
+                                <td>Rule @run.RuleNumber - @run.RuleName</td>
+                                <td><span class="badge @runBadge">@run.Status</span></td>
+                                <td>@run.TotalValidated.ToString("N0")</td>
+                                <td class="@(run.FailCount > 0 ? "text-danger" : "text-success")">@run.FailCount.ToString("N0")</td>
+                                <td>@run.ExceptionRate.ToString("F2")%</td>
+                                <td>
+                                    @run.SignoffCount
+                                    <br />
+                                    <small style="color:#b45309">Analyst signoff pending</small>
+                                </td>
+                                <td>@run.RunByUserName</td>
+                                <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
+                                       asp-action="Index"
+                                       asp-route-clientId="@Model.Id"
+                                       class="btn btn-sm btn-secondary">Open Results</a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="padding:16px 20px;color:#757575">No current runs are waiting for data analyst signoff.</div>
             }
         </div>
 

@@ -98,7 +98,7 @@
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
-        The assigned data analyst must sign off before managers, directors, and trainees can download this run.
+        The data analyst signoff is still outstanding. Assigned users can still review and download this run.
     </div>
 }
 
@@ -337,7 +337,7 @@
         else
         {
             <div class="alert alert--warning" style="margin:0">
-                The assigned data analyst must sign off before other assigned users can download this run.
+                Assigned users can download this run even while the data analyst signoff is still outstanding.
             </div>
         }
     </div>
@@ -376,7 +376,7 @@
             const filteredRows = reviewRows.filter(row =>
                 (resultValue === 'ALL' || row.validationResult === resultValue) &&
                 (controlValue === 'ALL' || row.controlType === controlValue));
-            const visibleRows = filteredRows.slice(0, 250);
+            const visibleRows = filteredRows.slice(0, 10);
             const previewNote = filteredRows.length > visibleRows.length
                 ? ` Showing the first ${visibleRows.length.toLocaleString()} row(s) in the browser.`
                 : '';

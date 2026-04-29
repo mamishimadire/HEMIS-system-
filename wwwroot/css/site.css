@@ -250,6 +250,184 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
     max-width: min(380px, calc(100vw - 24px));
 }
 
+.app-download-region {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 24px;
+    pointer-events: none;
+}
+
+.app-download-region:not(:empty) {
+    background: rgba(15, 23, 42, 0.22);
+    backdrop-filter: blur(4px);
+}
+
+.app-download-card {
+    --progress-angle: 0deg;
+    pointer-events: auto;
+    width: min(460px, calc(100vw - 32px));
+    padding: 20px 22px;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.98);
+    color: var(--text);
+    box-shadow: 0 28px 64px rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(2, 119, 189, 0.18);
+    transition: opacity .18s ease, transform .18s ease;
+}
+
+.app-download-card--closing {
+    opacity: 0;
+    transform: translateY(8px);
+}
+
+.app-download-card.is-complete {
+    border-color: rgba(46, 125, 50, 0.28);
+}
+
+.app-download-card.is-error {
+    border-color: rgba(198, 40, 40, 0.28);
+}
+
+.app-download-card__body {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.app-download-card__gauge {
+    position: relative;
+    width: 132px;
+    height: 132px;
+    flex: 0 0 132px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at center, rgba(255,255,255,.15) 0, rgba(255,255,255,0) 63%),
+        conic-gradient(#14b8a6 var(--progress-angle), rgba(148, 163, 184, 0.22) 0deg);
+    box-shadow: inset 0 0 0 1px rgba(2, 119, 189, 0.12);
+    display: grid;
+    place-items: center;
+}
+
+.app-download-card__gauge-core {
+    width: 94px;
+    height: 94px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.22);
+    display: grid;
+    place-items: center;
+}
+
+.app-download-card__details {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.app-download-card__title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+}
+
+.app-download-card__percent {
+    font-size: 38px;
+    font-weight: 800;
+    color: #0277BD;
+    line-height: 1;
+    letter-spacing: -.02em;
+}
+
+.app-download-card.is-complete .app-download-card__percent {
+    color: var(--green);
+}
+
+.app-download-card.is-error .app-download-card__percent {
+    color: var(--red-bright);
+}
+
+.app-download-card__file {
+    margin-top: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.app-download-card__meta {
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.app-download-card__bar {
+    margin-top: 16px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(2, 119, 189, 0.14);
+    overflow: hidden;
+}
+
+.app-download-card__bar-fill {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #0277BD 0%, #29B6F6 100%);
+    transition: width .18s ease;
+}
+
+.app-download-card.is-complete .app-download-card__bar-fill {
+    background: linear-gradient(90deg, #2E7D32 0%, #66BB6A 100%);
+}
+
+.app-download-card.is-error .app-download-card__bar-fill {
+    background: linear-gradient(90deg, #C62828 0%, #EF5350 100%);
+}
+
+.app-download-card.is-complete .app-download-card__gauge {
+    background:
+        radial-gradient(circle at center, rgba(255,255,255,.15) 0, rgba(255,255,255,0) 63%),
+        conic-gradient(#22c55e var(--progress-angle), rgba(34, 197, 94, 0.16) 0deg);
+}
+
+.app-download-card.is-error .app-download-card__gauge {
+    background:
+        radial-gradient(circle at center, rgba(255,255,255,.15) 0, rgba(255,255,255,0) 63%),
+        conic-gradient(#ef4444 var(--progress-angle), rgba(239, 68, 68, 0.16) 0deg);
+}
+
+@media (max-width: 640px) {
+    .app-download-region {
+        padding: 16px;
+    }
+
+    .app-download-card__body {
+        align-items: flex-start;
+    }
+
+    .app-download-card__gauge {
+        width: 92px;
+        height: 92px;
+        flex-basis: 92px;
+    }
+
+    .app-download-card__gauge-core {
+        width: 66px;
+        height: 66px;
+    }
+
+    .app-download-card__percent {
+        font-size: 26px;
+    }
+}
+
 .app-toast {
     pointer-events: auto;
     display: flex;
@@ -318,6 +496,13 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
         left: 12px;
         right: 12px;
         top: 12px;
+        max-width: none;
+    }
+
+    .app-download-region {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
         max-width: none;
     }
 }
@@ -4451,6 +4636,17 @@ body.messages-modal-open {
     min-height: calc(100vh - 68px);
 }
 
+.rule-preview-notice {
+    margin: 0 0 16px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(88,130,193,.22);
+    background: linear-gradient(135deg, rgba(88,130,193,.12), rgba(20,184,166,.1));
+    color: var(--text);
+    box-shadow: var(--shadow);
+    font-weight: 600;
+}
+
 .rule-page-shell.module-readonly .accordion-item {
     opacity: .72;
     filter: grayscale(.08);
@@ -4507,6 +4703,139 @@ body.messages-modal-open {
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
+}
+
+.rule-page-shell .btn:disabled,
+.rule-page-shell .btn-primary:disabled,
+.rule-page-shell .btn-success:disabled,
+.rule-page-shell .btn-info:disabled,
+.rule-page-shell .btn-warning:disabled,
+.rule-page-shell .btn-secondary:disabled,
+.rule-page-shell .btn-outline:disabled {
+    opacity: 1;
+    color: #f8fafc !important;
+    background: linear-gradient(135deg, #cbd5e1, #94a3b8) !important;
+    border-color: #94a3b8 !important;
+    filter: grayscale(.85) saturate(.2);
+    box-shadow: none !important;
+    transform: none !important;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.rule20-comparison-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.rule20-comparison-card__title {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.rule20-comparison-card__subtitle {
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.rule20-comparison-card__meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 700;
+    flex-wrap: wrap;
+}
+
+.rule20-grid-wrap {
+    overflow-x: auto;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.rule20-grid-table {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.rule20-grid-table thead th {
+    position: static;
+    background: #dbe7f5;
+    color: #17324d;
+    text-align: center;
+    border: 1px solid #b8c8dd;
+    white-space: nowrap;
+}
+
+.rule20-grid-table thead tr:first-child th {
+    background: #c7d8ef;
+}
+
+.rule20-grid-table thead .rule20-spacer {
+    background: #8c8c8c;
+    border-color: #8c8c8c;
+    min-width: 28px;
+    width: 28px;
+}
+
+.rule20-grid-table tbody td {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.rule20-grid-table tbody td.rule20-spacer {
+    background: #8c8c8c;
+    border-color: #8c8c8c;
+    min-width: 28px;
+    width: 28px;
+    padding: 0;
+}
+
+.rule20-grid-table tbody tr:nth-child(even) td {
+    background: #f8fafc;
+}
+
+.rule20-align-center {
+    text-align: center;
+}
+
+.rule20-wrap {
+    white-space: normal !important;
+    min-width: 220px;
+}
+
+.rule20-section-title {
+    margin: 18px 0 8px;
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--text);
+}
+
+.rule20-comparison-table thead th {
+    text-align: center;
+}
+
+.rule20-comparison-table tbody td {
+    vertical-align: top;
+}
+
+.rule20-comparison-result {
+    min-width: 90px;
+    display: flex;
+    justify-content: center;
 }
 
 .message-bubble__footer {

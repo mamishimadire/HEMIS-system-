@@ -67,7 +67,7 @@
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
-        The assigned data analyst must sign off before managers, directors, and trainees can download this run.
+        The data analyst signoff is still outstanding. Assigned users can still review and download this run.
     </div>
 }
 
@@ -292,7 +292,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 (() => {
-    const exceptionRows = @Html.Raw(JsonSerializer.Serialize(Model.Summary.Exceptions.Select(row => new
+    const exceptionRows = @Html.Raw(JsonSerializer.Serialize(Model.Summary.Exceptions.Take(10).Select(row => new
     {
         row.DirectionKey,
         row.DirectionLabel,

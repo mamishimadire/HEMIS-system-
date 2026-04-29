@@ -342,7 +342,7 @@ namespace HemisAudit.Controllers
             if (model.ClientId <= 0)
                 return Json(new { success = false, error = "Select an engagement before signing off." });
 
-            if (!await CanSignWorkspaceAsync(model.ClientId, user, role))
+            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
                 return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can sign off the workspace." });
 
             if (!model.RunId.HasValue || model.RunId.Value <= 0)
@@ -389,8 +389,8 @@ namespace HemisAudit.Controllers
             if (model.ClientId <= 0 || !model.RunId.HasValue || model.RunId.Value <= 0)
                 return Json(new { success = false, error = "Select a saved run before removing signoff." });
 
-            if (!await CanSignWorkspaceAsync(model.ClientId, user, role))
-                return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can remove their signoff." });
+            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
+                return Json(new { success = false, error = "Only an assigned user can remove their own signoff." });
 
             var review = await _rule24.GetSavedRunAsync(model.RunId.Value, user?.Email);
             if (review == null || review.ClientId != model.ClientId)
@@ -409,11 +409,6 @@ namespace HemisAudit.Controllers
             try
             {
                 await _rule24.RemoveSignoffAsync(model.RunId.Value, user!.Email!);
-                await _audit.LogAsync(
-                    "remove_validation_signoff",
-                    $"{review.CurrentUserEngagementRole} removed signoff for Rule 24 run {model.RunId.Value} from module workspace",
-                    user.Id,
-                    user.Email);
             }
             catch (Exception ex)
             {
@@ -421,7 +416,19 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule24.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email);
-            return Json(new { success = true, message = "Signoff removed.", workspace });
+            var reopenedRunId = workspace?.RunId;
+            var preservedHistory = reopenedRunId.HasValue && reopenedRunId.Value != model.RunId.Value;
+            var message = preservedHistory
+                ? $"Signoff removed. Run #{model.RunId.Value} moved to history and Run #{reopenedRunId.Value} is now the current workspace."
+                : "Signoff removed.";
+            await _audit.LogAsync(
+                "remove_validation_signoff",
+                preservedHistory
+                    ? $"{review.CurrentUserEngagementRole} removed signoff for Rule 24 run {model.RunId.Value} from module workspace. Historical snapshot preserved; new current run {reopenedRunId.Value} created for continued review."
+                    : $"{review.CurrentUserEngagementRole} removed signoff for Rule 24 run {model.RunId.Value} from module workspace",
+                user.Id,
+                user.Email);
+            return Json(new { success = true, message, workspace });
         }
 
         [HttpPost, ValidateAntiForgeryToken]
@@ -516,14 +523,21 @@ namespace HemisAudit.Controllers
             }
 
             await _rule24.RemoveSignoffAsync(runId, user!.Email!);
+            var workspace = await _rule24.GetCurrentWorkspaceStateAsync(review.ClientId, user?.Email, includeSummary: false);
+            var redirectRunId = workspace?.RunId ?? runId;
+            var preservedHistory = workspace?.RunId.HasValue == true && workspace.RunId.Value != runId;
             await _audit.LogAsync(
                 "remove_validation_signoff",
-                $"{review.CurrentUserEngagementRole} removed signoff for Rule 24 run {runId}",
+                preservedHistory
+                    ? $"{review.CurrentUserEngagementRole} removed signoff for Rule 24 run {runId}. Historical snapshot preserved; new current run {redirectRunId} created for continued review."
+                    : $"{review.CurrentUserEngagementRole} removed signoff for Rule 24 run {runId}",
                 user.Id,
                 user.Email);
 
-            TempData["Success"] = "Your signoff was removed.";
-            return RedirectToAction(nameof(Run), new { id = runId });
+            TempData["Success"] = preservedHistory
+                ? $"Your signoff was removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
+                : "Your signoff was removed.";
+            return RedirectToAction(nameof(Run), new { id = redirectRunId });
         }
 
         [HttpGet]
@@ -583,7 +597,6 @@ namespace HemisAudit.Controllers
             summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule24_Qualification_Reconciliation_{Ts()}.xlsx";
             var bytes = _export.ExportExcel(summary);
-            SaveToDesktop(fileName, bytes);
             return File(
                 bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -596,7 +609,6 @@ namespace HemisAudit.Controllers
             summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule24_Fail_Exceptions_{Ts()}.csv";
             var bytes = _export.ExportCsv(summary);
-            SaveToDesktop(fileName, bytes);
             return File(bytes, "text/csv", fileName);
         }
 
@@ -610,7 +622,6 @@ namespace HemisAudit.Controllers
 
             var fileName = $"Rule24_Qualification_Reconciliation_{Ts()}.sql";
             var bytes = _export.ExportSql(await _rule24.GenerateSqlAsync(request));
-            SaveToDesktop(fileName, bytes);
             return File(bytes, "application/sql", fileName);
         }
 
@@ -710,9 +721,13 @@ namespace HemisAudit.Controllers
 
             if (summary.ClientId > 0)
             {
-                var workspace = await _rule24.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: true);
-                if (workspace?.Summary != null)
-                    return workspace.Summary;
+                var workspace = await _rule24.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: false);
+                if (workspace?.RunId is int workspaceRunId && workspaceRunId > 0)
+                {
+                    var review = await _rule24.GetSavedRunAsync(workspaceRunId, user?.Email);
+                    if (review?.Summary != null)
+                        return review.Summary;
+                }
             }
 
             return summary;
@@ -732,14 +747,6 @@ namespace HemisAudit.Controllers
 
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-        private static void SaveToDesktop(string fileName, byte[] bytes)
-        {
-            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            if (string.IsNullOrWhiteSpace(desktop))
-                return;
-
-            var path = Path.Combine(desktop, fileName);
-            System.IO.File.WriteAllBytes(path, bytes);
-        }
     }
 }
+

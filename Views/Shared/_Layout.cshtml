@@ -32,6 +32,85 @@
         })();
     </script>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <script src="~/js/rule-workspace-ui.js" asp-append-version="true"></script>
+    <script>
+        (function () {
+            if (typeof window.fetchJsonWithProgress !== 'function') {
+                window.fetchJsonWithProgress = async function (url, requestOptions) {
+                    requestOptions = requestOptions || {};
+                    var response = await fetch(url, requestOptions);
+                    var contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+                    if (!response.ok) {
+                        var errorMessage = 'Request failed.';
+                        if (contentType.indexOf('application/json') >= 0) {
+                            try {
+                                var errorData = await response.json();
+                                errorMessage = errorData.error || errorData.message || errorMessage;
+                            } catch (_) {}
+                        } else {
+                            try {
+                                var errorText = (await response.text() || '').trim();
+                                if (errorText) errorMessage = errorText;
+                            } catch (_) {}
+                        }
+
+                        throw new Error(errorMessage);
+                    }
+
+                    if (contentType.indexOf('application/json') >= 0) {
+                        return await response.json();
+                    }
+
+                    return await response.text();
+                };
+            }
+
+            if (typeof window.downloadFileWithProgress !== 'function') {
+                window.downloadFileWithProgress = async function (options) {
+                    options = options || {};
+                    var response = await fetch(options.url, {
+                        method: options.method || 'GET',
+                        headers: options.headers || {},
+                        body: options.body,
+                        cache: options.cache || 'no-store',
+                        credentials: options.credentials || 'same-origin'
+                    });
+
+                    var contentType = (response.headers.get('content-type') || '').toLowerCase();
+                    if (!response.ok) {
+                        var errorMessage = 'Download failed.';
+                        if (contentType.indexOf('application/json') >= 0) {
+                            try {
+                                var errorData = await response.json();
+                                errorMessage = errorData.error || errorData.message || errorMessage;
+                            } catch (_) {}
+                        } else {
+                            try {
+                                var errorText = (await response.text() || '').trim();
+                                if (errorText) errorMessage = errorText;
+                            } catch (_) {}
+                        }
+
+                        throw new Error(errorMessage);
+                    }
+
+                    var blob = await response.blob();
+                    var href = URL.createObjectURL(blob);
+                    var anchor = document.createElement('a');
+                    anchor.href = href;
+                    anchor.download = options.defaultFileName || 'download.bin';
+                    document.body.appendChild(anchor);
+                    anchor.click();
+                    anchor.remove();
+                    window.setTimeout(function () {
+                        URL.revokeObjectURL(href);
+                    }, 0);
+                    return true;
+                };
+            }
+        })();
+    </script>
 </head>
 <body>
 <div class="layout app-shell">
@@ -137,11 +216,19 @@
                 </div>
             }
 
+            @if (currentPath.StartsWith("/rule"))
+            {
+                <div class="rule-preview-notice" role="note" aria-label="Results preview notice">
+                    UI results show only the first 10 sample rows. Download the results to access the full tested population.
+                </div>
+            }
+
             @RenderBody()
         </div>
     </main>
 </div>
 <div id="appToastRegion" class="app-toast-region" aria-live="polite" aria-atomic="true"></div>
+<div id="appDownloadRegion" class="app-download-region" aria-live="polite" aria-atomic="false"></div>
 
 <script>
 (function(){
@@ -206,17 +293,535 @@
         window.setTimeout(dismiss, 4500);
     };
 
+    var lastActionToast = {
+        text: '',
+        type: '',
+        at: 0
+    };
+
+    function shouldShowActionToast(text, type) {
+        var normalizedType = String(type || 'info').toLowerCase();
+        if (normalizedType === 'danger') normalizedType = 'error';
+
+        if (normalizedType === 'success' || normalizedType === 'warning' || normalizedType === 'error') {
+            return true;
+        }
+
+        return /select .*engagement|please select .*engagement|before running|run .* first|save the workspace first|signed off|signoff|workspace saved|workspace loaded|archived engagements are read-only|only the assigned data analyst|only active approved engagements|archive is locked|download complete|verification/i.test(text);
+    }
+
     window.showWorkspaceActionToast = function (message, type) {
         var parser = document.createElement('div');
         parser.innerHTML = String(message || '');
         var text = (parser.textContent || parser.innerText || '').trim();
         if (!text) return;
 
-        var isWorkspaceActionMessage = /workspace saved|failed to save workspace|unable to save workspace|could not save workspace|could not save the workspace|signoff saved|failed to save signoff|unable to save signoff|could not save signoff|signoff failed|signoff removed|failed to remove signoff|unable to remove signoff|could not remove signoff|your signoff was removed|you can only remove your own signoff|run .* first so the workspace can be saved|run .* first so the saved workspace exists|run validation first so the workspace can be signed off|this workspace can only be signed off|save the workspace first/i.test(text);
-        if (!isWorkspaceActionMessage) return;
+        var normalizedType = String(type || 'info').toLowerCase();
+        if (normalizedType === 'danger') normalizedType = 'error';
+        if (!shouldShowActionToast(text, normalizedType)) return;
 
-        window.showAppToast(text, type);
+        var now = Date.now();
+        if (lastActionToast.text === text && lastActionToast.type === normalizedType && (now - lastActionToast.at) < 1200) {
+            return;
+        }
+
+        lastActionToast.text = text;
+        lastActionToast.type = normalizedType;
+        lastActionToast.at = now;
+
+        window.showAppToast(text, normalizedType);
     };
+
+    var downloadState = {
+        active: false,
+        sequence: 0
+    };
+
+    var operationState = {
+        active: false,
+        sequence: 0
+    };
+
+    function formatBytes(bytes) {
+        var value = Number(bytes || 0);
+        if (!isFinite(value) || value <= 0) return '0 B';
+
+        var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        var index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+        var scaled = value / Math.pow(1024, index);
+        return scaled.toFixed(scaled >= 100 || index === 0 ? 0 : scaled >= 10 ? 1 : 2) + ' ' + units[index];
+    }
+
+    function extractFileName(disposition, fallbackName) {
+        var fallback = fallbackName || 'download.bin';
+        if (!disposition) return fallback;
+
+        var utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match && utf8Match[1]) {
+            try {
+                return decodeURIComponent(utf8Match[1].replace(/["']/g, ''));
+            } catch (_) {
+                return utf8Match[1].replace(/["']/g, '');
+            }
+        }
+
+        var asciiMatch = disposition.match(/filename="?([^\";]+)"?/i);
+        return asciiMatch && asciiMatch[1] ? asciiMatch[1] : fallback;
+    }
+
+    function createDownloadCard(id, label, fileName) {
+        var region = document.getElementById('appDownloadRegion');
+        if (!region) return null;
+
+        var card = document.createElement('div');
+        card.className = 'app-download-card';
+        card.setAttribute('data-download-id', id);
+        card.innerHTML = [
+            '<div class="app-download-card__body">',
+            '<div class="app-download-card__gauge" aria-hidden="true">',
+            '<div class="app-download-card__gauge-core">',
+            '<div class="app-download-card__percent">0%</div>',
+            '</div>',
+            '</div>',
+            '<div class="app-download-card__details">',
+            '<div class="app-download-card__title"></div>',
+            '<div class="app-download-card__file"></div>',
+            '<div class="app-download-card__meta">Preparing download...</div>',
+            '</div>',
+            '</div>',
+            '<div class="app-download-card__bar"><span class="app-download-card__bar-fill"></span></div>'
+        ].join('');
+
+        card.querySelector('.app-download-card__title').textContent = label || 'Downloading result';
+        card.querySelector('.app-download-card__file').textContent = fileName || 'Preparing file...';
+        card.style.setProperty('--progress-angle', '0deg');
+        region.appendChild(card);
+        return card;
+    }
+
+    function updateDownloadCard(card, percent, metaText, fileName, stateClass) {
+        if (!card) return;
+
+        var normalizedPercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+        card.classList.remove('is-complete', 'is-error');
+        if (stateClass) {
+            card.classList.add(stateClass);
+        }
+
+        var percentNode = card.querySelector('.app-download-card__percent');
+        var metaNode = card.querySelector('.app-download-card__meta');
+        var fileNode = card.querySelector('.app-download-card__file');
+        var fillNode = card.querySelector('.app-download-card__bar-fill');
+
+        if (percentNode) percentNode.textContent = normalizedPercent + '%';
+        if (metaNode) metaNode.textContent = metaText || '';
+        if (fileNode && fileName) fileNode.textContent = fileName;
+        if (fillNode) fillNode.style.width = normalizedPercent + '%';
+        card.style.setProperty('--progress-angle', (normalizedPercent * 3.6) + 'deg');
+    }
+
+    function removeDownloadCard(card, delay) {
+        if (!card) return;
+        window.setTimeout(function () {
+            card.classList.add('app-download-card--closing');
+            window.setTimeout(function () {
+                if (card.parentNode) card.parentNode.removeChild(card);
+            }, 180);
+        }, delay || 0);
+    }
+
+    function saveBlob(blob, fileName) {
+        var href = URL.createObjectURL(blob);
+        var anchor = document.createElement('a');
+        anchor.href = href;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(function () {
+            URL.revokeObjectURL(href);
+        }, 0);
+    }
+
+    window.isAppDownloadInProgress = function () {
+        return downloadState.active;
+    };
+
+    window.isAppOperationInProgress = function () {
+        return operationState.active;
+    };
+
+    window.getTrackedOperationOptions = function (url, method) {
+        var normalizedUrl = String(url || '').toLowerCase();
+        var normalizedMethod = String(method || 'GET').toUpperCase();
+        var ruleMatch = normalizedUrl.match(/\/rule(\d+)\//);
+        var ruleNumber = ruleMatch && ruleMatch[1] ? ruleMatch[1] : '';
+        var ruleLabel = ruleNumber ? 'Rule ' + ruleNumber : 'Validation';
+
+        if (normalizedUrl.indexOf('/getworkspacestate') >= 0 && normalizedMethod === 'GET') {
+            return {
+                label: 'Loading workspace',
+                fileName: 'Saved engagement workspace',
+                pendingText: 'Fetching the latest saved workspace for this engagement...',
+                errorToastText: false
+            };
+        }
+
+        if (normalizedUrl.indexOf('/saveworkspace') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Saving workspace',
+                fileName: 'Validation workspace',
+                pendingText: 'Saving the current workspace and validation state...',
+                errorToastText: false
+            };
+        }
+
+        if (normalizedUrl.indexOf('/beginworkspaceedit') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Preparing edit',
+                fileName: 'Workspace review state',
+                pendingText: 'Clearing signoffs and reopening the workspace for editing...',
+                errorToastText: false
+            };
+        }
+
+        if (normalizedUrl.indexOf('/signoffworkspace') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Saving signoff',
+                fileName: 'Workspace signoff',
+                pendingText: 'Recording the workspace signoff...',
+                errorToastText: false
+            };
+        }
+
+        if (normalizedUrl.indexOf('/removeworkspacesignoff') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Removing signoff',
+                fileName: 'Workspace signoff',
+                pendingText: 'Removing the saved workspace signoff...',
+                errorToastText: false
+            };
+        }
+
+        if (normalizedUrl.indexOf('/getdatabases') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Connecting',
+                fileName: 'SQL Server connection',
+                pendingText: 'Connecting to the SQL Server and loading databases...',
+                successText: 'Databases loaded.',
+                successToastText: 'Connection successful. Databases loaded.'
+            };
+        }
+
+        if (normalizedUrl.indexOf('/gettables') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Selecting database',
+                fileName: 'Database tables',
+                pendingText: 'Loading tables for the selected database...',
+                successText: 'Tables loaded.',
+                successToastText: 'Database selected. Tables loaded.'
+            };
+        }
+
+        if (normalizedUrl.indexOf('/verifytable') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Verifying tables',
+                fileName: ruleLabel + ' table check',
+                pendingText: 'Verifying the selected tables for ' + ruleLabel + '...',
+                successText: 'Table verification completed.',
+                successToastText: 'Table verification completed.'
+            };
+        }
+
+        if (normalizedUrl.indexOf('/generatesql') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Generating SQL',
+                fileName: ruleLabel + ' SQL script',
+                pendingText: 'Generating the SQL script for ' + ruleLabel + '...',
+                successText: 'SQL generated.',
+                successToastText: 'SQL generated successfully.'
+            };
+        }
+
+        if (normalizedUrl.indexOf('/runvalidation') >= 0 && normalizedMethod === 'POST') {
+            return {
+                label: 'Running ' + ruleLabel,
+                fileName: 'Validation results',
+                pendingText: 'Running ' + ruleLabel + ' analysis. Large datasets may take longer...',
+                successText: ruleLabel + ' completed.',
+                successToastText: ruleLabel + ' completed successfully.'
+            };
+        }
+
+        return null;
+    };
+
+    window.runAppOperationWithProgress = async function (options, action) {
+        options = options || {};
+
+        if (operationState.active) {
+            window.showAppToast('An operation is already in progress. Wait for it to finish before starting another one.', 'warning');
+            return false;
+        }
+
+        operationState.active = true;
+        operationState.sequence += 1;
+
+        var label = options.label || 'Processing request';
+        var secondaryText = options.fileName || 'Working...';
+        var pendingText = options.pendingText || 'Processing...';
+        var card = createDownloadCard('op-' + operationState.sequence, label, secondaryText);
+        var percent = 3;
+        updateDownloadCard(card, percent, pendingText, secondaryText);
+
+        var startedAt = Date.now();
+        var timer = window.setInterval(function () {
+            var elapsed = Date.now() - startedAt;
+            var target = 12;
+            if (elapsed < 1200) {
+                target = 12 + (elapsed / 1200) * 28;
+            } else if (elapsed < 4000) {
+                target = 40 + ((elapsed - 1200) / 2800) * 34;
+            } else if (elapsed < 10000) {
+                target = 74 + ((elapsed - 4000) / 6000) * 18;
+            } else {
+                target = 92;
+            }
+
+            percent = Math.max(percent, Math.min(95, Math.round(target)));
+            updateDownloadCard(card, percent, pendingText, secondaryText);
+        }, 180);
+
+        try {
+            var result = await action();
+            window.clearInterval(timer);
+            updateDownloadCard(card, 100, options.successText || 'Completed.', secondaryText, 'is-complete');
+            if (options.successToastText) {
+                window.showAppToast(options.successToastText, options.successToastType || 'success');
+            }
+            removeDownloadCard(card, 900);
+            return result;
+        } catch (error) {
+            window.clearInterval(timer);
+            var message = error && error.message ? error.message : 'Request failed.';
+            updateDownloadCard(card, 100, message, secondaryText, 'is-error');
+            if (options.errorToastText !== false) {
+                window.showAppToast(options.errorToastText || message, 'error');
+            }
+            removeDownloadCard(card, 2500);
+            throw error;
+        } finally {
+            operationState.active = false;
+        }
+    };
+
+    window.fetchJsonWithProgress = async function (url, requestOptions, explicitProgressOptions) {
+        requestOptions = requestOptions || {};
+        var method = requestOptions.method || 'GET';
+        var progressOptions = explicitProgressOptions === false
+            ? null
+            : (explicitProgressOptions || window.getTrackedOperationOptions(url, method));
+
+        var performFetch = async function () {
+            var response = await fetch(url, requestOptions);
+            var contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+            if (!response.ok) {
+                var errorMessage = 'Request failed.';
+                if (contentType.indexOf('application/json') >= 0) {
+                    try {
+                        var errorData = await response.json();
+                        errorMessage = errorData.error || errorData.message || errorMessage;
+                    } catch (_) {}
+                } else {
+                    try {
+                        var errorText = (await response.text() || '').trim();
+                        if (errorText) errorMessage = errorText;
+                    } catch (_) {}
+                }
+
+                throw new Error(errorMessage);
+            }
+
+            if (contentType.indexOf('application/json') >= 0) {
+                return await response.json();
+            }
+
+            return await response.text();
+        };
+
+        if (!progressOptions) {
+            return await performFetch();
+        }
+
+        return await window.runAppOperationWithProgress(progressOptions, performFetch);
+    };
+
+    window.downloadFileWithProgress = async function (options) {
+        options = options || {};
+
+        if (downloadState.active) {
+            window.showAppToast('A download is already in progress. Wait for it to finish before starting another one.', 'warning');
+            return false;
+        }
+
+        downloadState.active = true;
+        downloadState.sequence += 1;
+
+        var requestedName = options.defaultFileName || 'download.bin';
+        var label = options.label || 'Downloading result';
+        var card = createDownloadCard(downloadState.sequence, label, requestedName);
+        var displayPercent = 3;
+        var prepareStartedAt = Date.now();
+        var prepareTimer = null;
+        var transferTimer = null;
+
+        updateDownloadCard(card, displayPercent, 'Preparing file on server...', requestedName);
+
+        prepareTimer = window.setInterval(function () {
+            var elapsed = Date.now() - prepareStartedAt;
+            var target = 8;
+            if (elapsed < 1500) {
+                target = 8 + (elapsed / 1500) * 10;
+            } else if (elapsed < 5000) {
+                target = 18 + ((elapsed - 1500) / 3500) * 8;
+            } else if (elapsed < 15000) {
+                target = 26 + ((elapsed - 5000) / 10000) * 10;
+            } else {
+                target = 36;
+            }
+
+            displayPercent = Math.max(displayPercent, Math.min(36, Math.round(target)));
+            updateDownloadCard(card, displayPercent, 'Preparing file on server...', requestedName);
+        }, 180);
+
+        try {
+            var response = await fetch(options.url, {
+                method: options.method || 'GET',
+                headers: options.headers || {},
+                body: options.body,
+                cache: options.cache || 'no-store',
+                credentials: options.credentials || 'same-origin'
+            });
+
+            var responseType = (response.headers.get('content-type') || '').toLowerCase();
+            if (!response.ok) {
+                var errorMessage = 'Download failed.';
+                if (responseType.indexOf('application/json') >= 0) {
+                    try {
+                        var errorData = await response.json();
+                        errorMessage = errorData.error || errorData.message || errorMessage;
+                    } catch (_) {}
+                } else {
+                    try {
+                        var errorText = (await response.text() || '').trim();
+                        if (errorText) errorMessage = errorText;
+                    } catch (_) {}
+                }
+
+                throw new Error(errorMessage);
+            }
+
+            var fileName = extractFileName(response.headers.get('content-disposition'), requestedName);
+            var totalBytes = parseInt(response.headers.get('content-length') || '0', 10);
+            if (!isFinite(totalBytes) || totalBytes < 0) totalBytes = 0;
+
+            if (prepareTimer) {
+                window.clearInterval(prepareTimer);
+                prepareTimer = null;
+            }
+
+            updateDownloadCard(
+                card,
+                displayPercent,
+                totalBytes > 0
+                    ? 'Starting download... 0% of ' + formatBytes(totalBytes)
+                    : 'Starting download...',
+                fileName
+            );
+
+            var blob;
+            if (response.body && typeof response.body.getReader === 'function') {
+                var reader = response.body.getReader();
+                var chunks = [];
+                var receivedBytes = 0;
+                var transferPercent = displayPercent;
+
+                if (totalBytes <= 0) {
+                    transferTimer = window.setInterval(function () {
+                        transferPercent = Math.max(transferPercent, Math.min(95, transferPercent + 1));
+                        updateDownloadCard(card, transferPercent, formatBytes(receivedBytes) + ' downloaded', fileName);
+                    }, 220);
+                }
+
+                while (true) {
+                    var readResult = await reader.read();
+                    if (readResult.done) break;
+
+                    var chunk = readResult.value || new Uint8Array();
+                    chunks.push(chunk);
+                    receivedBytes += chunk.length;
+
+                    var percent = totalBytes > 0
+                        ? Math.min(99, 36 + Math.round((receivedBytes / totalBytes) * 64))
+                        : transferPercent;
+                    var meta = totalBytes > 0
+                        ? Math.max(0, Math.round((receivedBytes / totalBytes) * 100)) + '% of ' + formatBytes(totalBytes) + ' (' + formatBytes(receivedBytes) + ' downloaded)'
+                        : formatBytes(receivedBytes) + ' downloaded';
+
+                    transferPercent = Math.max(transferPercent, percent);
+                    updateDownloadCard(card, transferPercent, meta, fileName);
+                }
+
+                if (transferTimer) {
+                    window.clearInterval(transferTimer);
+                }
+
+                blob = new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' });
+            } else {
+                blob = await response.blob();
+            }
+
+            saveBlob(blob, fileName);
+            updateDownloadCard(card, 100, 'Download complete.', fileName, 'is-complete');
+            window.showAppToast('Download complete: ' + fileName, 'success');
+            removeDownloadCard(card, 1400);
+            return true;
+        } catch (error) {
+            if (prepareTimer) {
+                window.clearInterval(prepareTimer);
+            }
+            if (transferTimer) {
+                window.clearInterval(transferTimer);
+            }
+            var message = error && error.message ? error.message : 'Download failed.';
+            updateDownloadCard(card, 100, message, requestedName, 'is-error');
+            window.showAppToast(message, 'error');
+            removeDownloadCard(card, 2500);
+            throw error;
+        } finally {
+            downloadState.active = false;
+        }
+    };
+
+    document.addEventListener('click', function (event) {
+        var link = event.target && event.target.closest
+            ? event.target.closest('a[data-track-download], a[href*="/DownloadSaved"]')
+            : null;
+        if (!link || event.defaultPrevented) return;
+        if (link.target && link.target !== '_self') return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (!link.href) return;
+
+        event.preventDefault();
+
+        window.downloadFileWithProgress({
+            url: link.href,
+            method: 'GET',
+            label: link.getAttribute('data-download-label') || (link.textContent || '').trim() || 'Downloading saved results',
+            defaultFileName: link.getAttribute('data-download-name') || 'download.bin'
+        }).catch(function () { });
+    });
 
 })();
 </script>
