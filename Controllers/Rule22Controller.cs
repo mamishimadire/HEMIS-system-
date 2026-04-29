@@ -361,7 +361,7 @@ namespace HemisAudit.Controllers
             if (model.ClientId <= 0)
                 return Json(new { success = false, error = "Select an engagement before signing off." });
 
-            if (!await CanSignWorkspaceAsync(model.ClientId, user, role))
+            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
                 return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can sign off the workspace." });
 
             if (!model.RunId.HasValue || model.RunId.Value <= 0)
@@ -408,8 +408,8 @@ namespace HemisAudit.Controllers
             if (model.ClientId <= 0 || !model.RunId.HasValue || model.RunId.Value <= 0)
                 return Json(new { success = false, error = "Select a saved run before removing signoff." });
 
-            if (!await CanSignWorkspaceAsync(model.ClientId, user, role))
-                return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can remove their signoff." });
+            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
+                return Json(new { success = false, error = "Only an assigned user can remove their own signoff." });
 
             var review = await _rule22.GetSavedRunAsync(model.RunId.Value, user?.Email);
             if (review == null || review.ClientId != model.ClientId)
@@ -596,7 +596,6 @@ namespace HemisAudit.Controllers
             summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule22_Staff_Validation_{Ts()}.xlsx";
             var bytes = _export.ExportExcel(summary);
-            SaveToDesktop(fileName, bytes);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
         }
 
@@ -606,7 +605,6 @@ namespace HemisAudit.Controllers
             summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule22_Staff_Validation_{Ts()}.csv";
             var bytes = _export.ExportCsv(summary);
-            SaveToDesktop(fileName, bytes);
             return File(bytes, "text/csv", fileName);
         }
 
@@ -620,7 +618,6 @@ namespace HemisAudit.Controllers
 
             var fileName = $"Rule22_Staff_Validation_{Ts()}.sql";
             var bytes = _export.ExportSql(await _rule22.GenerateSqlAsync(request));
-            SaveToDesktop(fileName, bytes);
             return File(bytes, "application/sql", fileName);
         }
 
@@ -729,23 +726,27 @@ namespace HemisAudit.Controllers
 
             if (summary.ClientId > 0)
             {
-                var workspace = await _rule22.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: true);
-                if (workspace?.Summary != null)
+                var workspace = await _rule22.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: false);
+                if (workspace?.RunId is int workspaceRunId && workspaceRunId > 0)
                 {
-                    return await _rule22.GetExportSummaryAsync(new Rule22ValidationRequest
+                    var review = await _rule22.GetSavedRunAsync(workspaceRunId, user?.Email);
+                    if (review?.Summary != null)
                     {
-                        ClientId = workspace.ClientId,
-                        RunId = workspace.RunId,
-                        Server = workspace.Server,
-                        Database = workspace.Database,
-                        Driver = workspace.Driver,
-                        ProfTable = workspace.ProfTable,
-                        Column041 = workspace.Column041,
-                        Column039 = workspace.Column039,
-                        Control1SampleSize = workspace.Control1SampleSize,
-                        Control2SampleSize = workspace.Control2SampleSize,
-                        Control3SampleSize = workspace.Control3SampleSize
-                    });
+                        return await _rule22.GetExportSummaryAsync(new Rule22ValidationRequest
+                        {
+                            ClientId = review.ClientId,
+                            RunId = review.RunId,
+                            Server = review.SourceServer,
+                            Database = review.Summary.Database,
+                            Driver = "ODBC Driver 17 for SQL Server",
+                            ProfTable = review.Summary.ProfTable,
+                            Column041 = review.Summary.Column041,
+                            Column039 = review.Summary.Column039,
+                            Control1SampleSize = review.Summary.Control1SampleSize,
+                            Control2SampleSize = review.Summary.Control2SampleSize,
+                            Control3SampleSize = review.Summary.Control3SampleSize
+                        });
+                    }
                 }
             }
 
@@ -766,14 +767,6 @@ namespace HemisAudit.Controllers
 
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-        private static void SaveToDesktop(string fileName, byte[] bytes)
-        {
-            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            if (string.IsNullOrWhiteSpace(desktop))
-                return;
-
-            var path = Path.Combine(desktop, fileName);
-            System.IO.File.WriteAllBytes(path, bytes);
-        }
     }
 }
+

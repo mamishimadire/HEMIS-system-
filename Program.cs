@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using System.IO.Compression;
 using HemisAudit.Data;
 using HemisAudit.Filters;
 using HemisAudit.Models;
@@ -42,12 +44,33 @@ builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<PasswordAgeFilter>();
 builder.Services.AddScoped<ISystemDatabaseService, SystemDatabaseService>();
 builder.Services.AddHttpClient();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[]
+    {
+        "application/json",
+        "application/sql",
+        "text/csv"
+    });
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = CompressionLevel.Fastest;
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+{
+    options.Level = CompressionLevel.Fastest;
+});
 builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.AddService<PasswordAgeFilter>();
 }).AddNewtonsoftJson();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRule22Service, Rule22Service>();
+builder.Services.AddScoped<IRule20Service, Rule20Service>();
 builder.Services.AddScoped<IRule21Service, Rule21Service>();
 builder.Services.AddScoped<IRule23Service, Rule23Service>();
 builder.Services.AddScoped<IRule24Service, Rule24Service>();
@@ -69,6 +92,8 @@ await SystemDatabaseBootstrapper.EnsureCreatedAsync(app.Configuration);
 
 using (var scope = app.Services.CreateScope())
 {
+    var systemDb = scope.ServiceProvider.GetRequiredService<ISystemDatabaseService>();
+    await systemDb.EnsurePerformanceObjectsAsync();
     await DbInitializer.SeedAsync(scope.ServiceProvider);
 }
 
@@ -79,6 +104,7 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
+app.UseResponseCompression();
 app.UseStaticFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -99,6 +125,11 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule20-short",
+    pattern: "Rule20",
+    defaults: new { controller = "Rule20", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule21-short",

@@ -1,3 +1,6 @@
+using HemisAudit.Models;
+using HemisAudit.Services;
+
 namespace HemisAudit.Helpers
 {
     public static class ValidationRunAccessPolicy
@@ -45,6 +48,26 @@ namespace HemisAudit.Helpers
                 return false;
 
             return IsAssignedDataAnalyst(engagementRole) || hasDataAnalystSignoff;
+        }
+
+        public static async Task<bool> CanAssignedUserRemoveOwnSignoffAsync(
+            ISystemDatabaseService systemDb,
+            int clientId,
+            ApplicationUser? user,
+            string? systemRole)
+        {
+            if (systemDb == null || user == null || clientId <= 0)
+                return false;
+
+            var resolvedSystemRole = systemRole ?? string.Empty;
+            if (!await systemDb.CanAccessClientResultsAsync(clientId, user, resolvedSystemRole))
+                return false;
+
+            if (IsAdmin(resolvedSystemRole))
+                return true;
+
+            var engagementRole = await systemDb.GetEngagementRoleAsync(clientId, user, resolvedSystemRole);
+            return CanAssignedUserDownload(engagementRole);
         }
     }
 }

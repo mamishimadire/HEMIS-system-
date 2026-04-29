@@ -12,6 +12,7 @@ namespace HemisAudit.Services
     public interface ISystemDatabaseService
     {
         Task<int> EnsureUserMirrorAsync(ApplicationUser user, string role);
+        Task EnsurePerformanceObjectsAsync();
         Task<int> GetClientCountAsync(ApplicationUser? user, string role, string scope = "all");
         Task<int> GetPendingApprovalCountAsync(ApplicationUser? user, string role);
         Task<int> GetAssignedClientCountAsync(ApplicationUser user, string role);
@@ -61,6 +62,11 @@ namespace HemisAudit.Services
 
     public class SystemDatabaseService : ISystemDatabaseService
     {
+        private static readonly SemaphoreSlim NormalizeStatusesLock = new(1, 1);
+        private static readonly SemaphoreSlim PerformanceObjectsLock = new(1, 1);
+        private static readonly TimeSpan NormalizeStatusesInterval = TimeSpan.FromSeconds(30);
+        private static DateTimeOffset _lastNormalizedStatusesAt = DateTimeOffset.MinValue;
+        private static bool _performanceObjectsReady;
         private readonly IConfiguration _configuration;
 
         public SystemDatabaseService(IConfiguration configuration)
@@ -85,7 +91,7 @@ namespace HemisAudit.Services
 
             if (existingId.HasValue)
             {
-                await using var update = connection.CreateCommand();
+                await using var update = connection.CreateConfiguredCommand();
                 update.CommandText = @"
 UPDATE dbo.Users
 SET FirstName = @FirstName,
@@ -112,7 +118,7 @@ WHERE UserID = @UserID;";
                 return existingId.Value;
             }
 
-            await using var insert = connection.CreateCommand();
+            await using var insert = connection.CreateConfiguredCommand();
             insert.CommandText = @"
 INSERT INTO dbo.Users
 (FirstName, LastName, Email, EmployeeCode, PasswordHash, SystemRole, IsActive, MustResetPassword, PasswordSetDate, PasswordHistory, CreatedAt, CreatedBy)
@@ -133,6 +139,68 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             return Convert.ToInt32(inserted);
         }
 
+        public async Task EnsurePerformanceObjectsAsync()
+        {
+            if (_performanceObjectsReady)
+                return;
+
+            await PerformanceObjectsLock.WaitAsync();
+            try
+            {
+                if (_performanceObjectsReady)
+                    return;
+
+                await using var connection = await OpenConnectionAsync();
+                await using var command = connection.CreateConfiguredCommand();
+                command.CommandTimeout = 60;
+                command.CommandText = @"
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ValidationRuns_ClientRuleTimestamp' AND object_id = OBJECT_ID('dbo.ValidationRuns'))
+    CREATE INDEX IX_ValidationRuns_ClientRuleTimestamp
+    ON dbo.ValidationRuns (ClientID, RuleNumber, RunTimestamp DESC, RunID DESC)
+    INCLUDE (Status, IsCurrent, UserID, TotalRecords, PassCount, FailCount, ExceptionRate, RunByUserName, LastEditedByUserName, LastEditedAt, RecordHash);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ValidationRuns_ClientCurrentTimestamp' AND object_id = OBJECT_ID('dbo.ValidationRuns'))
+    CREATE INDEX IX_ValidationRuns_ClientCurrentTimestamp
+    ON dbo.ValidationRuns (ClientID, IsCurrent, RunTimestamp DESC, RunID DESC)
+    INCLUDE (RuleNumber, Status, UserID, TotalRecords, PassCount, FailCount, ExceptionRate, RunByUserName, LastEditedByUserName, LastEditedAt);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ReviewSignoffs_RunRole' AND object_id = OBJECT_ID('dbo.ReviewSignoffs'))
+    CREATE INDEX IX_ReviewSignoffs_RunRole
+    ON dbo.ReviewSignoffs (RunID, SignoffRole)
+    INCLUDE (ReviewerID, Comment, SignedOffAt);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_UserClientAssignments_ClientUser' AND object_id = OBJECT_ID('dbo.UserClientAssignments'))
+    CREATE INDEX IX_UserClientAssignments_ClientUser
+    ON dbo.UserClientAssignments (ClientID, UserID)
+    INCLUDE (EngagementRole);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_UserClientAssignments_UserClient' AND object_id = OBJECT_ID('dbo.UserClientAssignments'))
+    CREATE INDEX IX_UserClientAssignments_UserClient
+    ON dbo.UserClientAssignments (UserID, ClientID)
+    INCLUDE (EngagementRole);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Users_Email' AND object_id = OBJECT_ID('dbo.Users'))
+    CREATE INDEX IX_Users_Email
+    ON dbo.Users (Email)
+    INCLUDE (UserID, SystemRole, FirstName, LastName);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ClientFavorites_UserClient' AND object_id = OBJECT_ID('dbo.ClientFavorites'))
+    CREATE INDEX IX_ClientFavorites_UserClient
+    ON dbo.ClientFavorites (UserID, ClientID);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Clients_StatusCreated' AND object_id = OBJECT_ID('dbo.Clients'))
+    CREATE INDEX IX_Clients_StatusCreated
+    ON dbo.Clients (Status, CreatedAt DESC, ClientID DESC)
+    INCLUDE (EngagementName, MaconomyNumber, Industry, CreatedBy, DirectorName, ManagerName);";
+                await command.ExecuteNonQueryAsync();
+                _performanceObjectsReady = true;
+            }
+            finally
+            {
+                PerformanceObjectsLock.Release();
+            }
+        }
+
         public async Task<int> GetClientCountAsync(ApplicationUser? user, string role, string scope = "all")
         {
             var clients = await GetClientsCoreAsync(user, role, null, scope);
@@ -149,7 +217,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         {
             var (userId, _) = await ResolveUserScopeAsync(user, role);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "SELECT COUNT(1) FROM dbo.UserClientAssignments WHERE UserID = @UserID;";
             command.Parameters.AddWithValue("@UserID", userId);
             return Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -161,7 +229,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 return null;
 
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT TOP 1 SystemRole
 FROM dbo.Users
@@ -184,7 +252,7 @@ WHERE Email = @Email;";
                 return null;
 
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT TOP 1 EngagementRole
 FROM dbo.UserClientAssignments
@@ -201,7 +269,7 @@ WHERE ClientID = @ClientID
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
             var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = isAdmin
                 ? "SELECT COUNT(*) FROM dbo.ValidationRuns;"
                 : isDataAnalyst
@@ -222,11 +290,11 @@ WHERE ClientID = @ClientID
                         ) OR vr.UserID = @UserID
                     )
                       AND EXISTS (
-                          SELECT 1
-                          FROM dbo.ReviewSignoffs rs
-                          WHERE rs.RunID = vr.RunID
-                            AND rs.SignoffRole = 'DataAnalyst'
-                      );";
+                        SELECT 1
+                        FROM dbo.ReviewSignoffs rs
+                        WHERE rs.RunID = vr.RunID
+                          AND rs.SignoffRole = 'DataAnalyst'
+                    );";
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
             return Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -237,7 +305,7 @@ WHERE ClientID = @ClientID
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
             var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = isAdmin
                 ? "SELECT ISNULL(SUM(ISNULL(FailCount,0)),0) FROM dbo.ValidationRuns;"
                 : isDataAnalyst
@@ -258,11 +326,11 @@ WHERE ClientID = @ClientID
                         ) OR vr.UserID = @UserID
                     )
                       AND EXISTS (
-                          SELECT 1
-                          FROM dbo.ReviewSignoffs rs
-                          WHERE rs.RunID = vr.RunID
-                            AND rs.SignoffRole = 'DataAnalyst'
-                      );";
+                        SELECT 1
+                        FROM dbo.ReviewSignoffs rs
+                        WHERE rs.RunID = vr.RunID
+                          AND rs.SignoffRole = 'DataAnalyst'
+                    );";
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
             return Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -270,8 +338,20 @@ WHERE ClientID = @ClientID
 
         public async Task NormalizeCompletedRunStatusesAsync()
         {
+            var now = DateTimeOffset.UtcNow;
+            if (now - _lastNormalizedStatusesAt < NormalizeStatusesInterval)
+                return;
+
+            await NormalizeStatusesLock.WaitAsync();
+            try
+            {
+                now = DateTimeOffset.UtcNow;
+                if (now - _lastNormalizedStatusesAt < NormalizeStatusesInterval)
+                    return;
+
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandTimeout = 30;
             command.CommandText = @"
 UPDATE vr
 SET Status = 'Reviewed and Completed'
@@ -290,6 +370,12 @@ WHERE vr.Status <> 'Reviewed and Completed'
       WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'Director'
   );";
             await command.ExecuteNonQueryAsync();
+                _lastNormalizedStatusesAt = DateTimeOffset.UtcNow;
+            }
+            finally
+            {
+                NormalizeStatusesLock.Release();
+            }
         }
 
         public async Task<List<ClientListViewModel>> GetClientsAsync(ApplicationUser? user, string role, bool approvedOnly = false, string? search = null, string scope = "all")
@@ -303,9 +389,8 @@ WHERE vr.Status <> 'Reviewed and Completed'
         public async Task<List<ValidationRunRow>> GetRecentRunsAsync(ApplicationUser? user, string role, int take = 10)
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
-            var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = isAdmin
                 ? $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
                             COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
@@ -332,8 +417,7 @@ WHERE vr.Status <> 'Reviewed and Completed'
                       LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
                       LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
                       ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
-                : isDataAnalyst
-                    ? $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
+                : $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
                             COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
                             ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
                             vr.LastEditedAt,
@@ -361,42 +445,6 @@ WHERE vr.Status <> 'Reviewed and Completed'
                           SELECT 1 FROM dbo.UserClientAssignments a
                           WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
                       ) OR vr.UserID = @UserID
-                      ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
-                    : $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
-                            COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
-                            ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
-                            vr.LastEditedAt,
-                            vr.IsCurrent,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM dbo.ReviewSignoffs rs
-                                WHERE rs.RunID = vr.RunID
-                                  AND rs.SignoffRole = 'DataAnalyst'
-                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDataAnalystSignoff
-                            ,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM dbo.ReviewSignoffs rs
-                                WHERE rs.RunID = vr.RunID
-                                  AND rs.SignoffRole = 'Manager'
-                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasManagerSignoff,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM dbo.ReviewSignoffs rs
-                                WHERE rs.RunID = vr.RunID
-                                  AND rs.SignoffRole = 'Director'
-                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDirectorSignoff
-                      FROM dbo.ValidationRuns vr
-                      LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
-                      LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
-                      WHERE (
-                          EXISTS (
-                              SELECT 1 FROM dbo.UserClientAssignments a
-                              WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
-                          ) OR vr.UserID = @UserID
-                      )
-                        AND EXISTS (
-                            SELECT 1 FROM dbo.ReviewSignoffs rs
-                            WHERE rs.RunID = vr.RunID
-                              AND rs.SignoffRole = 'DataAnalyst'
-                        )
                       ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
@@ -433,9 +481,8 @@ WHERE vr.Status <> 'Reviewed and Completed'
         public async Task<List<ValidationRunRow>> GetCurrentRunsAsync(ApplicationUser? user, string role)
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
-            var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = isAdmin
                 ? @"SELECT vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
                             COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
@@ -463,8 +510,7 @@ WHERE vr.Status <> 'Reviewed and Completed'
                       LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
                       WHERE vr.IsCurrent = 1
                       ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
-                : isDataAnalyst
-                    ? @"SELECT vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
+                : @"SELECT vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
                             COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
                             ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
                             vr.LastEditedAt,
@@ -494,43 +540,6 @@ WHERE vr.Status <> 'Reviewed and Completed'
                                 SELECT 1 FROM dbo.UserClientAssignments a
                                 WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
                             ) OR vr.UserID = @UserID
-                        )
-                      ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
-                    : @"SELECT vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
-                            COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
-                            ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
-                            vr.LastEditedAt,
-                            vr.IsCurrent,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM dbo.ReviewSignoffs rs
-                                WHERE rs.RunID = vr.RunID
-                                  AND rs.SignoffRole = 'DataAnalyst'
-                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDataAnalystSignoff
-                            ,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM dbo.ReviewSignoffs rs
-                                WHERE rs.RunID = vr.RunID
-                                  AND rs.SignoffRole = 'Manager'
-                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasManagerSignoff,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM dbo.ReviewSignoffs rs
-                                WHERE rs.RunID = vr.RunID
-                                  AND rs.SignoffRole = 'Director'
-                            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDirectorSignoff
-                      FROM dbo.ValidationRuns vr
-                      LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
-                      LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
-                      WHERE vr.IsCurrent = 1
-                        AND (
-                            EXISTS (
-                                SELECT 1 FROM dbo.UserClientAssignments a
-                                WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
-                            ) OR vr.UserID = @UserID
-                        )
-                        AND EXISTS (
-                            SELECT 1 FROM dbo.ReviewSignoffs rs
-                            WHERE rs.RunID = vr.RunID
-                              AND rs.SignoffRole = 'DataAnalyst'
                         )
                       ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             if (!isAdmin)
@@ -572,13 +581,13 @@ WHERE vr.Status <> 'Reviewed and Completed'
             var creatorId = await EnsureUserMirrorAsync(creator, role);
             var autoApprove = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
 
-            await using var check = connection.CreateCommand();
+            await using var check = connection.CreateConfiguredCommand();
             check.CommandText = "SELECT COUNT(1) FROM dbo.Clients WHERE MaconomyNumber = @MaconomyNumber;";
             check.Parameters.AddWithValue("@MaconomyNumber", model.MaconomyNumber);
             if (Convert.ToInt32(await check.ExecuteScalarAsync()) > 0)
                 throw new InvalidOperationException("A client with this Maconomy number already exists.");
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 INSERT INTO dbo.Clients
 (EngagementName, MaconomyNumber, Industry, DirectorName, DirectorEmail, DirectorEmpCode, ManagerName, ManagerEmail, ManagerEmpCode, Status, CreatedBy, ApprovedBy, ApprovedAt, CreatedAt)
@@ -604,15 +613,17 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
         public async Task<ClientDetailViewModel?> GetClientDetailAsync(int clientId, ApplicationUser? user, string role)
         {
-            var clients = await GetClientsCoreAsync(user, role);
-            var client = clients.FirstOrDefault(c => c.Id == clientId);
-            if (client == null)
+            if (clientId <= 0)
+                return null;
+
+            var access = await GetClientResultsAccessAsync(clientId, user, role);
+            if (!access.CanAccess)
                 return null;
 
             await using var connection = await OpenConnectionAsync();
             ClientDetailViewModel? detail = null;
 
-            await using (var command = connection.CreateCommand())
+            await using (var command = connection.CreateConfiguredCommand())
             {
                 command.CommandText = @"
 SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, c.DirectorName, c.DirectorEmail, c.DirectorEmpCode,
@@ -642,7 +653,7 @@ WHERE c.ClientID = @ClientID;";
                     Status = reader.IsDBNull(10) ? "" : reader.GetString(10),
                     CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
                     CreatedByName = reader.IsDBNull(12) ? "" : reader.GetString(12),
-                    CurrentUserEngagementRole = client.CurrentUserEngagementRole
+                    CurrentUserEngagementRole = access.CurrentUserEngagementRole
                 };
             }
 
@@ -660,7 +671,7 @@ WHERE c.ClientID = @ClientID;";
             await EnsureClientNotArchivedAsync(connection, clientId);
             var approverId = await EnsureUserMirrorAsync(approver, role);
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE dbo.Clients
 SET Status = 'Approved',
@@ -687,7 +698,7 @@ WHERE ClientID = @ClientID
                 userId = await EnsureUserMirrorAsync(user, role);
             }
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = isAdmin
                 ? @"SELECT COUNT(1)
                     FROM dbo.Clients
@@ -712,39 +723,21 @@ WHERE ClientID = @ClientID
 
         public async Task<bool> CanAccessClientResultsAsync(int clientId, ApplicationUser? user, string role)
         {
-            var clients = await GetClientsCoreAsync(user, role);
-            return clients.Any(c =>
-                c.Id == clientId &&
-                (c.IsApproved || c.IsArchived));
+            if (clientId <= 0)
+                return false;
+
+            var access = await GetClientResultsAccessAsync(clientId, user, role);
+            return access.CanAccess;
         }
 
         public async Task<ArchiveEligibilityViewModel> GetArchiveEligibilityAsync(int clientId)
         {
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
-SELECT TOP 1
-    c.Status,
-    vr.RunID,
-    vr.RuleNumber,
-    CASE WHEN EXISTS (
-        SELECT 1 FROM dbo.ReviewSignoffs rs
-        WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
-    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDataAnalystSignoff,
-    CASE WHEN EXISTS (
-        SELECT 1 FROM dbo.ReviewSignoffs rs
-        WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'Manager'
-    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasManagerSignoff,
-    CASE WHEN EXISTS (
-        SELECT 1 FROM dbo.ReviewSignoffs rs
-        WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'Director'
-    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDirectorSignoff
+SELECT c.Status
 FROM dbo.Clients c
-LEFT JOIN dbo.ValidationRuns vr
-    ON vr.ClientID = c.ClientID
-   AND vr.IsCurrent = 1
-WHERE c.ClientID = @ClientID
-ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
+WHERE c.ClientID = @ClientID;";
             command.Parameters.AddWithValue("@ClientID", clientId);
 
             await using var reader = await command.ExecuteReaderAsync();
@@ -758,23 +751,12 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             }
 
             var status = reader.IsDBNull(0) ? "" : reader.GetString(0);
-            var runId = reader.IsDBNull(1) ? (int?)null : reader.GetInt32(1);
-            var runRuleNumber = reader.IsDBNull(2) ? (int?)null : reader.GetInt32(2);
-            var hasDataAnalystSignoff = !reader.IsDBNull(3) && reader.GetBoolean(3);
-            var hasManagerSignoff = !reader.IsDBNull(4) && reader.GetBoolean(4);
-            var hasDirectorSignoff = !reader.IsDBNull(5) && reader.GetBoolean(5);
-            var missing = new List<string>();
-            if (!hasDataAnalystSignoff) missing.Add("data analyst");
-            if (!hasManagerSignoff) missing.Add("manager");
-            if (!hasDirectorSignoff) missing.Add("director");
 
             if (string.Equals(status, "Archived", StringComparison.OrdinalIgnoreCase))
             {
                 return new ArchiveEligibilityViewModel
                 {
                     CanArchive = false,
-                    CurrentRunId = runId,
-                    CurrentRunRuleNumber = runRuleNumber,
                     Message = "This engagement is already archived."
                 };
             }
@@ -785,31 +767,45 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 return new ArchiveEligibilityViewModel
                 {
                     CanArchive = false,
-                    CurrentRunId = runId,
-                    CurrentRunRuleNumber = runRuleNumber,
                     Message = "Only active approved engagements can be archived."
                 };
             }
 
-            if (!runId.HasValue)
+            await reader.DisposeAsync();
+            var validationRuns = await GetValidationRunsForClientAsync(connection, clientId);
+            var currentRuns = validationRuns
+                .Where(run => run.IsCurrent)
+                .OrderBy(run => run.RuleNumber)
+                .ThenByDescending(run => run.RunAt)
+                .ThenByDescending(run => run.Id)
+                .ToList();
+
+            if (currentRuns.Count == 0)
             {
                 return new ArchiveEligibilityViewModel
                 {
                     CanArchive = false,
-                    Message = "Run a validation module and complete the review signoffs before archiving."
+                    Message = "No current results are available yet. Run the validation modules and complete the reviews before archiving."
                 };
             }
 
-            var canArchive = hasDataAnalystSignoff && hasManagerSignoff && hasDirectorSignoff;
+            var incompleteCurrentRuns = currentRuns
+                .Where(run => !string.Equals(run.Status, "Reviewed and Completed", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            var latestCurrentRun = currentRuns
+                .OrderByDescending(run => run.RunAt)
+                .ThenByDescending(run => run.Id)
+                .FirstOrDefault();
+            var canArchive = incompleteCurrentRuns.Count == 0;
             return new ArchiveEligibilityViewModel
             {
                 CanArchive = canArchive,
-                CurrentRunId = runId,
-                CurrentRunRuleNumber = runRuleNumber,
+                CurrentRunId = latestCurrentRun?.Id,
+                CurrentRunRuleNumber = latestCurrentRun?.RuleNumber,
                 Message = canArchive
-                    ? "All required signoffs are complete. The director can archive this engagement."
-                    : $"The current validation run still needs {FormatMissingSignoffMessage(missing)} before archiving.",
-                MissingSignoffRoles = missing
+                    ? "All current results are reviewed and completed. The engagement is ready to be archived."
+                    : BuildArchiveEligibilityMessage(incompleteCurrentRuns)
             };
         }
 
@@ -826,7 +822,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             await EnsureClientNotArchivedAsync(connection, clientId);
             var archiverId = await EnsureUserMirrorAsync(archiver, role);
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE dbo.Clients
 SET Status = 'Archived',
@@ -843,7 +839,7 @@ WHERE ClientID = @ClientID
         {
             await using var connection = await OpenConnectionAsync();
             await EnsureClientNotArchivedAsync(connection, clientId);
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 DELETE FROM dbo.UserClientAssignments WHERE ClientID = @ClientID;
 DELETE FROM dbo.ReviewSignoffs WHERE ClientID = @ClientID;
@@ -860,13 +856,13 @@ DELETE FROM dbo.Clients WHERE ClientID = @ClientID;";
             var targetUserId = await EnsureUserMirrorAsync(targetUser, engagementRole);
             var assignedById = await EnsureUserMirrorAsync(assignedBy, assignedByRole);
 
-            await using var exists = connection.CreateCommand();
+            await using var exists = connection.CreateConfiguredCommand();
             exists.CommandText = "SELECT COUNT(1) FROM dbo.UserClientAssignments WHERE UserID = @UserID AND ClientID = @ClientID;";
             exists.Parameters.AddWithValue("@UserID", targetUserId);
             exists.Parameters.AddWithValue("@ClientID", clientId);
             var hasRow = Convert.ToInt32(await exists.ExecuteScalarAsync()) > 0;
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = hasRow
                 ? @"UPDATE dbo.UserClientAssignments
                     SET EngagementRole = @EngagementRole, AssignedBy = @AssignedBy, AssignedAt = GETDATE()
@@ -884,7 +880,7 @@ DELETE FROM dbo.Clients WHERE ClientID = @ClientID;";
         {
             await using var connection = await OpenConnectionAsync();
             await EnsureAssignmentClientNotArchivedAsync(connection, clientUserId);
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "DELETE FROM dbo.UserClientAssignments WHERE AssignmentID = @Id;";
             command.Parameters.AddWithValue("@Id", clientUserId);
             await command.ExecuteNonQueryAsync();
@@ -902,7 +898,7 @@ DELETE FROM dbo.Clients WHERE ClientID = @ClientID;";
             if (!targetUserId.HasValue)
                 return;
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE dbo.Clients
 SET CreatedBy = @ReplacementUserID
@@ -960,7 +956,7 @@ WHERE UserID = @TargetUserID;";
             var timestamp = DateTime.UtcNow;
             var previousHash = await GetLatestHashAsync(connection, "dbo.AuditLog");
 
-            await using var insert = connection.CreateCommand();
+            await using var insert = connection.CreateConfiguredCommand();
             insert.CommandText = @"
 INSERT INTO dbo.AuditLog
 (UserID, Action, EntityType, EntityID, OldValues, NewValues, IPAddress, Timestamp, PreviousHash, RecordHash)
@@ -979,7 +975,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var logId = Convert.ToInt32(await insert.ExecuteScalarAsync());
 
             var recordHash = ComputeHash($@"AuditLog|{logId}|{actorUserId}|{action}|{entityType}|{entityId}|{oldValues}|{newValues}|{ipAddress}|{timestamp:o}|{previousHash}");
-            await using var update = connection.CreateCommand();
+            await using var update = connection.CreateConfiguredCommand();
             update.CommandText = "UPDATE dbo.AuditLog SET RecordHash = @RecordHash WHERE LogID = @LogID;";
             update.Parameters.AddWithValue("@RecordHash", recordHash);
             update.Parameters.AddWithValue("@LogID", logId);
@@ -989,7 +985,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         public async Task<List<AuditLogRowViewModel>> GetAuditLogsAsync(int take = 500)
         {
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = $@"
 SELECT TOP ({take})
        al.LogID,
@@ -1036,7 +1032,7 @@ ORDER BY al.Timestamp DESC, al.LogID DESC;";
                 return 0;
 
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"SELECT COUNT(1)
                                     FROM dbo.ThreadMessageRecipients r
                                     INNER JOIN dbo.ThreadMessages tm ON tm.MessageID = r.MessageID
@@ -1053,7 +1049,7 @@ ORDER BY al.Timestamp DESC, al.LogID DESC;";
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = isAdmin
                 ? $@"
 SELECT TOP ({take})
@@ -1197,7 +1193,7 @@ ORDER BY th.LastMessageAt DESC, th.ThreadID DESC;";
         {
             var (userId, _) = await ResolveUserScopeAsync(user, role);
             await using var connection = await OpenConnectionAsync();
-            await using var check = connection.CreateCommand();
+            await using var check = connection.CreateConfiguredCommand();
             check.CommandText = @"SELECT COUNT(1)
                     FROM dbo.MessageThreads th
                     WHERE th.ThreadID = @ThreadID
@@ -1224,7 +1220,7 @@ ORDER BY th.LastMessageAt DESC, th.ThreadID DESC;";
             if (Convert.ToInt32(await check.ExecuteScalarAsync()) == 0)
                 return null;
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT th.ThreadID, th.ClientID, ISNULL(th.Subject,'') AS Subject, ISNULL(c.EngagementName,'General') AS ClientName,
        ISNULL(sender.FirstName + ' ' + sender.LastName, '') AS CreatedByName, th.CreatedAt, th.LastMessageAt
@@ -1251,7 +1247,7 @@ WHERE th.ThreadID = @ThreadID;";
             };
             await reader.CloseAsync();
 
-            await using var participants = connection.CreateCommand();
+            await using var participants = connection.CreateConfiguredCommand();
             participants.CommandText = @"
 SELECT DISTINCT participant.FullName
 FROM (
@@ -1287,7 +1283,7 @@ ORDER BY participant.FullName;";
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = isAdmin
                 ? @"SELECT u.UserID, LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,''))) AS FullName, ISNULL(u.Email,'') AS Email, ISNULL(u.SystemRole,'') AS RoleName
                     FROM dbo.Users u
@@ -1338,7 +1334,7 @@ ORDER BY participant.FullName;";
             var timestamp = DateTime.UtcNow;
             var threadPrevHash = await GetLatestHashAsync(connection, "dbo.MessageThreads");
 
-            await using var threadCommand = connection.CreateCommand();
+            await using var threadCommand = connection.CreateConfiguredCommand();
             threadCommand.CommandText = @"
 INSERT INTO dbo.MessageThreads (ClientID, Subject, CreatedByUserID, CreatedAt, LastMessageAt, PreviousHash, RecordHash)
 VALUES (@ClientID, @Subject, @CreatedByUserID, @CreatedAt, @LastMessageAt, @PreviousHash, NULL);
@@ -1352,7 +1348,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var threadId = Convert.ToInt32(await threadCommand.ExecuteScalarAsync());
 
             var threadRecordHash = ComputeHash($@"MessageThread|{threadId}|{clientId}|{senderUserId}|{subject}|{timestamp:o}|{threadPrevHash}");
-            await using (var updateThread = connection.CreateCommand())
+            await using (var updateThread = connection.CreateConfiguredCommand())
             {
                 updateThread.CommandText = "UPDATE dbo.MessageThreads SET RecordHash = @RecordHash WHERE ThreadID = @ThreadID;";
                 updateThread.Parameters.AddWithValue("@RecordHash", threadRecordHash);
@@ -1383,7 +1379,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             participants.Remove(senderUserId);
             await InsertThreadMessageAsync(connection, threadId, senderUserId, body, null, participants, DateTime.UtcNow, attachments);
 
-            await using var update = connection.CreateCommand();
+            await using var update = connection.CreateConfiguredCommand();
             update.CommandText = "UPDATE dbo.MessageThreads SET LastMessageAt = GETDATE() WHERE ThreadID = @ThreadID;";
             update.Parameters.AddWithValue("@ThreadID", threadId);
             await update.ExecuteNonQueryAsync();
@@ -1398,7 +1394,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             if (!await CanAccessThreadAsync(connection, threadId, userId))
                 throw new InvalidOperationException("You cannot edit this chat.");
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE dbo.MessageThreads
 SET Subject = @Subject
@@ -1416,7 +1412,7 @@ WHERE ThreadID = @ThreadID;";
             if (!await CanAccessThreadAsync(connection, threadId, userId))
                 throw new InvalidOperationException("You cannot delete this chat.");
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 MERGE dbo.ThreadUserStates AS target
 USING (SELECT @ThreadID AS ThreadID, @UserID AS UserID) AS source
@@ -1439,7 +1435,7 @@ WHEN NOT MATCHED THEN
             if (!await CanAccessMessageAsync(connection, messageId, threadId, userId))
                 throw new InvalidOperationException("You can only edit your own messages.");
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE dbo.ThreadMessages
 SET Body = @Body,
@@ -1460,7 +1456,7 @@ WHERE MessageID = @MessageID
             if (!await CanAccessMessageAsync(connection, messageId, threadId, userId))
                 throw new InvalidOperationException("You can only delete your own messages.");
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE dbo.ThreadMessages
 SET Body = '',
@@ -1478,7 +1474,7 @@ WHERE MessageID = @MessageID
         {
             var userId = await EnsureUserMirrorAsync(user, role);
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 UPDATE r
 SET IsRead = 1,
@@ -1502,7 +1498,7 @@ WHERE tm.ThreadID = @ThreadID
             var (userId, _) = await ResolveUserScopeAsync(user, role);
             await using var connection = await OpenConnectionAsync();
 
-            await using var check = connection.CreateCommand();
+            await using var check = connection.CreateConfiguredCommand();
             check.CommandText = @"
 SELECT COUNT(1)
 FROM dbo.ClientFavorites
@@ -1513,7 +1509,7 @@ WHERE UserID = @UserID AND ClientID = @ClientID;";
 
             if (exists)
             {
-                await using var delete = connection.CreateCommand();
+                await using var delete = connection.CreateConfiguredCommand();
                 delete.CommandText = @"
 DELETE FROM dbo.ClientFavorites
 WHERE UserID = @UserID AND ClientID = @ClientID;";
@@ -1523,7 +1519,7 @@ WHERE UserID = @UserID AND ClientID = @ClientID;";
             }
             else
             {
-                await using var insert = connection.CreateCommand();
+                await using var insert = connection.CreateConfiguredCommand();
                 insert.CommandText = @"
 INSERT INTO dbo.ClientFavorites (UserID, ClientID)
 VALUES (@UserID, @ClientID);";
@@ -1545,7 +1541,7 @@ VALUES (@UserID, @ClientID);";
                 ? "all"
                 : scope.Trim().ToLowerInvariant();
             await using var connection = await OpenConnectionAsync();
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandTimeout = 60;
             command.CommandText = isAdmin
                 ? @"
@@ -1826,17 +1822,6 @@ ORDER BY c.CreatedAt DESC, c.ClientID DESC;";
                 DateTime? latestSignedOffAt = reader.IsDBNull(17) ? (DateTime?)null : reader.GetDateTime(17);
                 var isFavorite = !reader.IsDBNull(18) && reader.GetBoolean(18);
                 var currentUserEngagementRole = reader.IsDBNull(19) ? "" : reader.GetString(19);
-                var canOnlySeeSignedResults = !isAdmin && !isDataAnalyst;
-
-                if (canOnlySeeSignedResults)
-                {
-                    validationRunsCount = signedOffValidationRunsCount;
-                    latestRunId = latestSignedOffRunId;
-                    latestRunRuleNumber = latestSignedOffRunRuleNumber;
-                    lastRunStatus = latestSignedOffStatus;
-                    lastRunAt = latestSignedOffAt;
-                }
-
                 list.Add(new ClientListViewModel
                 {
                     Id = reader.GetInt32(0),
@@ -1869,7 +1854,7 @@ ORDER BY c.CreatedAt DESC, c.ClientID DESC;";
 
         private async Task<List<ClientUserRow>> GetAssignedUsersAsync(SqlConnection connection, int clientId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT a.AssignmentID, u.UserID, ISNULL(u.FirstName,'') + CASE WHEN ISNULL(u.LastName,'') = '' THEN '' ELSE ' ' + u.LastName END AS FullName,
        ISNULL(u.Email,'') AS Email, ISNULL(a.EngagementRole,'DataAnalyst') AS EngagementRole, ISNULL(a.AssignedBy,0) AS AssignedBy, a.AssignedAt
@@ -1898,7 +1883,7 @@ ORDER BY u.FirstName, u.LastName;";
 
         private async Task<List<ValidationRunRow>> GetValidationRunsForClientAsync(SqlConnection connection, int clientId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT vr.RunID, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
        COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
@@ -1960,7 +1945,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
         private async Task<List<MessageItemViewModel>> GetThreadMessagesAsync(SqlConnection connection, int threadId, int currentUserId)
         {
             var attachmentsByMessage = await GetMessageAttachmentsAsync(connection, threadId);
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT tm.MessageID,
        tm.ThreadID,
@@ -2054,7 +2039,7 @@ ORDER BY tm.SentAt ASC, tm.MessageID ASC;";
 
         private async Task<List<int>> GetThreadParticipantIdsAsync(SqlConnection connection, int threadId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT DISTINCT participant.UserID
 FROM (
@@ -2081,7 +2066,7 @@ FROM (
 
         private async Task<Dictionary<int, List<MessageAttachmentViewModel>>> GetMessageAttachmentsAsync(SqlConnection connection, int threadId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT att.AttachmentID,
        att.MessageID,
@@ -2124,7 +2109,7 @@ ORDER BY att.AttachmentID ASC;";
 
         private async Task<bool> CanAccessThreadAsync(SqlConnection connection, int threadId, int userId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT COUNT(1)
 FROM dbo.MessageThreads th
@@ -2159,7 +2144,7 @@ WHERE th.ThreadID = @ThreadID
 
         private async Task<bool> CanAccessMessageAsync(SqlConnection connection, int messageId, int threadId, int userId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT COUNT(1)
 FROM dbo.ThreadMessages tm
@@ -2177,7 +2162,7 @@ WHERE tm.MessageID = @MessageID
         {
             foreach (var participantId in userIds.Where(id => id > 0).Distinct())
             {
-                await using var command = connection.CreateCommand();
+                await using var command = connection.CreateConfiguredCommand();
                 command.CommandText = @"
 MERGE dbo.ThreadUserStates AS target
 USING (SELECT @ThreadID AS ThreadID, @UserID AS UserID) AS source
@@ -2205,7 +2190,7 @@ WHEN NOT MATCHED THEN
         {
             var previousHash = await GetLatestHashAsync(connection, "dbo.ThreadMessages");
 
-            await using var insert = connection.CreateCommand();
+            await using var insert = connection.CreateConfiguredCommand();
             insert.CommandText = @"
 INSERT INTO dbo.ThreadMessages (ThreadID, SenderUserID, Body, ReplyToMessageID, SentAt, PreviousHash, RecordHash, EditedAt, IsDeleted, DeletedAt)
 VALUES (@ThreadID, @SenderUserID, @Body, @ReplyToMessageID, @SentAt, @PreviousHash, NULL, NULL, 0, NULL);
@@ -2219,7 +2204,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var messageId = Convert.ToInt32(await insert.ExecuteScalarAsync());
 
             var recordHash = ComputeHash($@"ThreadMessage|{messageId}|{threadId}|{senderUserId}|{body}|{sentAt:o}|{replyToMessageId}|{previousHash}");
-            await using (var update = connection.CreateCommand())
+            await using (var update = connection.CreateConfiguredCommand())
             {
                 update.CommandText = "UPDATE dbo.ThreadMessages SET RecordHash = @RecordHash WHERE MessageID = @MessageID;";
                 update.Parameters.AddWithValue("@RecordHash", recordHash);
@@ -2229,7 +2214,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             foreach (var recipientId in recipientUserIds.Distinct())
             {
-                await using var recipient = connection.CreateCommand();
+                await using var recipient = connection.CreateConfiguredCommand();
                 recipient.CommandText = @"
 INSERT INTO dbo.ThreadMessageRecipients (MessageID, UserID, IsRead, ReadAt)
 VALUES (@MessageID, @UserID, 0, NULL);";
@@ -2242,7 +2227,7 @@ VALUES (@MessageID, @UserID, 0, NULL);";
             {
                 foreach (var attachment in attachments.Where(item => item != null))
                 {
-                    await using var attachmentCommand = connection.CreateCommand();
+                    await using var attachmentCommand = connection.CreateConfiguredCommand();
                     attachmentCommand.CommandText = @"
 INSERT INTO dbo.ThreadMessageAttachments (MessageID, FileName, FilePath, ContentType, FileSize, AttachmentKind, CreatedAt)
 VALUES (@MessageID, @FileName, @FilePath, @ContentType, @FileSize, @AttachmentKind, @CreatedAt);";
@@ -2271,7 +2256,7 @@ VALUES (@MessageID, @FileName, @FilePath, @ContentType, @FileSize, @AttachmentKi
 
             if (int.TryParse(userId, out var parsed))
             {
-                await using var command = connection.CreateCommand();
+                await using var command = connection.CreateConfiguredCommand();
                 command.CommandText = "SELECT TOP 1 UserID FROM dbo.Users WHERE UserID = @UserID;";
                 command.Parameters.AddWithValue("@UserID", parsed);
                 var value = await command.ExecuteScalarAsync();
@@ -2292,7 +2277,7 @@ VALUES (@MessageID, @FileName, @FilePath, @ContentType, @FileSize, @AttachmentKi
                 _ => $"SELECT TOP 1 RecordHash FROM {tableName} WHERE RecordHash IS NOT NULL;"
             };
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = sql;
             var value = await command.ExecuteScalarAsync();
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
@@ -2307,7 +2292,7 @@ VALUES (@MessageID, @FileName, @FilePath, @ContentType, @FileSize, @AttachmentKi
 
         private async Task EnsureClientNotArchivedAsync(SqlConnection connection, int clientId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT TOP 1 Status
 FROM dbo.Clients
@@ -2320,7 +2305,7 @@ WHERE ClientID = @ClientID;";
 
         private async Task EnsureAssignmentClientNotArchivedAsync(SqlConnection connection, int clientUserId)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 SELECT TOP 1 c.Status
 FROM dbo.UserClientAssignments a
@@ -2346,6 +2331,18 @@ WHERE a.AssignmentID = @AssignmentID;";
             return $"{string.Join(", ", missing.Take(missing.Count - 1))}, and {missing[^1]} signoffs";
         }
 
+        private static string BuildArchiveEligibilityMessage(IReadOnlyList<ValidationRunRow> incompleteCurrentRuns)
+        {
+            if (incompleteCurrentRuns.Count == 0)
+                return "All current results must be reviewed and completed before archiving.";
+
+            var labels = incompleteCurrentRuns
+                .Select(run => $"Rule {run.RuleNumber} ({run.Status})")
+                .ToList();
+
+            return $"Archive is locked until every current result shows Reviewed and Completed. Outstanding rules: {string.Join(", ", labels)}.";
+        }
+
         private async Task<(int UserId, bool IsAdmin)> ResolveUserScopeAsync(ApplicationUser? user, string role)
         {
             if (user == null || string.IsNullOrWhiteSpace(user.Email))
@@ -2357,7 +2354,7 @@ WHERE a.AssignmentID = @AssignmentID;";
 
         private async Task<int?> GetUserIdByEmailAsync(SqlConnection connection, string email)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = "SELECT TOP 1 UserID FROM dbo.Users WHERE Email = @Email;";
             command.Parameters.AddWithValue("@Email", email);
             var value = await command.ExecuteScalarAsync();
@@ -2383,12 +2380,98 @@ WHERE a.AssignmentID = @AssignmentID;";
                 IntegratedSecurity = true,
                 TrustServerCertificate = trust,
                 Encrypt = false,
-                ConnectTimeout = 30
+                ConnectTimeout = 180
             };
 
             var connection = new SqlConnection(builder.ConnectionString);
             await connection.OpenAsync();
             return connection;
+        }
+
+        private async Task<(bool CanAccess, string CurrentUserEngagementRole)> GetClientResultsAccessAsync(int clientId, ApplicationUser? user, string role)
+        {
+            var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+            var isDirector = string.Equals(role, "Director", StringComparison.OrdinalIgnoreCase);
+            var userId = 0;
+
+            if (!isAdmin)
+            {
+                if (user == null || string.IsNullOrWhiteSpace(user.Email))
+                    return (false, "");
+
+                userId = await EnsureUserMirrorAsync(user, role);
+            }
+
+            await using var connection = await OpenConnectionAsync();
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandTimeout = 30;
+            command.CommandText = isAdmin
+                ? @"
+SELECT
+    CASE WHEN EXISTS (
+        SELECT 1
+        FROM dbo.Clients c
+        WHERE c.ClientID = @ClientID
+          AND c.Status IN ('Approved', 'Active', 'Archived')
+    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanAccess,
+    CAST(N'Admin' AS nvarchar(50)) AS CurrentUserEngagementRole;"
+                : isDirector
+                    ? @"
+SELECT
+    CASE WHEN EXISTS (
+        SELECT 1
+        FROM dbo.Clients c
+        WHERE c.ClientID = @ClientID
+          AND c.Status IN ('Approved', 'Active', 'Archived')
+          AND (
+              c.CreatedBy = @UserID
+              OR c.Status = 'Archived'
+              OR EXISTS (
+                  SELECT 1
+                  FROM dbo.UserClientAssignments a
+                  WHERE a.ClientID = c.ClientID
+                    AND a.UserID = @UserID
+              )
+          )
+    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanAccess,
+    ISNULL((
+        SELECT TOP 1 a.EngagementRole
+        FROM dbo.UserClientAssignments a
+        WHERE a.ClientID = @ClientID
+          AND a.UserID = @UserID
+    ), '') AS CurrentUserEngagementRole;"
+                    : @"
+SELECT
+    CASE WHEN EXISTS (
+        SELECT 1
+        FROM dbo.Clients c
+        WHERE c.ClientID = @ClientID
+          AND c.Status IN ('Approved', 'Active', 'Archived')
+          AND (
+              c.Status = 'Archived'
+              OR EXISTS (
+                  SELECT 1
+                  FROM dbo.UserClientAssignments a
+                  WHERE a.ClientID = c.ClientID
+                    AND a.UserID = @UserID
+              )
+          )
+    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanAccess,
+    ISNULL((
+        SELECT TOP 1 a.EngagementRole
+        FROM dbo.UserClientAssignments a
+        WHERE a.ClientID = @ClientID
+          AND a.UserID = @UserID
+    ), '') AS CurrentUserEngagementRole;";
+            command.Parameters.AddWithValue("@ClientID", clientId);
+            if (!isAdmin)
+                command.Parameters.AddWithValue("@UserID", userId);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+                return (false, "");
+
+            return (!reader.IsDBNull(0) && reader.GetBoolean(0), reader.IsDBNull(1) ? "" : reader.GetString(1));
         }
     }
 }

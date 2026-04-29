@@ -333,7 +333,7 @@ namespace HemisAudit.Controllers
             if (model.ClientId <= 0)
                 return Json(new { success = false, error = "Select an engagement before signing off." });
 
-            if (!await CanSignWorkspaceAsync(model.ClientId, user, role))
+            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
                 return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can sign off the workspace." });
 
             if (!model.RunId.HasValue || model.RunId.Value <= 0)
@@ -379,8 +379,8 @@ namespace HemisAudit.Controllers
             if (model.ClientId <= 0 || !model.RunId.HasValue || model.RunId.Value <= 0)
                 return Json(new { success = false, error = "Select a saved run before removing signoff." });
 
-            if (!await CanSignWorkspaceAsync(model.ClientId, user, role))
-                return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can remove their signoff." });
+            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
+                return Json(new { success = false, error = "Only an assigned user can remove their own signoff." });
 
             var review = await _rule27.GetSavedRunAsync(model.RunId.Value, user?.Email);
             if (review == null || review.ClientId != model.ClientId)
@@ -592,7 +592,6 @@ namespace HemisAudit.Controllers
             var bytes = _export.ExportExcel(summary);
             var scope = summary.Sampled ? "Summary_and_Sample" : "Summary_and_All_Matches";
             var fileName = $"Rule27_{scope}_{Ts()}.xlsx";
-            SaveToDesktop(fileName, bytes);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 fileName);
@@ -605,7 +604,6 @@ namespace HemisAudit.Controllers
             var scope = summary.Sampled ? "Displayed_Sample" : "All_Matching_Records";
             var fileName = $"Rule27_{scope}_{Ts()}.csv";
             var bytes = _export.ExportCsv(summary);
-            SaveToDesktop(fileName, bytes);
             return File(bytes, "text/csv", fileName);
         }
 
@@ -623,7 +621,6 @@ namespace HemisAudit.Controllers
 
             var fileName = $"Rule27_Error_Validation_{Ts()}.sql";
             var bytes = _export.ExportSql(await _rule27.GenerateSqlAsync(request));
-            SaveToDesktop(fileName, bytes);
             return File(bytes, "application/sql", fileName);
         }
 
@@ -728,9 +725,13 @@ namespace HemisAudit.Controllers
 
             if (summary.ClientId > 0)
             {
-                var workspace = await _rule27.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: true);
-                if (workspace?.Summary != null)
-                    return workspace.Summary;
+                var workspace = await _rule27.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: false);
+                if (workspace?.RunId is int workspaceRunId && workspaceRunId > 0)
+                {
+                    var review = await _rule27.GetSavedRunAsync(workspaceRunId, user?.Email);
+                    if (review?.Summary != null)
+                        return review.Summary;
+                }
             }
 
             return summary;
@@ -750,15 +751,7 @@ namespace HemisAudit.Controllers
 
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-        private static void SaveToDesktop(string fileName, byte[] bytes)
-        {
-            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            if (string.IsNullOrWhiteSpace(desktop))
-                return;
-
-            var path = Path.Combine(desktop, fileName);
-            System.IO.File.WriteAllBytes(path, bytes);
-        }
     }
 }
+
 

@@ -1,4 +1,5 @@
 using BCrypt.Net;
+using HemisAudit.Services;
 using Microsoft.Data.SqlClient;
 using Newtonsoft.Json;
 
@@ -28,7 +29,7 @@ namespace HemisAudit.Data
             using var connection = new SqlConnection(masterConnectionString);
             await connection.OpenAsync();
 
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = $@"
 IF DB_ID(N'{EscapeSqlLiteral(database)}') IS NULL
 BEGIN
@@ -266,7 +267,7 @@ END"
 
             foreach (var ddl in ddlStatements)
             {
-                await using var command = connection.CreateCommand();
+                await using var command = connection.CreateConfiguredCommand();
                 command.CommandText = ddl;
                 await command.ExecuteNonQueryAsync();
             }
@@ -343,7 +344,7 @@ END"
 
         private static async Task EnsureIndexAsync(SqlConnection connection, string table, string indexName, bool unique, string columns)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = $@"
 IF NOT EXISTS (
     SELECT 1
@@ -359,7 +360,7 @@ END";
 
         private static async Task EnsureColumnAsync(SqlConnection connection, string table, string column, string definition)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = $@"
 IF COL_LENGTH(N'dbo.{EscapeSqlLiteral(table)}', N'{EscapeSqlLiteral(column)}') IS NULL
 BEGIN
@@ -370,7 +371,7 @@ END";
 
         private static async Task EnsureClientStatusConstraintAsync(SqlConnection connection)
         {
-            await using var command = connection.CreateCommand();
+            await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
 IF OBJECT_ID(N'dbo.Clients', N'U') IS NOT NULL
 BEGIN
@@ -406,14 +407,14 @@ END";
             const string password = "Admin@123!";
             var hash = BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
 
-            await using var check = connection.CreateCommand();
+            await using var check = connection.CreateConfiguredCommand();
             check.CommandText = "SELECT COUNT(1) FROM dbo.Users WHERE Email = @Email;";
             check.Parameters.AddWithValue("@Email", email);
             var exists = Convert.ToInt32(await check.ExecuteScalarAsync()) > 0;
             if (exists)
                 return;
 
-            await using var insert = connection.CreateCommand();
+            await using var insert = connection.CreateConfiguredCommand();
             insert.CommandText = @"
 INSERT INTO dbo.Users
 (FirstName, LastName, Email, EmployeeCode, PasswordHash, SystemRole, IsActive, MustResetPassword, PasswordSetDate, PasswordHistory, CreatedAt, CreatedBy)
@@ -437,7 +438,7 @@ VALUES
                 IntegratedSecurity = true,
                 TrustServerCertificate = trustServerCertificate,
                 Encrypt = false,
-                ConnectTimeout = 30
+                ConnectTimeout = 180
             };
 
             return builder.ConnectionString;

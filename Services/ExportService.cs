@@ -10,6 +10,7 @@ namespace HemisAudit.Services
         byte[] ExportExcel(Rule34ValidationSummary summary);
         byte[] ExportExcel(Rule26ValidationSummary summary);
         byte[] ExportExcel(Rule27ValidationSummary summary);
+        byte[] ExportExcel(Rule20ValidationSummary summary);
         byte[] ExportExcel(Rule22ValidationSummary summary);
         byte[] ExportExcel(Rule23ValidationSummary summary);
         byte[] ExportExcel(Rule24ValidationSummary summary);
@@ -22,6 +23,7 @@ namespace HemisAudit.Services
         byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false);
         byte[] ExportCsv(Rule26ValidationSummary summary);
         byte[] ExportCsv(Rule27ValidationSummary summary);
+        byte[] ExportCsv(Rule20ValidationSummary summary);
         byte[] ExportCsv(Rule22ValidationSummary summary);
         byte[] ExportCsv(Rule23ValidationSummary summary);
         byte[] ExportCsv(Rule24ValidationSummary summary);
@@ -841,6 +843,104 @@ namespace HemisAudit.Services
             return ms.ToArray();
         }
 
+        public byte[] ExportExcel(Rule20ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+            var headers = GetRule20DashboardHeaders();
+            var previewRows = BuildRule20DashboardPreviewRows(summary.ReviewRows);
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 20: FOUNDATION VALIDATION (3-PART)", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("STUD Table", summary.StudTable),
+                ("QUAL Table", summary.QualTable),
+                ("Bridge Table", summary.CregTable),
+                ("CRSE Table", summary.CrseTable),
+                ("Linkage Used", summary.TableLinkageText),
+                ("Overall PASS Rule", summary.OverallStatusRuleText),
+                ("Validation Date", summary.Timestamp),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("Foundation Students", summary.FoundationStudentCount.ToString("N0")),
+                ("Total Validated Rows", summary.TotalValidated.ToString("N0")),
+                ("PASS Rows", summary.PassCount.ToString("N0")),
+                ("FAIL Rows", summary.FailCount.ToString("N0")),
+                ("Fail Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status),
+                ("Warning", summary.Warning ?? "")
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                    if (label == "Status")
+                    {
+                        var color = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2");
+                        wsSummary.Cell(summaryRow, 2).Style.Fill.BackgroundColor = color;
+                        wsSummary.Cell(summaryRow, 2).Style.Font.Bold = true;
+                    }
+                }
+                summaryRow++;
+            }
+            if (summary.ProcedureSteps.Any())
+            {
+                wsSummary.Cell(summaryRow, 1).Value = "PROCEDURE PERFORMED";
+                wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                wsSummary.Cell(summaryRow, 1).Style.Font.FontColor = XLColor.White;
+                wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                summaryRow++;
+
+                for (var i = 0; i < summary.ProcedureSteps.Count; i++)
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = $"Step {i + 1}";
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = summary.ProcedureSteps[i];
+                    summaryRow++;
+                }
+            }
+            wsSummary.Column(1).Width = 32;
+            wsSummary.Column(2).Width = 72;
+
+            var wsRows = wb.Worksheets.Add("Validated Rows");
+            StyleHeaderRow(wsRows, 1, "RULE 20 VALIDATED ROWS", headers.Count);
+            WriteRule20DashboardHeaderRow(wsRows, 2, headers);
+            WriteRule20DashboardRows(wsRows, 3, previewRows, headers);
+
+            var failRows = previewRows
+                .Where(row => string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (failRows.Any())
+            {
+                var wsFail = wb.Worksheets.Add("FAIL Rows");
+                StyleHeaderRow(wsFail, 1, "RULE 20 FAIL ROWS", headers.Count);
+                WriteRule20DashboardHeaderRow(wsFail, 2, headers);
+                WriteRule20DashboardRows(wsFail, 3, failRows, headers);
+            }
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
         public byte[] ExportExcel(Rule22ValidationSummary summary)
         {
             using var wb = new XLWorkbook();
@@ -1400,6 +1500,31 @@ namespace HemisAudit.Services
             return Encoding.UTF8.GetBytes(sb.ToString());
         }
 
+        public byte[] ExportCsv(Rule20ValidationSummary summary)
+        {
+            var headers = GetRule20DashboardHeaders();
+            var previewRows = BuildRule20DashboardPreviewRows(summary.ReviewRows);
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", headers));
+
+            foreach (var row in previewRows)
+            {
+                sb.AppendLine(string.Join(",", headers.Select(header => CsvEscape(header switch
+                {
+                    "DBO_STUD__001" => row.QualificationCode001,
+                    "DBO_STUD__106" => row.FoundationFlag106,
+                    "DBO_CRED__001" => row.BridgeQualificationCode001,
+                    "DBO_CRED__030" => row.CourseCode030,
+                    "DBO_CRSE__091" => row.FoundationCourse091,
+                    "DBO_CRSE__030" => row.CrseCourseCode030,
+                    "RESULTS" => row.ValidationResult,
+                    _ => ""
+                }))));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
         public byte[] ExportCsv(Rule22ValidationSummary summary)
         {
             var sb = new StringBuilder();
@@ -1701,6 +1826,42 @@ namespace HemisAudit.Services
                 "Issue_Description"
             };
 
+        private static List<string> GetRule20Headers() =>
+            new()
+            {
+                "Validation_Number",
+                "Part_Code",
+                "Part_Title",
+                "Part_Description",
+                "Student_Number_007",
+                "Qualification_Code_001",
+                "Foundation_Flag_106",
+                "Bridge_Qualification_Code_001",
+                "Course_Code_030",
+                "Foundation_Course_091",
+                "Crse_Course_Code_030",
+                "Name_019",
+                "ID_Number_024",
+                "Qualification_Description_003",
+                "Qualification_Type_005",
+                "Student_Type",
+                "Notebook_Status",
+                "Validation_Result",
+                "Validation_Explanation"
+            };
+
+        private static List<string> GetRule20DashboardHeaders() =>
+            new()
+            {
+                "DBO_STUD__001",
+                "DBO_STUD__106",
+                "DBO_CRED__001",
+                "DBO_CRED__030",
+                "DBO_CRSE__091",
+                "DBO_CRSE__030",
+                "RESULTS"
+            };
+
         private static List<string> GetRule22Headers() =>
             new()
             {
@@ -1875,6 +2036,18 @@ namespace HemisAudit.Services
             }
         }
 
+        private static void WriteRule20HeaderRow(IXLWorksheet ws, int row, List<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
         private static void WriteRule22HeaderRow(IXLWorksheet ws, int row, List<string> headers)
         {
             for (var i = 0; i < headers.Count; i++)
@@ -1968,6 +2141,103 @@ namespace HemisAudit.Services
 
             for (var c = 1; c <= headers.Count; c++)
                 ws.Column(c).AdjustToContents();
+        }
+
+        private static void WriteRule20Rows(IXLWorksheet ws, int startRow, List<Rule20ReviewRowViewModel> rows, List<string> headers)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = header switch
+                    {
+                        "Validation_Number" => row.ValidationNumber.ToString(),
+                        "Part_Code" => row.PartCode,
+                        "Part_Title" => row.PartTitle,
+                        "Part_Description" => row.PartDescription,
+                        "Student_Number_007" => row.StudentNumber007,
+                        "Qualification_Code_001" => row.QualificationCode001,
+                        "Foundation_Flag_106" => row.FoundationFlag106,
+                        "Bridge_Qualification_Code_001" => row.BridgeQualificationCode001,
+                        "Course_Code_030" => row.CourseCode030,
+                        "Foundation_Course_091" => row.FoundationCourse091,
+                        "Crse_Course_Code_030" => row.CrseCourseCode030,
+                        "Name_019" => row.Name019,
+                        "ID_Number_024" => row.IdNumber024,
+                        "Qualification_Description_003" => row.QualificationDescription003,
+                        "Qualification_Type_005" => row.QualificationType005,
+                        "Student_Type" => row.StudentType,
+                        "Notebook_Status" => row.NotebookStatus,
+                        "Validation_Result" => row.ValidationResult,
+                        "Validation_Explanation" => row.ValidationExplanation,
+                        _ => ""
+                    };
+
+                    ws.Cell(rowIndex, i + 1).Value = value;
+                }
+
+                var fill = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)
+                    ? "#FFF3F3"
+                    : "#F3FFF3";
+                ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml(fill);
+                rowIndex++;
+            }
+
+            for (var c = 1; c <= headers.Count; c++)
+                ws.Column(c).AdjustToContents();
+        }
+
+        private static void WriteRule20DashboardHeaderRow(IXLWorksheet ws, int row, List<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
+        private static void WriteRule20DashboardRows(IXLWorksheet ws, int startRow, List<Rule20ReviewRowViewModel> rows, List<string> headers)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = header switch
+                    {
+                        "DBO_STUD__001" => row.QualificationCode001,
+                        "DBO_STUD__106" => row.FoundationFlag106,
+                        "DBO_CRED__001" => row.BridgeQualificationCode001,
+                        "DBO_CRED__030" => row.CourseCode030,
+                        "DBO_CRSE__091" => row.FoundationCourse091,
+                        "DBO_CRSE__030" => row.CrseCourseCode030,
+                        "RESULTS" => row.ValidationResult,
+                        _ => ""
+                    };
+
+                    ws.Cell(rowIndex, i + 1).Value = value;
+                }
+
+                var fill = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)
+                    ? "#FFF3F3"
+                    : "#F3FFF3";
+                ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml(fill);
+                rowIndex++;
+            }
+
+            for (var c = 1; c <= headers.Count; c++)
+                ws.Column(c).AdjustToContents();
+        }
+
+        private static List<Rule20ReviewRowViewModel> BuildRule20DashboardPreviewRows(List<Rule20ReviewRowViewModel> rows)
+        {
+            return (rows ?? new List<Rule20ReviewRowViewModel>()).ToList();
         }
 
         private static void WriteRule22Rows(IXLWorksheet ws, int startRow, List<Rule22ReviewRowViewModel> rows, List<string> headers)

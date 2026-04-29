@@ -9,10 +9,10 @@
     var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
     var previewRows = Model.Summary.MatchingRows
         .Where(row => string.Equals(row.BreakdownValue, "PASS", StringComparison.OrdinalIgnoreCase))
-        .Take(25)
+        .Take(10)
         .ToList();
     if (!previewRows.Any())
-        previewRows = Model.Summary.MatchingRows.Take(25).ToList();
+        previewRows = Model.Summary.MatchingRows.Take(10).ToList();
 
     var preferredHeaders = new[] { "Control_Type", "Sample_Number", "FTE_Indicator_010", "Validation_Result", "_007", "_008", "_001", "_009", "_010", "_011" };
     var displayKeys = previewRows
@@ -104,7 +104,7 @@
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
-        The assigned data analyst must sign off before managers, directors, and trainees can download this run.
+        The data analyst signoff is still outstanding. Assigned users can still review and download this run.
     </div>
 }
 

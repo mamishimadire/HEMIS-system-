@@ -332,36 +332,26 @@ function isArchivedWorkspace() {
 }
 
 async function post(url, data) {
-    const response = await fetch(url, {
+    return await window.fetchJsonWithProgress(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     });
-    return response.json();
 }
 
 async function getJson(url) {
-    const response = await fetch(url, { method: 'GET' });
-    return response.json();
+    return await window.fetchJsonWithProgress(url, { method: 'GET' });
 }
 
 async function downloadPost(url, data, filename) {
-    const response = await fetch(url, {
+    await window.downloadFileWithProgress({
+        url,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
+        defaultFileName: filename,
+        label: 'Downloading result'
     });
-
-    if (!response.ok) {
-        alert('Download failed');
-        return;
-    }
-
-    const blob = await response.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
 }
 
 function resetWorkspaceState(clearClient) {
@@ -417,10 +407,20 @@ function renderWorkspaceState() {
         currentSystemRole === 'DataAnalyst' ||
         ((currentRole === 'Manager' || currentRole === 'Director') && state.resultsVisible)
     );
-
-    document.getElementById('saveWorkspaceBtn').style.display = canEdit ? 'inline-flex' : 'none';
-    document.getElementById('signOffBtn').style.display = canSign ? 'inline-flex' : 'none';
-    document.getElementById('removeWorkspaceSignoffBtn').style.display = canSign && state.currentUserHasSignedOff ? 'inline-flex' : 'none';
+    const signedOffLock = !!state.currentUserHasSignedOff;
+    window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signedOffLock);
+    window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signedOffLock);
+    window.ruleWorkspaceUi.applyStates([
+        { target: 'saveWorkspaceBtn', show: canEdit, disabled: !canEdit || !state.currentRunId || signedOffLock },
+        { target: 'signOffBtn', show: canSign, disabled: !canSign || signedOffLock },
+        { target: 'removeWorkspaceSignoffBtn', show: canSign && state.currentUserHasSignedOff, disabled: !canSign || !state.currentUserHasSignedOff },
+        { target: 'runValidationBtn', disabled: !canEdit || signedOffLock },
+        { target: 'generateSqlBtn', disabled: !canEdit || signedOffLock },
+        { target: 'signoffComment', disabled: !canSign || signedOffLock }
+    ]);
+    window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
+        allow: ['#downloadAllBtn', '#removeWorkspaceSignoffBtn']
+    });
 
     if (!state.currentRunId) {
         setWorkspaceRunState('No saved run loaded', 'neutral');
@@ -850,6 +850,9 @@ function validateConfig() {
     if (!state.startYear || !state.endYear) missing.push('holiday year range');
 
     if (missing.length) {
+        if (!state.clientId) {
+            setWorkspaceInfo('Select the approved engagement assigned to you before running this rule.', 'warning');
+        }
         setStatus('validationContent', `Please select ${missing.join(', ')} first.`, 'warning');
         switchTab('validation');
         return false;
@@ -919,7 +922,7 @@ function applyValidationResult(result, switchToValidationTab) {
 }
 
 function renderValidationResults(r) {
-    const rows = (r.validationRows || []).slice(0, 150).map(row => `
+    const rows = (r.validationRows || []).slice(0, 10).map(row => `
         <tr>
             <td>${row.validationNumber}</td>
             <td>${escapeHtml(row.firstDayValue)}</td>
@@ -966,7 +969,7 @@ function renderValidationResults(r) {
                 <tbody>${rows}</tbody>
             </table>
         </div>
-        ${(r.validationRows || []).length > 150 ? '<div style="margin-top:12px;color:#757575">Showing the first 150 rows here. Use the downloads for the full result set.</div>' : ''}`;
+        ${(r.validationRows || []).length > 10 ? '<div style="margin-top:12px;color:#757575">Showing the first 10 rows here. Use the downloads for the full result set.</div>' : ''}`;
 }
 
 function renderExceptions(r) {
@@ -1238,17 +1241,17 @@ async function downloadAll() {
     if (!state.validationResult) return alert('Run validation first.');
 
     const tasks = [];
-    if (document.getElementById('chkExcel').checked) tasks.push(downloadExcel());
-    if (document.getElementById('chkCsv').checked) tasks.push(downloadCsv());
-    if (document.getElementById('chkExceptionsCsv').checked) tasks.push(downloadExceptionsCsv());
-    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql').checked) tasks.push(downloadSql());
+    if (document.getElementById('chkExcel').checked) tasks.push(() => downloadExcel());
+    if (document.getElementById('chkCsv').checked) tasks.push(() => downloadCsv());
+    if (document.getElementById('chkExceptionsCsv').checked) tasks.push(() => downloadExceptionsCsv());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql').checked) tasks.push(() => downloadSql());
 
     if (!tasks.length) {
         alert('Select at least one download format.');
         return;
     }
 
-    for (const task of tasks) await task;
+    for (const task of tasks) await task();
 }
 
 function copyToClipboard(id) {

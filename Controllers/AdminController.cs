@@ -143,7 +143,7 @@ namespace HemisAudit.Controllers
             await _audit.LogAsync("create_user", $"Created user {user.Email} with role {model.Role}",
                 admin?.Id, admin?.Email);
 
-            TempData["Success"] = $"User {user.FullName} created successfully.";
+            TempData["Success"] = $"Team member {user.FullName} added successfully.";
             return RedirectToAction(nameof(Users));
         }
 
@@ -504,7 +504,7 @@ namespace HemisAudit.Controllers
                 $"Assigned {assignedUser.Email} to client {model.ClientId} as {model.EngagementRole}",
                 admin?.Id, admin?.Email);
 
-            TempData["Success"] = $"{assignedUser.FullName} assigned to engagement.";
+            TempData["Success"] = $"{assignedUser.FullName} added to the engagement team.";
 
             return RedirectToAction(nameof(ClientDetail), new { id = model.ClientId });
         }

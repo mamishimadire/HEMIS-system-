@@ -330,12 +330,11 @@
     }
 
     async function postJson(url, data) {
-        const response = await fetch(url, {
+        return await window.fetchJsonWithProgress(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-        return await response.json();
     }
 
     async function fetchWorkspace() {
@@ -346,8 +345,7 @@
 
         const requestVersion = ++state.workspaceRequestVersion;
         const mutationVersionAtStart = state.uiMutationVersion;
-        const response = await fetch(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`);
-        const data = await response.json();
+        const data = await window.fetchJsonWithProgress(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`, { method: 'GET' });
         if (requestVersion !== state.workspaceRequestVersion || mutationVersionAtStart !== state.uiMutationVersion) {
             return;
         }
@@ -401,7 +399,7 @@
             els.downloadAllBtn.disabled = false;
             setWorkspaceInfo('success', 'Saved workspace loaded. The last analyst configuration and results are ready.');
         } else if (workspace.summary && !resultsVisible) {
-            setWorkspaceInfo('warning', 'A saved workspace exists, but results remain hidden until the assigned data analyst signs off.');
+            setWorkspaceInfo('warning', 'A saved workspace exists. The analyst signoff is still pending, but the saved results remain visible to assigned users.');
         }
 
         updateWorkspaceButtons();
@@ -427,39 +425,28 @@
             (state.resultsVisible && (role === 'Manager' || role === 'Director'))
         );
         const signedOffLock = !!state.currentUserHasSignedOff;
-        const removeBtn = document.getElementById('removeSignoffBtn');
-        const rootShell = document.getElementById('app');
-        const connectBtn = document.getElementById('connectBtn');
-        const verifyBtn = document.getElementById('verifyBtn');
-        const verifyBtnBar = document.getElementById('verifyBtnBar');
-        const loadValuesBtn = document.getElementById('loadValuesBtn');
-        const runBtn = document.getElementById('runBtn');
-        const sqlBtn = document.getElementById('sqlBtn');
-        const beginEditBtn = document.getElementById('beginEditBtn');
-        const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
-        const signoffBtn = document.getElementById('signoffBtn');
-
-        if (rootShell) {
-            rootShell.classList.toggle('module-readonly', !canEdit || signedOffLock);
-        }
-
-        if (beginEditBtn) beginEditBtn.disabled = !canEdit || !state.currentRunId || signedOffLock;
-        if (saveWorkspaceBtn) saveWorkspaceBtn.disabled = !canEdit || !state.currentRunId || signedOffLock;
-        if (signoffBtn) signoffBtn.disabled = !canSign || !state.currentRunId || signedOffLock;
-        if (connectBtn) connectBtn.disabled = !canEdit || signedOffLock;
-        if (verifyBtn) verifyBtn.disabled = !canEdit || signedOffLock;
-        if (verifyBtnBar) verifyBtnBar.disabled = !canEdit || signedOffLock;
-        if (loadValuesBtn) loadValuesBtn.disabled = !canEdit || signedOffLock;
-        if (runBtn) runBtn.disabled = !canEdit || signedOffLock;
-        if (sqlBtn) sqlBtn.disabled = !canEdit || signedOffLock;
-        if (removeBtn) {
-            removeBtn.style.display = canSign && state.currentUserHasSignedOff ? 'inline-flex' : 'none';
-            removeBtn.disabled = !canSign || !state.currentUserHasSignedOff;
-        }
-
-        if (els.workspaceSignoffComment) {
-            els.workspaceSignoffComment.disabled = !canSign || signedOffLock;
-        }
+        window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signedOffLock);
+        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signedOffLock);
+        window.ruleWorkspaceUi.applyStates([
+            { target: 'beginEditBtn', disabled: !canEdit || !state.currentRunId || signedOffLock },
+            { target: 'saveWorkspaceBtn', disabled: !canEdit || !state.currentRunId || signedOffLock },
+            { target: 'signoffBtn', disabled: !canSign || !state.currentRunId || signedOffLock },
+            { target: 'connectBtn', disabled: !canEdit || signedOffLock },
+            { target: 'verifyBtn', disabled: !canEdit || signedOffLock },
+            { target: 'verifyBtnBar', disabled: !canEdit || signedOffLock },
+            { target: 'loadValuesBtn', disabled: !canEdit || signedOffLock },
+            { target: 'runBtn', disabled: !canEdit || signedOffLock },
+            { target: 'sqlBtn', disabled: !canEdit || signedOffLock },
+            {
+                target: 'removeSignoffBtn',
+                show: canSign && state.currentUserHasSignedOff,
+                disabled: !canSign || !state.currentUserHasSignedOff
+            },
+            { target: els.workspaceSignoffComment, disabled: !canSign || signedOffLock }
+        ]);
+        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
+            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
+        });
     }
 
     function getRequest() {
@@ -656,6 +643,10 @@
             showSpinner('Running Rule 29 filter...');
             state.uiMutationVersion++;
             const request = getRequest();
+            if (!request.clientId) {
+                setWorkspaceInfo('info', 'Select the approved engagement assigned to you before running this rule.');
+                return;
+            }
             const data = await postJson(`${apiBasePath}/RunValidation`, request);
             if (!data.success) {
                 setAlert(els.results, 'danger', data.error || 'Filter run failed.');
@@ -806,9 +797,7 @@
             return `<tr>${cells}</tr>`;
         }).join('');
 
-        const noteHtml = summary.sampled
-            ? `<div class="alert alert--info" style="margin-bottom:16px">100% testing found ${summary.matchingCount.toLocaleString()} matching records. The table below shows the saved random sample of ${summary.displayedCount.toLocaleString()} matching rows.</div>`
-            : `<div class="alert alert--info" style="margin-bottom:16px">100% testing found ${summary.matchingCount.toLocaleString()} matching records, and all matching rows are shown below.</div>`;
+        const noteHtml = `<div class="alert alert--info" style="margin-bottom:16px">100% testing found ${summary.matchingCount.toLocaleString()} matching records. The browser shows only the first ${summary.displayedCount.toLocaleString()} row(s) to stay responsive.</div>`;
 
         els.details.innerHTML = bodyHtml
             ? `<div class="card" style="padding:20px">${noteHtml}<h3 class="section-title" style="margin-top:0">${summary.sampled ? 'Displayed Random Sample' : 'Matching Records'}</h3><div style="overflow:auto"><table class="data-table"><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div></div>`
@@ -838,7 +827,7 @@
                 <div class="viz-card">
                     <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">${summary.sampled ? 'Displayed Sample Size' : 'Displayed Matching Rows'}</div>
                     <div style="font-size:36px;font-weight:800;color:#0f766e">${summary.displayedCount.toLocaleString()}</div>
-                    <div style="color:#64748b;margin-top:10px">${summary.sampled ? `100% testing found ${summary.matchingCount.toLocaleString()} matches. This view and download keep the same random sample of ${summary.displayedCount.toLocaleString()} rows.` : 'All matching records are displayed and downloaded.'}</div>
+                    <div style="color:#64748b;margin-top:10px">The browser preview is limited to the first ${summary.displayedCount.toLocaleString()} row(s).</div>
                 </div>
             </div>
             <div class="card" style="padding:20px;margin-top:20px">
@@ -856,21 +845,17 @@
     }
 
     async function downloadBlob(url, payload, defaultName) {
-        const response = await fetch(url, {
+        await window.downloadFileWithProgress({
+            url,
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
-            body: JSON.stringify(payload)
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(payload),
+            defaultFileName: defaultName,
+            label: 'Downloading result'
         });
-
-        const blob = await response.blob();
-        const href = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = href;
-        a.download = defaultName;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(href);
     }
 
     function escapeHtml(value) {

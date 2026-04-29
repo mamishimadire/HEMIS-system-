@@ -76,7 +76,7 @@
 @if (!Model.HasDataAnalystSignoff && !isArchived)
 {
     <div class="alert alert--warning" style="margin-bottom:24px">
-        The assigned data analyst must sign off before managers, directors, and trainees can download this run.
+        The data analyst signoff is still outstanding. Assigned users can still review and download this run.
     </div>
 }
 
@@ -224,7 +224,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var row in Model.Summary.ExcludedRows.Take(200))
+                            @foreach (var row in Model.Summary.ExcludedRows.Take(10))
                             {
                                 <tr>
                                     @foreach (var header in detailHeaders)
@@ -267,7 +267,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var row in Model.Summary.RemainingRows.Take(200))
+                            @foreach (var row in Model.Summary.RemainingRows.Take(10))
                             {
                                 <tr>
                                     @foreach (var header in detailHeaders)

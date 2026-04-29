@@ -451,8 +451,10 @@ namespace HemisAudit.ViewModels
         public decimal PassedRuleRecordRate { get; set; }
         public decimal FailedRuleRecordRate { get; set; }
         public int AnalystSignedRuns { get; set; }
+        public int UnsignedAnalystRuns { get; set; }
         public int ManagerSignedRuns { get; set; }
         public int DirectorSignedRuns { get; set; }
+        public int HistorySignedRuns { get; set; }
         public string CurrentScope { get; set; } = "active";
         public string? CurrentSearch { get; set; }
         public List<ClientListViewModel> PortfolioClients { get; set; } = new();
@@ -460,6 +462,9 @@ namespace HemisAudit.ViewModels
         public List<ClientListViewModel> PendingApprovalQueue { get; set; } = new();
         public List<DashboardIndustryMetric> IndustryBreakdown { get; set; } = new();
         public List<DashboardRuleOutcomeMetric> RuleOutcomeBreakdown { get; set; } = new();
+        public List<DashboardRuleOutcomeMetric> HistoryRuleOutcomeBreakdown { get; set; } = new();
+        public List<ValidationRunRow> CurrentRuns { get; set; } = new();
+        public List<ValidationRunRow> HistoryRuns { get; set; } = new();
         public List<ValidationRunRow> RecentRuns { get; set; } = new();
         public string CurrentUserName { get; set; } = "";
         public string CurrentUserRole { get; set; } = "";
