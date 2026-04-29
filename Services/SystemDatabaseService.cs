@@ -191,7 +191,22 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ClientFavorites_UserCl
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Clients_StatusCreated' AND object_id = OBJECT_ID('dbo.Clients'))
     CREATE INDEX IX_Clients_StatusCreated
     ON dbo.Clients (Status, CreatedAt DESC, ClientID DESC)
-    INCLUDE (EngagementName, MaconomyNumber, Industry, CreatedBy, DirectorName, ManagerName);";
+    INCLUDE (EngagementName, MaconomyNumber, Industry, CreatedBy, DirectorName, ManagerName);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ValidationRuns_ClientTimestampDashboard' AND object_id = OBJECT_ID('dbo.ValidationRuns'))
+    CREATE INDEX IX_ValidationRuns_ClientTimestampDashboard
+    ON dbo.ValidationRuns (ClientID, RunTimestamp DESC, RunID DESC)
+    INCLUDE (RuleNumber, RuleName, Status, TotalRecords, PassCount, FailCount, ExceptionRate, UserID, RunByUserName, LastEditedByUserName, LastEditedAt, IsCurrent);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ReviewSignoffs_RunSummary' AND object_id = OBJECT_ID('dbo.ReviewSignoffs'))
+    CREATE INDEX IX_ReviewSignoffs_RunSummary
+    ON dbo.ReviewSignoffs (RunID)
+    INCLUDE (SignoffRole, ReviewerID, SignedOffAt, Comment);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Clients_StatusClient' AND object_id = OBJECT_ID('dbo.Clients'))
+    CREATE INDEX IX_Clients_StatusClient
+    ON dbo.Clients (Status, ClientID)
+    INCLUDE (EngagementName, MaconomyNumber, CreatedAt, CreatedBy);";
                 await command.ExecuteNonQueryAsync();
                 _performanceObjectsReady = true;
             }
@@ -608,7 +623,40 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             command.Parameters.AddWithValue("@ApprovedBy", autoApprove ? creatorId : DBNull.Value);
             command.Parameters.AddWithValue("@ApprovedAt", autoApprove ? DateTime.UtcNow : DBNull.Value);
             var created = await command.ExecuteScalarAsync();
-            return Convert.ToInt32(created);
+            var clientId = Convert.ToInt32(created);
+
+            if (string.Equals(role, "Director", StringComparison.OrdinalIgnoreCase))
+            {
+                await using var assignmentExists = connection.CreateConfiguredCommand();
+                assignmentExists.CommandText = @"
+SELECT COUNT(1)
+FROM dbo.UserClientAssignments
+WHERE UserID = @UserID
+  AND ClientID = @ClientID;";
+                assignmentExists.Parameters.AddWithValue("@UserID", creatorId);
+                assignmentExists.Parameters.AddWithValue("@ClientID", clientId);
+                var hasAssignment = Convert.ToInt32(await assignmentExists.ExecuteScalarAsync()) > 0;
+
+                await using var assignmentCommand = connection.CreateConfiguredCommand();
+                assignmentCommand.CommandText = hasAssignment
+                    ? @"
+UPDATE dbo.UserClientAssignments
+SET EngagementRole = @EngagementRole,
+    AssignedBy = @AssignedBy,
+    AssignedAt = GETDATE()
+WHERE UserID = @UserID
+  AND ClientID = @ClientID;"
+                    : @"
+INSERT INTO dbo.UserClientAssignments (UserID, ClientID, EngagementRole, AssignedBy, AssignedAt)
+VALUES (@UserID, @ClientID, @EngagementRole, @AssignedBy, GETDATE());";
+                assignmentCommand.Parameters.AddWithValue("@UserID", creatorId);
+                assignmentCommand.Parameters.AddWithValue("@ClientID", clientId);
+                assignmentCommand.Parameters.AddWithValue("@EngagementRole", "Director");
+                assignmentCommand.Parameters.AddWithValue("@AssignedBy", creatorId);
+                await assignmentCommand.ExecuteNonQueryAsync();
+            }
+
+            return clientId;
         }
 
         public async Task<ClientDetailViewModel?> GetClientDetailAsync(int clientId, ApplicationUser? user, string role)
@@ -695,7 +743,7 @@ WHERE ClientID = @ClientID
                 if (user == null || string.IsNullOrWhiteSpace(user.Email))
                     return false;
 
-                userId = await EnsureUserMirrorAsync(user, role);
+                userId = await ResolveExistingUserScopeIdAsync(user, role);
             }
 
             await using var command = connection.CreateConfiguredCommand();
@@ -706,14 +754,11 @@ WHERE ClientID = @ClientID
                       AND Status IN ('Approved', 'Active');"
                 : @"SELECT COUNT(1)
                     FROM dbo.Clients c
+                    INNER JOIN dbo.UserClientAssignments a
+                        ON a.ClientID = c.ClientID
+                       AND a.UserID = @UserID
                     WHERE c.ClientID = @ClientID
-                      AND c.Status IN ('Approved', 'Active')
-                      AND EXISTS (
-                          SELECT 1
-                          FROM dbo.UserClientAssignments a
-                          WHERE a.ClientID = c.ClientID
-                            AND a.UserID = @UserID
-                      );";
+                      AND c.Status IN ('Approved', 'Active');";
             command.Parameters.AddWithValue("@ClientID", clientId);
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
@@ -1532,7 +1577,6 @@ VALUES (@UserID, @ClientID);";
         private async Task<List<ClientListViewModel>> GetClientsCoreAsync(ApplicationUser? user, string role, string? search = null, string scope = "all")
         {
             var (userId, isAdmin) = await ResolveUserScopeAsync(user, role);
-            var isDirector = string.Equals(role, "Director", StringComparison.OrdinalIgnoreCase);
             var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);
             var normalizedSearch = string.IsNullOrWhiteSpace(search)
                 ? null
@@ -1622,92 +1666,6 @@ WHERE 1 = 1"
         ))
     )
 ORDER BY c.CreatedAt DESC, c.ClientID DESC;"
-                : isDirector
-                ? @"
-SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS Industry, c.Status, c.CreatedAt,
-       ISNULL(u.FirstName + ' ' + u.LastName, '') AS CreatedByName,
-       (SELECT COUNT(1) FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID) AS AssignedUsersCount,
-       (SELECT COUNT(1) FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID) AS ValidationRunsCount,
-       (SELECT COUNT(1)
-        FROM dbo.ValidationRuns vr
-        WHERE vr.ClientID = c.ClientID
-          AND EXISTS (
-              SELECT 1 FROM dbo.ReviewSignoffs rs
-              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
-          )) AS SignedOffValidationRunsCount,
-       (SELECT TOP 1 vr.RunID FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunId,
-       (SELECT TOP 1 vr.RuleNumber FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestRunRuleNumber,
-       (SELECT TOP 1 vr.RunID
-        FROM dbo.ValidationRuns vr
-        WHERE vr.ClientID = c.ClientID
-          AND EXISTS (
-              SELECT 1 FROM dbo.ReviewSignoffs rs
-              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
-          )
-        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunId,
-       (SELECT TOP 1 vr.RuleNumber
-        FROM dbo.ValidationRuns vr
-        WHERE vr.ClientID = c.ClientID
-          AND EXISTS (
-              SELECT 1 FROM dbo.ReviewSignoffs rs
-              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
-          )
-        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffRunRuleNumber,
-       (SELECT TOP 1 vr.Status FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunStatus,
-       (SELECT TOP 1 vr.RunTimestamp FROM dbo.ValidationRuns vr WHERE vr.ClientID = c.ClientID ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LastRunAt,
-       (SELECT TOP 1 vr.Status
-        FROM dbo.ValidationRuns vr
-        WHERE vr.ClientID = c.ClientID
-          AND EXISTS (
-              SELECT 1 FROM dbo.ReviewSignoffs rs
-              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
-          )
-        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffStatus,
-       (SELECT TOP 1 vr.RunTimestamp
-        FROM dbo.ValidationRuns vr
-        WHERE vr.ClientID = c.ClientID
-          AND EXISTS (
-              SELECT 1 FROM dbo.ReviewSignoffs rs
-              WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst'
-          )
-        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC) AS LatestSignedOffAt,
-       CAST(CASE WHEN EXISTS (
-           SELECT 1 FROM dbo.ClientFavorites f
-           WHERE f.ClientID = c.ClientID AND f.UserID = @UserID
-       ) THEN 1 ELSE 0 END AS BIT) AS IsFavorite,
-       ISNULL((SELECT TOP 1 a.EngagementRole FROM dbo.UserClientAssignments a WHERE a.ClientID = c.ClientID AND a.UserID = @UserID), '') AS CurrentUserEngagementRole
-FROM dbo.Clients c
-LEFT JOIN dbo.Users u ON u.UserID = c.CreatedBy
-WHERE (
-       c.CreatedBy = @UserID
-       OR c.Status = 'Archived'
-       OR EXISTS (
-           SELECT 1 FROM dbo.UserClientAssignments a
-           WHERE a.ClientID = c.ClientID AND a.UserID = @UserID
-       )
-   )"
-                    + (normalizedSearch != null
-                        ? @"
-  AND (
-        LOWER(c.EngagementName) LIKE @Search
-        OR LOWER(c.MaconomyNumber) LIKE @Search
-        OR LOWER(ISNULL(c.Industry, '')) LIKE @Search
-        OR LOWER(ISNULL(c.Status, '')) LIKE @Search
-        OR LOWER(ISNULL(c.DirectorName, '')) LIKE @Search
-        OR LOWER(ISNULL(c.ManagerName, '')) LIKE @Search
-        OR LOWER(ISNULL(u.FirstName, '') + ' ' + ISNULL(u.LastName, '')) LIKE @Search
-    )"
-                        : "") + @"
-  AND (
-        @Scope = 'all'
-        OR (@Scope = 'active' AND c.Status IN ('Approved', 'Active'))
-        OR (@Scope = 'archived' AND c.Status = 'Archived')
-        OR (@Scope = 'favorites' AND EXISTS (
-            SELECT 1 FROM dbo.ClientFavorites f
-            WHERE f.ClientID = c.ClientID AND f.UserID = @UserID
-        ))
-    )
-ORDER BY c.CreatedAt DESC, c.ClientID DESC;"
                 : @"
 SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS Industry, c.Status, c.CreatedAt,
        ISNULL(u.FirstName + ' ' + u.LastName, '') AS CreatedByName,
@@ -1764,8 +1722,7 @@ SELECT c.ClientID, c.EngagementName, c.MaconomyNumber, ISNULL(c.Industry, '') AS
 FROM dbo.Clients c
 LEFT JOIN dbo.Users u ON u.UserID = c.CreatedBy
 WHERE (
-       c.Status = 'Archived'
-       OR EXISTS (
+       EXISTS (
            SELECT 1 FROM dbo.UserClientAssignments a
            WHERE a.ClientID = c.ClientID AND a.UserID = @UserID
        )
@@ -1885,32 +1842,29 @@ ORDER BY u.FirstName, u.LastName;";
         {
             await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
+WITH SignoffSummary AS
+(
+    SELECT
+        rs.RunID,
+        COUNT(1) AS SignoffCount,
+        MAX(CASE WHEN ISNULL(rs.SignoffRole, '') = 'DataAnalyst' THEN 1 ELSE 0 END) AS HasDataAnalystSignoff,
+        MAX(CASE WHEN ISNULL(rs.SignoffRole, '') = 'Manager' THEN 1 ELSE 0 END) AS HasManagerSignoff,
+        MAX(CASE WHEN ISNULL(rs.SignoffRole, '') = 'Director' THEN 1 ELSE 0 END) AS HasDirectorSignoff
+    FROM dbo.ReviewSignoffs rs
+    GROUP BY rs.RunID
+)
 SELECT vr.RunID, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
        COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
        ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
        vr.LastEditedAt,
        vr.IsCurrent,
-       (SELECT COUNT(1) FROM dbo.ReviewSignoffs rs WHERE rs.RunID = vr.RunID) AS SignoffCount,
-       CASE WHEN EXISTS (
-            SELECT 1
-            FROM dbo.ReviewSignoffs rs
-            WHERE rs.RunID = vr.RunID
-              AND ISNULL(rs.SignoffRole, '') = 'DataAnalyst'
-       ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDataAnalystSignoff,
-       CASE WHEN EXISTS (
-            SELECT 1
-            FROM dbo.ReviewSignoffs rs
-            WHERE rs.RunID = vr.RunID
-              AND ISNULL(rs.SignoffRole, '') = 'Manager'
-       ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasManagerSignoff,
-       CASE WHEN EXISTS (
-            SELECT 1
-            FROM dbo.ReviewSignoffs rs
-            WHERE rs.RunID = vr.RunID
-              AND ISNULL(rs.SignoffRole, '') = 'Director'
-       ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasDirectorSignoff
+       ISNULL(ss.SignoffCount, 0) AS SignoffCount,
+       CAST(ISNULL(ss.HasDataAnalystSignoff, 0) AS bit) AS HasDataAnalystSignoff,
+       CAST(ISNULL(ss.HasManagerSignoff, 0) AS bit) AS HasManagerSignoff,
+       CAST(ISNULL(ss.HasDirectorSignoff, 0) AS bit) AS HasDirectorSignoff
 FROM dbo.ValidationRuns vr
 LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
+LEFT JOIN SignoffSummary ss ON ss.RunID = vr.RunID
 WHERE vr.ClientID = @ClientID
 ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             command.Parameters.AddWithValue("@ClientID", clientId);
@@ -2348,8 +2302,20 @@ WHERE a.AssignmentID = @AssignmentID;";
             if (user == null || string.IsNullOrWhiteSpace(user.Email))
                 return (0, false);
 
-            var userId = await EnsureUserMirrorAsync(user, role);
+            var userId = await ResolveExistingUserScopeIdAsync(user, role);
             return (userId, string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private async Task<int> ResolveExistingUserScopeIdAsync(ApplicationUser user, string role)
+        {
+            if (string.IsNullOrWhiteSpace(user.Email))
+                throw new InvalidOperationException("User email is required.");
+
+            var existingUserId = await ResolveUserIdByEmailAsync(user.Email);
+            if (existingUserId.HasValue)
+                return existingUserId.Value;
+
+            return await EnsureUserMirrorAsync(user, role);
         }
 
         private async Task<int?> GetUserIdByEmailAsync(SqlConnection connection, string email)
@@ -2380,7 +2346,11 @@ WHERE a.AssignmentID = @AssignmentID;";
                 IntegratedSecurity = true,
                 TrustServerCertificate = trust,
                 Encrypt = false,
-                ConnectTimeout = 180
+                ConnectTimeout = 180,
+                Pooling = true,
+                MinPoolSize = 5,
+                MaxPoolSize = 200,
+                ApplicationName = "HemisAudit"
             };
 
             var connection = new SqlConnection(builder.ConnectionString);
@@ -2391,7 +2361,6 @@ WHERE a.AssignmentID = @AssignmentID;";
         private async Task<(bool CanAccess, string CurrentUserEngagementRole)> GetClientResultsAccessAsync(int clientId, ApplicationUser? user, string role)
         {
             var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
-            var isDirector = string.Equals(role, "Director", StringComparison.OrdinalIgnoreCase);
             var userId = 0;
 
             if (!isAdmin)
@@ -2399,7 +2368,7 @@ WHERE a.AssignmentID = @AssignmentID;";
                 if (user == null || string.IsNullOrWhiteSpace(user.Email))
                     return (false, "");
 
-                userId = await EnsureUserMirrorAsync(user, role);
+                userId = await ResolveExistingUserScopeIdAsync(user, role);
             }
 
             await using var connection = await OpenConnectionAsync();
@@ -2415,54 +2384,17 @@ SELECT
           AND c.Status IN ('Approved', 'Active', 'Archived')
     ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanAccess,
     CAST(N'Admin' AS nvarchar(50)) AS CurrentUserEngagementRole;"
-                : isDirector
-                    ? @"
+                : @"
 SELECT
-    CASE WHEN EXISTS (
-        SELECT 1
-        FROM dbo.Clients c
-        WHERE c.ClientID = @ClientID
-          AND c.Status IN ('Approved', 'Active', 'Archived')
-          AND (
-              c.CreatedBy = @UserID
-              OR c.Status = 'Archived'
-              OR EXISTS (
-                  SELECT 1
-                  FROM dbo.UserClientAssignments a
-                  WHERE a.ClientID = c.ClientID
-                    AND a.UserID = @UserID
-              )
-          )
-    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanAccess,
-    ISNULL((
-        SELECT TOP 1 a.EngagementRole
-        FROM dbo.UserClientAssignments a
-        WHERE a.ClientID = @ClientID
-          AND a.UserID = @UserID
-    ), '') AS CurrentUserEngagementRole;"
-                    : @"
-SELECT
-    CASE WHEN EXISTS (
-        SELECT 1
-        FROM dbo.Clients c
-        WHERE c.ClientID = @ClientID
-          AND c.Status IN ('Approved', 'Active', 'Archived')
-          AND (
-              c.Status = 'Archived'
-              OR EXISTS (
-                  SELECT 1
-                  FROM dbo.UserClientAssignments a
-                  WHERE a.ClientID = c.ClientID
-                    AND a.UserID = @UserID
-              )
-          )
-    ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS CanAccess,
-    ISNULL((
-        SELECT TOP 1 a.EngagementRole
-        FROM dbo.UserClientAssignments a
-        WHERE a.ClientID = @ClientID
-          AND a.UserID = @UserID
-    ), '') AS CurrentUserEngagementRole;";
+    CASE WHEN c.ClientID IS NULL OR a.UserID IS NULL THEN CAST(0 AS BIT) ELSE CAST(1 AS BIT) END AS CanAccess,
+    ISNULL(a.EngagementRole, '') AS CurrentUserEngagementRole
+FROM (SELECT @ClientID AS ClientID) seed
+LEFT JOIN dbo.Clients c
+    ON c.ClientID = seed.ClientID
+   AND c.Status IN ('Approved', 'Active', 'Archived')
+LEFT JOIN dbo.UserClientAssignments a
+    ON a.ClientID = seed.ClientID
+   AND a.UserID = @UserID;";
             command.Parameters.AddWithValue("@ClientID", clientId);
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);

@@ -27,6 +27,31 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
         (function () {
+            var markerKey = 'hemis-auth-tab';
+
+            try {
+                var url = new URL(window.location.href);
+                var hasSessionStart = url.searchParams.get('sessionStart') === '1';
+                var hasMarker = window.sessionStorage.getItem(markerKey) === '1';
+
+                if (hasSessionStart) {
+                    window.sessionStorage.setItem(markerKey, '1');
+                    url.searchParams.delete('sessionStart');
+                    window.history.replaceState(null, document.title, url.pathname + url.search + url.hash);
+                    return;
+                }
+
+                if (!hasMarker) {
+                    var returnUrl = window.location.pathname + window.location.search + window.location.hash;
+                    window.location.replace('/Account/Login?force=true&returnUrl=' + encodeURIComponent(returnUrl));
+                }
+            } catch (_) {
+                window.location.replace('/Account/Login?force=true');
+            }
+        })();
+    </script>
+    <script>
+        (function () {
             var theme = localStorage.getItem('hemis-theme') || 'dark';
             if (theme === 'light') document.documentElement.classList.add('light');
         })();
@@ -548,8 +573,7 @@
                 label: 'Running ' + ruleLabel,
                 fileName: 'Validation results',
                 pendingText: 'Running ' + ruleLabel + ' analysis. Large datasets may take longer...',
-                successText: ruleLabel + ' completed.',
-                successToastText: ruleLabel + ' completed successfully.'
+                successText: ruleLabel + ' completed.'
             };
         }
 
@@ -578,18 +602,23 @@
         var timer = window.setInterval(function () {
             var elapsed = Date.now() - startedAt;
             var target = 12;
+            var metaText = pendingText;
             if (elapsed < 1200) {
                 target = 12 + (elapsed / 1200) * 28;
             } else if (elapsed < 4000) {
                 target = 40 + ((elapsed - 1200) / 2800) * 34;
             } else if (elapsed < 10000) {
                 target = 74 + ((elapsed - 4000) / 6000) * 18;
+            } else if (elapsed < 25000) {
+                target = 92 + ((elapsed - 10000) / 15000) * 6;
+                metaText = 'Processing large dataset. Finalizing server response...';
             } else {
-                target = 92;
+                target = 98;
+                metaText = 'Still processing on the server. Keeping this request active...';
             }
 
-            percent = Math.max(percent, Math.min(95, Math.round(target)));
-            updateDownloadCard(card, percent, pendingText, secondaryText);
+            percent = Math.max(percent, Math.min(98, Math.round(target)));
+            updateDownloadCard(card, percent, metaText, secondaryText);
         }, 180);
 
         try {
@@ -644,7 +673,9 @@
             }
 
             if (contentType.indexOf('application/json') >= 0) {
-                return await response.json();
+                var jsonResult = await response.json();
+                window.ruleWorkspaceUi?.syncWorkspaceSaveLock?.(url, method, requestOptions, jsonResult);
+                return jsonResult;
             }
 
             return await response.text();

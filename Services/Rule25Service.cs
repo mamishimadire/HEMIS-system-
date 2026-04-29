@@ -154,7 +154,9 @@ namespace HemisAudit.Services
                     }
                     catch (Exception ex)
                     {
-                        summary.Warning = $"Analysis completed, but the saved run could not be persisted automatically: {ex.Message}";
+                        summary.Success = false;
+                        summary.Error = $"Analysis completed, but the saved run could not be written to the system database: {ex.Message}";
+                        return summary;
                     }
                 }
 

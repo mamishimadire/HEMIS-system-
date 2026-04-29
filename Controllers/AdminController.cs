@@ -127,17 +127,46 @@ namespace HemisAudit.Controllers
             if (!ModelState.IsValid)
                 return View(model);
 
-            var result = await _users.CreateAsync(user, model.Password);
-            if (!result.Succeeded)
+            var identityUserCreated = false;
+
+            try
             {
-                foreach (var e in result.Errors) ModelState.AddModelError("", e.Description);
+                var result = await _users.CreateAsync(user, model.Password);
+                if (!result.Succeeded)
+                {
+                    foreach (var e in result.Errors) ModelState.AddModelError("", e.Description);
+                    return View(model);
+                }
+
+                identityUserCreated = true;
+
+                var addRoleResult = await _users.AddToRoleAsync(user, model.Role);
+                if (!addRoleResult.Succeeded)
+                {
+                    foreach (var e in addRoleResult.Errors) ModelState.AddModelError("", e.Description);
+                    await _users.DeleteAsync(user);
+                    return View(model);
+                }
+
+                user.PasswordHistory = _passwordPolicy.BuildPasswordHistory(null, user.PasswordHash ?? string.Empty);
+                var updateResult = await _users.UpdateAsync(user);
+                if (!updateResult.Succeeded)
+                {
+                    foreach (var e in updateResult.Errors) ModelState.AddModelError("", e.Description);
+                    await _users.DeleteAsync(user);
+                    return View(model);
+                }
+
+                await _systemDb.EnsureUserMirrorAsync(user, model.Role);
+            }
+            catch (Exception ex)
+            {
+                if (identityUserCreated)
+                    await _users.DeleteAsync(user);
+
+                ModelState.AddModelError("", $"The user could not be saved to the system database: {ex.Message}");
                 return View(model);
             }
-
-            await _users.AddToRoleAsync(user, model.Role);
-            user.PasswordHistory = _passwordPolicy.BuildPasswordHistory(null, user.PasswordHash ?? string.Empty);
-            await _users.UpdateAsync(user);
-            await _systemDb.EnsureUserMirrorAsync(user, model.Role);
 
             var admin = await _users.GetUserAsync(User);
             await _audit.LogAsync("create_user", $"Created user {user.Email} with role {model.Role}",
@@ -417,7 +446,13 @@ namespace HemisAudit.Controllers
             var role = await GetCurrentSystemRoleAsync(currentUser);
             await _systemDb.NormalizeCompletedRunStatusesAsync();
             var detail = await _systemDb.GetClientDetailAsync(id, currentUser, role);
-            if (detail == null) return NotFound();
+            if (detail == null)
+            {
+                TempData["Error"] = "The engagement was not found or you do not have access to it.";
+                return string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase)
+                    ? RedirectToAction(nameof(Clients))
+                    : RedirectToAction("Index", "Dashboard");
+            }
             var canAccessModule = await _systemDb.CanAccessClientModuleAsync(id, currentUser, role);
             var isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
             var isDataAnalyst = string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase);

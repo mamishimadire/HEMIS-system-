@@ -30,9 +30,18 @@ namespace HemisAudit.Controllers
 
         // ── Login GET ──────────────────────────────────────────────────────────
         [HttpGet, AllowAnonymous]
-        public IActionResult Login(string? returnUrl = null)
+        public async Task<IActionResult> Login(string? returnUrl = null, bool force = false)
         {
-            if (User.Identity?.IsAuthenticated == true)
+            if (force && User.Identity?.IsAuthenticated == true)
+            {
+                var user = await _users.GetUserAsync(User);
+                if (user != null)
+                    await _audit.LogAsync("logout", "Session reset on login screen", user.Id, user.Email);
+
+                await _signIn.SignOutAsync();
+            }
+
+            if (!force && User.Identity?.IsAuthenticated == true)
                 return RedirectToAction("Index", "Dashboard");
             ViewData["ReturnUrl"] = returnUrl;
             return View();
@@ -43,6 +52,9 @@ namespace HemisAudit.Controllers
         public async Task<IActionResult> Login(LoginViewModel model, string? returnUrl = null)
         {
             if (!ModelState.IsValid) return View(model);
+
+            // Force a session cookie so reopening the browser requires login again.
+            model.RememberMe = false;
 
             var user = await _users.FindByEmailAsync(model.Email);
             if (user == null || !user.IsActive)
@@ -72,7 +84,7 @@ namespace HemisAudit.Controllers
                     TempData["PasswordWarnDays"] = 30 - ageDays;
 
                 await _audit.LogAsync("login", $"User logged in", user.Id, user.Email);
-                return LocalRedirect(returnUrl ?? "/Dashboard");
+                return LocalRedirect(EnsureSessionStartReturnUrl(returnUrl));
             }
             if (result.IsLockedOut)
             {
@@ -234,6 +246,19 @@ namespace HemisAudit.Controllers
         // ── Access Denied ──────────────────────────────────────────────────────
         [AllowAnonymous]
         public IActionResult AccessDenied() => View();
+
+        private static string EnsureSessionStartReturnUrl(string? returnUrl)
+        {
+            var target = string.IsNullOrWhiteSpace(returnUrl) ? "/Dashboard" : returnUrl.Trim();
+            if (target.Contains("sessionStart=", StringComparison.OrdinalIgnoreCase))
+                return target;
+
+            var hashIndex = target.IndexOf('#');
+            var hash = hashIndex >= 0 ? target[hashIndex..] : string.Empty;
+            var pathAndQuery = hashIndex >= 0 ? target[..hashIndex] : target;
+            var separator = pathAndQuery.Contains('?') ? "&" : "?";
+            return $"{pathAndQuery}{separator}sessionStart=1{hash}";
+        }
 
         private async Task SendPasswordResetLinkAsync(ApplicationUser user)
         {

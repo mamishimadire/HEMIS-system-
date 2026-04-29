@@ -17,6 +17,13 @@
             if (theme === 'light') document.documentElement.classList.add('light');
         })();
     </script>
+    <script>
+        (function () {
+            try {
+                window.sessionStorage.removeItem('hemis-auth-tab');
+            } catch (_) {}
+        })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="~/css/site.css" />
 </head>
@@ -66,9 +73,11 @@
                     <span asp-validation-for="Password" class="field-error"></span>
                 </div>
 
-                <label class="checkbox-label" style="margin-bottom:20px">
-                    <input asp-for="RememberMe" type="checkbox" /> Remember me for 8 hours
-                </label>
+                <input asp-for="RememberMe" type="hidden" value="false" />
+
+                <div class="alert alert--info" style="margin-bottom:20px">
+                    For security, your session ends when the browser is closed. Sign in again when reopening the system.
+                </div>
 
                 <div style="margin:-10px 0 18px; text-align:right">
                     <a href="/Account/ForgotPassword" style="font-size:12px; text-decoration:none; font-weight:600;">

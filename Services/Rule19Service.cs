@@ -318,9 +318,19 @@ WHERE vr.RunID = @RunID
             if (!await reader.ReadAsync())
                 return null;
 
+            var sourceServer = reader.IsDBNull(5) ? "" : reader.GetString(5);
             var summary = DeserializeSummary(reader.IsDBNull(6) ? null : reader.GetString(6)) ?? new Rule19ValidationSummary();
-            if (!includeFullResults)
+            if (includeFullResults)
+            {
+                summary = await ExpandSavedSummaryIfNeededAsync(summary, sourceServer);
+                summary.DisplayedCount = summary.MatchingRows.Count;
+                summary.IsPreviewOnly = false;
+                summary.PreviewLimit = 0;
+            }
+            else
+            {
                 ApplyBrowserPreview(summary);
+            }
 
             var viewModel = new Rule19RunReviewViewModel
             {
@@ -329,7 +339,7 @@ WHERE vr.RunID = @RunID
                 IsCurrentRun = !reader.IsDBNull(2) && reader.GetBoolean(2),
                 EngagementName = reader.IsDBNull(3) ? "" : reader.GetString(3),
                 MaconomyNumber = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                SourceServer = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                SourceServer = sourceServer,
                 Summary = summary
             };
 
@@ -776,8 +786,9 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@QualTable", request.QualTable);
             command.Parameters.AddWithValue("@QualCodeColumn", request.QualCodeColumn);
             command.Parameters.AddWithValue("@FulfilledColumn", request.FulfilledColumn);
+            var persistedSummary = CreateBrowserPreview(summary);
             command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode("[]"));
-            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary)));
+            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary)));
             command.Parameters.AddWithValue("@RunByUserName", (object?)(userName ?? userEmail) ?? DBNull.Value);
             command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
             var runId = Convert.ToInt32(await command.ExecuteScalarAsync());
@@ -996,6 +1007,64 @@ ORDER BY STUD.[{safeQualCodeColumn}] ASC;";
             summary.IsPreviewOnly = preview.IsPreviewOnly;
             summary.PreviewLimit = preview.PreviewLimit;
             summary.MatchingRows = preview.MatchingRows;
+        }
+
+        private async Task<Rule19ValidationSummary> ExpandSavedSummaryIfNeededAsync(Rule19ValidationSummary summary, string? server)
+        {
+            var looksLikeStoredPreviewSample =
+                summary.MatchingRows.Count > 0 &&
+                summary.MatchingRows.Count <= BrowserPreviewRowLimit &&
+                summary.MatchingCount > 0;
+
+            if (!summary.IsPreviewOnly &&
+                summary.MatchingRows.Count >= summary.MatchingCount &&
+                !looksLikeStoredPreviewSample)
+            {
+                return summary;
+            }
+
+            if (string.IsNullOrWhiteSpace(server) ||
+                string.IsNullOrWhiteSpace(summary.Database) ||
+                string.IsNullOrWhiteSpace(summary.StudTable) ||
+                string.IsNullOrWhiteSpace(summary.QualTable) ||
+                string.IsNullOrWhiteSpace(summary.QualCodeColumn) ||
+                string.IsNullOrWhiteSpace(summary.FulfilledColumn) ||
+                string.IsNullOrWhiteSpace(summary.QualTypeColumn))
+            {
+                return summary;
+            }
+
+            try
+            {
+                var expanded = await AnalyseAsync(new Rule19ValidationRequest
+                {
+                    ClientId = summary.ClientId,
+                    RunId = summary.SavedRunId,
+                    Server = server,
+                    Database = summary.Database,
+                    Driver = "ODBC Driver 17 for SQL Server",
+                    StudTable = summary.StudTable,
+                    QualTable = summary.QualTable,
+                    QualCodeColumn = summary.QualCodeColumn,
+                    FulfilledColumn = summary.FulfilledColumn,
+                    FulfilledValue = summary.FulfilledValue,
+                    QualTypeColumn = summary.QualTypeColumn,
+                    MdTypesText = summary.MdTypesText
+                });
+
+                expanded.Timestamp = string.IsNullOrWhiteSpace(summary.Timestamp) ? expanded.Timestamp : summary.Timestamp;
+                expanded.ClientId = summary.ClientId;
+                expanded.SavedRunId = summary.SavedRunId;
+                expanded.Warning = string.IsNullOrWhiteSpace(summary.Warning)
+                    ? "Saved Rule 19 results were expanded from the stored preview to the full result set."
+                    : $"{summary.Warning} Full saved results were reloaded from the saved Rule 19 configuration.";
+
+                return expanded;
+            }
+            catch
+            {
+                return summary;
+            }
         }
 
         private static Rule19ValidationSummary? DeserializeSummary(string? json)

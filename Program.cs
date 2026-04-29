@@ -36,7 +36,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.LoginPath = "/Account/Login";
     options.AccessDeniedPath = "/Account/AccessDenied";
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
-    options.SlidingExpiration = true;
+    options.SlidingExpiration = false;
 });
 
 builder.Services.AddScoped<IPasswordPolicyService, PasswordPolicyService>();
@@ -70,6 +70,7 @@ builder.Services.AddControllersWithViews(options =>
 }).AddNewtonsoftJson();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRule22Service, Rule22Service>();
+builder.Services.AddScoped<IRule18Service, Rule18Service>();
 builder.Services.AddScoped<IRule19Service, Rule19Service>();
 builder.Services.AddScoped<IRule20Service, Rule20Service>();
 builder.Services.AddScoped<IRule21Service, Rule21Service>();
@@ -121,11 +122,33 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        if (context.User.Identity?.IsAuthenticated == true &&
+            HttpMethods.IsGet(context.Request.Method))
+        {
+            context.Response.Headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate";
+            context.Response.Headers["Pragma"] = "no-cache";
+            context.Response.Headers["Expires"] = "0";
+        }
+
+        return Task.CompletedTask;
+    });
+
+    await next();
+});
 
 app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule18-short",
+    pattern: "Rule18",
+    defaults: new { controller = "Rule18", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule19-short",
