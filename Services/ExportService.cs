@@ -11,6 +11,7 @@ namespace HemisAudit.Services
         byte[] ExportExcel(Rule26ValidationSummary summary);
         byte[] ExportExcel(Rule27ValidationSummary summary);
         byte[] ExportExcel(Rule20ValidationSummary summary);
+        byte[] ExportExcel(Rule19ValidationSummary summary);
         byte[] ExportExcel(Rule22ValidationSummary summary);
         byte[] ExportExcel(Rule23ValidationSummary summary);
         byte[] ExportExcel(Rule24ValidationSummary summary);
@@ -24,6 +25,7 @@ namespace HemisAudit.Services
         byte[] ExportCsv(Rule26ValidationSummary summary);
         byte[] ExportCsv(Rule27ValidationSummary summary);
         byte[] ExportCsv(Rule20ValidationSummary summary);
+        byte[] ExportCsv(Rule19ValidationSummary summary);
         byte[] ExportCsv(Rule22ValidationSummary summary);
         byte[] ExportCsv(Rule23ValidationSummary summary);
         byte[] ExportCsv(Rule24ValidationSummary summary);
@@ -637,6 +639,9 @@ namespace HemisAudit.Services
             wb.SaveAs(ms);
             return ms.ToArray();
         }
+
+        public byte[] ExportExcel(Rule19ValidationSummary summary) =>
+            ExportExcel(ToRule29Summary(summary));
 
         public byte[] ExportExcel(Rule25ValidationSummary summary)
         {
@@ -1442,6 +1447,9 @@ namespace HemisAudit.Services
             return Encoding.UTF8.GetBytes(sb.ToString());
         }
 
+        public byte[] ExportCsv(Rule19ValidationSummary summary) =>
+            ExportCsv(ToRule29Summary(summary));
+
         public byte[] ExportCsv(Rule25ValidationSummary summary)
         {
             var sb = new StringBuilder();
@@ -1691,6 +1699,48 @@ namespace HemisAudit.Services
                         ValidationNumber = row.ValidationNumber,
                         FilterValue = row.FilterValue,
                         BreakdownValue = row.BreakdownValue,
+                        DisplayValues = new Dictionary<string, string?>(row.DisplayValues, StringComparer.OrdinalIgnoreCase)
+                    })
+                    .ToList()
+            };
+
+        private static Rule29ValidationSummary ToRule29Summary(Rule19ValidationSummary summary) =>
+            new()
+            {
+                Success = summary.Success,
+                TotalValidated = summary.TotalValidated,
+                MatchingCount = summary.MatchingCount,
+                DisplayedCount = summary.DisplayedCount,
+                PassCount = summary.PassCount,
+                FailCount = summary.FailCount,
+                ExceptionRate = summary.ExceptionRate,
+                Status = summary.Status,
+                Timestamp = summary.Timestamp,
+                Database = summary.Database,
+                TableName = $"{summary.StudTable} -> {summary.QualTable}",
+                FilterColumn = summary.FulfilledColumn,
+                FilterValue = summary.FulfilledValue,
+                BreakdownColumn = summary.QualTypeColumn,
+                SampleSize = summary.TotalValidated,
+                ShowAllRecords = summary.ShowAllRecords,
+                Sampled = false,
+                ClientId = summary.ClientId,
+                SavedRunId = summary.SavedRunId,
+                Warning = summary.Warning,
+                Error = summary.Error,
+                Breakdown = summary.Breakdown
+                    .Select(item => new Rule29BreakdownItemViewModel
+                    {
+                        Value = item.Value,
+                        Count = item.Count
+                    })
+                    .ToList(),
+                MatchingRows = summary.MatchingRows
+                    .Select(row => new Rule29ValidationRowRecord
+                    {
+                        ValidationNumber = row.ValidationNumber,
+                        FilterValue = row.FulfilledValue,
+                        BreakdownValue = row.QualTypeValue,
                         DisplayValues = new Dictionary<string, string?>(row.DisplayValues, StringComparer.OrdinalIgnoreCase)
                     })
                     .ToList()

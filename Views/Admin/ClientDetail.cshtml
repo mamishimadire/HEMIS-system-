@@ -170,7 +170,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
+            <span class="collapsible-trigger__meta">Rules 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -178,6 +178,15 @@
                 @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
                 {
                     <div class="module-card-grid">
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 19</div>
+                            <h4 class="module-card__title">Masters and PhD Population Validation</h4>
+                            <p class="module-card__text">Test 100% of the linked Masters and PhD student population through <code>dbo_STUD -> dbo_QUAL</code> using the fulfilled indicator and qualification type list.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule19?clientId=@Model.Id" class="btn btn-success">Open Rule 19</a>
+                            </div>
+                        </article>
+
                         <article class="module-card">
                             <div class="module-card__eyebrow">Rule 20</div>
                             <h4 class="module-card__title">Foundation Validation</h4>

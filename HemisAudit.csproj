@@ -9,19 +9,43 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove=".codex-build-*\**" />
+    <Compile Remove=".codex_build_*\**" />
+    <Compile Remove=".codex-run\**" />
+    <Compile Remove=".run\**" />
+    <Compile Remove=".run-system-build\**" />
     <Compile Remove="artifacts\**" />
     <Compile Remove="bin\**" />
+    <Compile Remove="bin_verify\**" />
     <Compile Remove="obj\**" />
+    <Compile Remove="obj_verify\**" />
+    <Compile Remove="build_verify*\**" />
     <Compile Remove="runobj\**" />
     <Compile Remove="runout\**" />
+    <Content Remove=".codex-build-*\**" />
+    <Content Remove=".codex_build_*\**" />
+    <Content Remove=".codex-run\**" />
+    <Content Remove=".run\**" />
+    <Content Remove=".run-system-build\**" />
     <Content Remove="artifacts\**" />
     <Content Remove="bin\**" />
+    <Content Remove="bin_verify\**" />
     <Content Remove="obj\**" />
+    <Content Remove="obj_verify\**" />
+    <Content Remove="build_verify*\**" />
     <Content Remove="runobj\**" />
     <Content Remove="runout\**" />
+    <None Remove=".codex-build-*\**" />
+    <None Remove=".codex_build_*\**" />
+    <None Remove=".codex-run\**" />
+    <None Remove=".run\**" />
+    <None Remove=".run-system-build\**" />
     <None Remove="artifacts\**" />
     <None Remove="bin\**" />
+    <None Remove="bin_verify\**" />
     <None Remove="obj\**" />
+    <None Remove="obj_verify\**" />
+    <None Remove="build_verify*\**" />
     <None Remove="runobj\**" />
     <None Remove="runout\**" />
   </ItemGroup>

@@ -622,16 +622,9 @@ END";
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
 
-            var removal = await ReviewSignoffSqlHelper.RemoveReviewerSignoffAsync(connection, runId, reviewerId.Value);
+            var removal = await ReviewSignoffSqlHelper.RemoveReviewerSignoffWithVersioningAsync(connection, runId, reviewerId.Value);
             if (removal.RemovedCount <= 0)
                 return;
-
-            await UpdateRunStatusFromSignoffsAsync(connection, runId);
-
-            if (string.Equals(removal.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-            {
-                await SetRunCurrentStateAsync(connection, runId, false);
-            }
         }
 
         public Task<string> GenerateSqlAsync(Rule32ValidationRequest request)

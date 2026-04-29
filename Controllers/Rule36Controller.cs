@@ -457,11 +457,6 @@ namespace HemisAudit.Controllers
             try
             {
                 await _rule36.RemoveSignoffAsync(model.RunId.Value, user!.Email!);
-                await _audit.LogAsync(
-                    "remove_validation_signoff",
-                    $"{review.CurrentUserEngagementRole} removed signoff for run {model.RunId.Value} from module workspace",
-                    user.Id,
-                    user.Email);
             }
             catch (Exception ex)
             {
@@ -473,10 +468,22 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule36.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email);
+            var reopenedRunId = workspace?.RunId;
+            var preservedHistory = reopenedRunId.HasValue && reopenedRunId.Value != model.RunId.Value;
+            var message = preservedHistory
+                ? $"Signoff removed. Run #{model.RunId.Value} moved to history and Run #{reopenedRunId.Value} is now the current workspace."
+                : "Signoff removed.";
+            await _audit.LogAsync(
+                "remove_validation_signoff",
+                preservedHistory
+                    ? $"{review.CurrentUserEngagementRole} removed signoff for Rule 36 run {model.RunId.Value} from module workspace. Historical snapshot preserved; new current run {reopenedRunId.Value} created for continued review."
+                    : $"{review.CurrentUserEngagementRole} removed signoff for Rule 36 run {model.RunId.Value} from module workspace",
+                user.Id,
+                user.Email);
             return Json(new
             {
                 success = true,
-                message = "Signoff removed.",
+                message,
                 workspace
             });
         }
@@ -591,14 +598,21 @@ namespace HemisAudit.Controllers
             }
 
             await _rule36.RemoveSignoffAsync(runId, user!.Email!);
+            var workspace = await _rule36.GetCurrentWorkspaceStateAsync(review.ClientId, user?.Email);
+            var redirectRunId = workspace?.RunId ?? runId;
+            var preservedHistory = workspace?.RunId.HasValue == true && workspace.RunId.Value != runId;
             await _audit.LogAsync(
                 "remove_validation_signoff",
-                $"{review.CurrentUserEngagementRole} removed signoff for run {runId}",
+                preservedHistory
+                    ? $"{review.CurrentUserEngagementRole} removed signoff for Rule 36 run {runId}. Historical snapshot preserved; new current run {redirectRunId} created for continued review."
+                    : $"{review.CurrentUserEngagementRole} removed signoff for Rule 36 run {runId}",
                 user.Id,
                 user.Email);
 
-            TempData["Success"] = "Your signoff was removed.";
-            return RedirectToAction(nameof(Run), new { id = runId });
+            TempData["Success"] = preservedHistory
+                ? $"Your signoff was removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
+                : "Your signoff was removed.";
+            return RedirectToAction(nameof(Run), new { id = redirectRunId });
         }
 
         [HttpGet]
