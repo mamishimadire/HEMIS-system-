@@ -118,7 +118,7 @@ function Start-HemisAudit {
         [Parameter(Mandatory = $true)]
         [int]$Port,
         [Parameter(Mandatory = $true)]
-        [string]$Host
+        [string]$LoopbackHost
     )
 
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
@@ -127,7 +127,7 @@ function Start-HemisAudit {
 
     # Use a fresh loopback IP instead of localhost so stale browser cookies
     # from previous runs do not cause Kestrel to reject the first request.
-    $baseUrl = "http://${Host}:$Port"
+    $baseUrl = "http://${LoopbackHost}:$Port"
 
     foreach ($path in @($runRoot, $buildFolder, $logFolder)) {
         if (-not (Test-Path $path)) {
@@ -182,6 +182,6 @@ if ($existingProcesses.Count -gt 0) {
 }
 
 $selectedHost = Get-FreshLoopbackHost
-$started = Start-HemisAudit -Port $preferredPort -Host $selectedHost
+$started = Start-HemisAudit -Port $preferredPort -LoopbackHost $selectedHost
 Open-Browser -Url "$($started.Url)$launchPath"
 Write-Host "HemisAudit is ready on $($started.Url)" -ForegroundColor Green
