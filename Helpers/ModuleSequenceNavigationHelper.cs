@@ -6,6 +6,7 @@ namespace HemisAudit.Helpers
     {
         private static readonly ModuleSequenceItem[] Modules =
         {
+            new(17, "Rule 17", "Graduate Students Fulfilled Qualification Validation"),
             new(18, "Rule 18", "NSFAS Student Validation"),
             new(19, "Rule 19", "Masters and PhD Population Validation"),
             new(20, "Rule 20", "Foundation Validation"),

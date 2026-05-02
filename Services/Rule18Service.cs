@@ -696,7 +696,7 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@StudTable", request.StudTable);
             command.Parameters.AddWithValue("@BridgeTable", request.BridgeTable);
             command.Parameters.AddWithValue("@CrseTable", request.CrseTable);
-            var persistedSummary = CreateBrowserPreview(summary);
+            var persistedSummary = CloneSummary(summary);
             persistedSummary.SavedRunId = summary.SavedRunId;
             command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(failRows)));
             command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary)));
@@ -1023,6 +1023,70 @@ Control3PassRows AS
             {
                 return summary;
             }
+        }
+
+        private static Rule18ValidationSummary CloneSummary(Rule18ValidationSummary summary)
+        {
+            return new Rule18ValidationSummary
+            {
+                Success = summary.Success,
+                StudRecordCount = summary.StudRecordCount,
+                BridgeRecordCount = summary.BridgeRecordCount,
+                CrseRecordCount = summary.CrseRecordCount,
+                NsfasPopulationCount = summary.NsfasPopulationCount,
+                TotalRequested = summary.TotalRequested,
+                TotalValidated = summary.TotalValidated,
+                DisplayedCount = summary.DisplayedCount,
+                IsPreviewOnly = summary.IsPreviewOnly,
+                PreviewLimit = summary.PreviewLimit,
+                PassCount = summary.PassCount,
+                FailCount = summary.FailCount,
+                ExceptionRate = summary.ExceptionRate,
+                Status = summary.Status,
+                Timestamp = summary.Timestamp,
+                Database = summary.Database,
+                StudTable = summary.StudTable,
+                BridgeTable = summary.BridgeTable,
+                CrseTable = summary.CrseTable,
+                TableLinkageText = summary.TableLinkageText,
+                RuleModeText = summary.RuleModeText,
+                ProcedureSteps = summary.ProcedureSteps.ToList(),
+                ClientId = summary.ClientId,
+                SavedRunId = summary.SavedRunId,
+                ControlSummaries = summary.ControlSummaries
+                    .Select(item => new Rule18ControlSummaryItemViewModel
+                    {
+                        ControlType = item.ControlType,
+                        ControlLabel = item.ControlLabel,
+                        CriteriaText = item.CriteriaText,
+                        RequestedCount = item.RequestedCount,
+                        AvailableCount = item.AvailableCount,
+                        AchievedCount = item.AchievedCount,
+                        TotalCount = item.TotalCount,
+                        PassCount = item.PassCount,
+                        FailCount = item.FailCount,
+                        Status = item.Status
+                    })
+                    .ToList(),
+                ReviewRows = summary.ReviewRows
+                    .Select(CloneReviewRow)
+                    .ToList(),
+                Warning = summary.Warning,
+                Error = summary.Error
+            };
+        }
+
+        private static Rule18ValidationRowRecord CloneReviewRow(Rule18ValidationRowRecord row)
+        {
+            return new Rule18ValidationRowRecord
+            {
+                ValidationNumber = row.ValidationNumber,
+                ControlType = row.ControlType,
+                ControlLabel = row.ControlLabel,
+                ValidationResult = row.ValidationResult,
+                ValidationExplanation = row.ValidationExplanation,
+                DisplayValues = new Dictionary<string, string?>(row.DisplayValues, StringComparer.OrdinalIgnoreCase)
+            };
         }
 
         private static Rule18ValidationSummary CreateBrowserPreview(Rule18ValidationSummary summary)
