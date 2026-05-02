@@ -12,6 +12,8 @@ namespace HemisAudit.Services
         byte[] ExportExcel(Rule27ValidationSummary summary);
         byte[] ExportExcel(Rule20ValidationSummary summary);
         byte[] ExportExcel(Rule17ValidationSummary summary);
+        byte[] ExportExcel(Rule15ValidationSummary summary);
+        byte[] ExportExcel(Rule16ValidationSummary summary);
         byte[] ExportExcel(Rule18ValidationSummary summary);
         byte[] ExportExcel(Rule19ValidationSummary summary);
         byte[] ExportExcel(Rule22ValidationSummary summary);
@@ -28,6 +30,8 @@ namespace HemisAudit.Services
         byte[] ExportCsv(Rule27ValidationSummary summary);
         byte[] ExportCsv(Rule20ValidationSummary summary);
         byte[] ExportCsv(Rule17ValidationSummary summary);
+        byte[] ExportCsv(Rule15ValidationSummary summary);
+        byte[] ExportCsv(Rule16ValidationSummary summary);
         byte[] ExportCsv(Rule18ValidationSummary summary);
         byte[] ExportCsv(Rule19ValidationSummary summary);
         byte[] ExportCsv(Rule22ValidationSummary summary);
@@ -720,6 +724,199 @@ namespace HemisAudit.Services
             }
             wsBreakdown.Column(1).AdjustToContents();
             wsBreakdown.Column(2).AdjustToContents();
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportExcel(Rule16ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var headers = GetRule16Headers();
+            var includeDetailedControlSheets = summary.ReviewRows.Count <= Rule18DetailedSheetRowThreshold;
+            var exportNote = includeDetailedControlSheets
+                ? (summary.Warning ?? "")
+                : "Large export mode: the workbook keeps the full All Results sheet and skips duplicate control tabs to reduce preparation time.";
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 16: STUDENT POPULATION VALIDATION", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("STUD Table", summary.StudTable),
+                ("Bridge Table", summary.BridgeTable),
+                ("CRSE Table", summary.CrseTable),
+                ("Validation Date", summary.Timestamp),
+                ("Join Path", summary.TableLinkageText),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("Unfulfilled Qualification Population", summary.UnfulfilledPopulationCount.ToString("N0")),
+                ("Control Result Rows", summary.TotalValidated.ToString("N0")),
+                ("Matching Rows", summary.PassCount.ToString("N0")),
+                ("Non-Matching Rows", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status),
+                ("Export Note", exportNote)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 36;
+            wsSummary.Column(2).Width = 70;
+
+            var wsControlSummary = wb.Worksheets.Add("Control Summary");
+            StyleHeaderRow(wsControlSummary, 1, "RULE 16 CONTROL SUMMARY", 6);
+            var controlHeaders = new[] { "Control", "Criteria", "Matched Rows", "PASS", "FAIL", "Status" };
+            for (var i = 0; i < controlHeaders.Length; i++)
+            {
+                var cell = wsControlSummary.Cell(2, i + 1);
+                cell.Value = controlHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+            for (var i = 0; i < summary.ControlSummaries.Count; i++)
+            {
+                var item = summary.ControlSummaries[i];
+                wsControlSummary.Cell(i + 3, 1).Value = item.ControlLabel;
+                wsControlSummary.Cell(i + 3, 2).Value = item.CriteriaText;
+                wsControlSummary.Cell(i + 3, 3).Value = item.TotalCount;
+                wsControlSummary.Cell(i + 3, 4).Value = item.PassCount;
+                wsControlSummary.Cell(i + 3, 5).Value = item.FailCount;
+                wsControlSummary.Cell(i + 3, 6).Value = item.Status;
+            }
+            for (var c = 1; c <= 6; c++)
+                wsControlSummary.Column(c).AdjustToContents();
+
+            var wsAll = wb.Worksheets.Add("All Results");
+            StyleHeaderRow(wsAll, 1, "RULE 16 ALL RESULTS", headers.Count);
+            WriteRule16HeaderRow(wsAll, 2, headers);
+            WriteRule16Rows(wsAll, 3, summary.ReviewRows, headers);
+
+            if (includeDetailedControlSheets)
+            {
+                WriteRule16ControlSheet(wb, "Control1", "RULE 16 CONTROL 1", summary.ReviewRows.Where(r => string.Equals(r.ControlType, "Control_1", StringComparison.OrdinalIgnoreCase)).ToList(), headers);
+                WriteRule16ControlSheet(wb, "Control2", "RULE 16 CONTROL 2", summary.ReviewRows.Where(r => string.Equals(r.ControlType, "Control_2", StringComparison.OrdinalIgnoreCase)).ToList(), headers);
+                WriteRule16ControlSheet(wb, "Control3", "RULE 16 CONTROL 3", summary.ReviewRows.Where(r => string.Equals(r.ControlType, "Control_3", StringComparison.OrdinalIgnoreCase)).ToList(), headers);
+            }
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportExcel(Rule15ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var headers = GetRule15Headers();
+            var includeDetailedControlSheets = summary.ReviewRows.Count <= Rule18DetailedSheetRowThreshold;
+            var exportNote = includeDetailedControlSheets
+                ? (summary.Warning ?? "")
+                : "Large export mode: the workbook keeps the full All Results sheet and skips duplicate control tabs to reduce preparation time.";
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 15: COURSE CREDENTIALS VALIDATION", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("QUAL Table", summary.QualTable),
+                ("CRED Table", summary.CredTable),
+                ("CREG Table", summary.RegistrationTable),
+                ("Validation Date", summary.Timestamp),
+                ("Join Path", summary.TableLinkageText),
+                ("Validation Mode", summary.RuleModeText),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("Approved Qualifications", summary.ApprovedQualificationCount.ToString("N0")),
+                ("Approved Credential Rows", summary.ApprovedCredentialCount.ToString("N0")),
+                ("Registered Credential Rows", summary.RegisteredCredentialCount.ToString("N0")),
+                ("Missing Registrations", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status),
+                ("Export Note", exportNote)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 36;
+            wsSummary.Column(2).Width = 70;
+
+            var wsControlSummary = wb.Worksheets.Add("Control Summary");
+            StyleHeaderRow(wsControlSummary, 1, "RULE 15 CONTROL SUMMARY", 6);
+            var controlHeaders = new[] { "Control", "Criteria", "Rows Tested", "PASS", "FAIL", "Status" };
+            for (var i = 0; i < controlHeaders.Length; i++)
+            {
+                var cell = wsControlSummary.Cell(2, i + 1);
+                cell.Value = controlHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+            for (var i = 0; i < summary.ControlSummaries.Count; i++)
+            {
+                var item = summary.ControlSummaries[i];
+                wsControlSummary.Cell(i + 3, 1).Value = item.ControlLabel;
+                wsControlSummary.Cell(i + 3, 2).Value = item.CriteriaText;
+                wsControlSummary.Cell(i + 3, 3).Value = item.TotalCount;
+                wsControlSummary.Cell(i + 3, 4).Value = item.PassCount;
+                wsControlSummary.Cell(i + 3, 5).Value = item.FailCount;
+                wsControlSummary.Cell(i + 3, 6).Value = item.Status;
+            }
+            for (var c = 1; c <= 6; c++)
+                wsControlSummary.Column(c).AdjustToContents();
+
+            var wsAll = wb.Worksheets.Add("All Results");
+            StyleHeaderRow(wsAll, 1, "RULE 15 ALL RESULTS", headers.Count);
+            WriteRule15HeaderRow(wsAll, 2, headers);
+            WriteRule15Rows(wsAll, 3, summary.ReviewRows, headers);
+
+            if (includeDetailedControlSheets)
+            {
+                WriteRule15ControlSheet(wb, "Control1", "RULE 15 CONTROL 1", summary.ReviewRows.Where(r => string.Equals(r.ControlType, "Control_1", StringComparison.OrdinalIgnoreCase)).ToList(), headers);
+            }
 
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
@@ -1633,6 +1830,40 @@ namespace HemisAudit.Services
         public byte[] ExportCsv(Rule17ValidationSummary summary) =>
             ExportCsv(ToRule21Summary(summary));
 
+        public byte[] ExportCsv(Rule15ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            var headers = GetRule15Headers();
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            foreach (var row in summary.ReviewRows)
+            {
+                var values = headers.Select(header =>
+                    row.DisplayValues.TryGetValue(header, out var value) ? value : null);
+
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        public byte[] ExportCsv(Rule16ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            var headers = GetRule16Headers();
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            foreach (var row in summary.ReviewRows)
+            {
+                var values = headers.Select(header =>
+                    row.DisplayValues.TryGetValue(header, out var value) ? value : null);
+
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
         public byte[] ExportCsv(Rule18ValidationSummary summary)
         {
             var sb = new StringBuilder();
@@ -2090,6 +2321,38 @@ namespace HemisAudit.Services
                 .ToList();
         }
 
+        private static List<string> GetRule15Headers() =>
+            new()
+            {
+                "Control_Type",
+                "Control_Label",
+                "Validation_Result",
+                "Validation_Explanation",
+                "QUAL__001",
+                "QUAL__004",
+                "CRED__001",
+                "CRED__030",
+                "CREG__001",
+                "CREG__030"
+            };
+
+        private static List<string> GetRule16Headers() =>
+            new()
+            {
+                "Control_Type",
+                "Control_Label",
+                "Validation_Result",
+                "Validation_Explanation",
+                "STUD__001",
+                "STUD__007",
+                "STUD__025",
+                "STUD__024",
+                "BRIDGE__001",
+                "BRIDGE__030",
+                "CRSE__030",
+                "CRSE__091"
+            };
+
         private static List<string> GetRule18Headers() =>
             new()
             {
@@ -2273,6 +2536,30 @@ namespace HemisAudit.Services
             }
         }
 
+        private static void WriteRule16HeaderRow(IXLWorksheet ws, int row, List<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
+        private static void WriteRule15HeaderRow(IXLWorksheet ws, int row, List<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
         private static void WriteRule18HeaderRow(IXLWorksheet ws, int row, List<string> headers)
         {
             for (var i = 0; i < headers.Count; i++)
@@ -2338,6 +2625,50 @@ namespace HemisAudit.Services
                 ws.Column(c).AdjustToContents();
         }
 
+        private static void WriteRule16Rows(IXLWorksheet ws, int startRow, List<Rule16ValidationRowRecord> rows, List<string> headers)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = row.DisplayValues.TryGetValue(header, out var currentValue) ? currentValue ?? "" : "";
+                    ws.Cell(rowIndex, i + 1).Value = value;
+                }
+
+                var fill = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)
+                    ? "#FFF3F3"
+                    : "#F3FFF3";
+                ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml(fill);
+                rowIndex++;
+            }
+
+            SetRule16ColumnWidths(ws);
+        }
+
+        private static void WriteRule15Rows(IXLWorksheet ws, int startRow, List<Rule15ValidationRowRecord> rows, List<string> headers)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = row.DisplayValues.TryGetValue(header, out var currentValue) ? currentValue ?? "" : "";
+                    ws.Cell(rowIndex, i + 1).Value = value;
+                }
+
+                var fill = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)
+                    ? "#FFF3F3"
+                    : "#F3FFF3";
+                ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml(fill);
+                rowIndex++;
+            }
+
+            SetRule15ColumnWidths(ws);
+        }
+
         private static void WriteRule18Rows(IXLWorksheet ws, int startRow, List<Rule18ValidationRowRecord> rows, List<string> headers)
         {
             var rowIndex = startRow;
@@ -2360,12 +2691,58 @@ namespace HemisAudit.Services
             SetRule18ColumnWidths(ws);
         }
 
+        private static void WriteRule16ControlSheet(XLWorkbook workbook, string sheetName, string title, List<Rule16ValidationRowRecord> rows, List<string> headers)
+        {
+            var ws = workbook.Worksheets.Add(sheetName);
+            StyleHeaderRow(ws, 1, title, headers.Count);
+            WriteRule16HeaderRow(ws, 2, headers);
+            WriteRule16Rows(ws, 3, rows, headers);
+        }
+
+        private static void WriteRule15ControlSheet(XLWorkbook workbook, string sheetName, string title, List<Rule15ValidationRowRecord> rows, List<string> headers)
+        {
+            var ws = workbook.Worksheets.Add(sheetName);
+            StyleHeaderRow(ws, 1, title, headers.Count);
+            WriteRule15HeaderRow(ws, 2, headers);
+            WriteRule15Rows(ws, 3, rows, headers);
+        }
+
         private static void WriteRule18ControlSheet(XLWorkbook workbook, string sheetName, string title, List<Rule18ValidationRowRecord> rows, List<string> headers)
         {
             var ws = workbook.Worksheets.Add(sheetName);
             StyleHeaderRow(ws, 1, title, headers.Count);
             WriteRule18HeaderRow(ws, 2, headers);
             WriteRule18Rows(ws, 3, rows, headers);
+        }
+
+        private static void SetRule15ColumnWidths(IXLWorksheet ws)
+        {
+            ws.Column(1).Width = 14;
+            ws.Column(2).Width = 40;
+            ws.Column(3).Width = 16;
+            ws.Column(4).Width = 52;
+            ws.Column(5).Width = 16;
+            ws.Column(6).Width = 14;
+            ws.Column(7).Width = 16;
+            ws.Column(8).Width = 16;
+            ws.Column(9).Width = 16;
+            ws.Column(10).Width = 16;
+        }
+
+        private static void SetRule16ColumnWidths(IXLWorksheet ws)
+        {
+            ws.Column(1).Width = 14;
+            ws.Column(2).Width = 28;
+            ws.Column(3).Width = 16;
+            ws.Column(4).Width = 28;
+            ws.Column(5).Width = 16;
+            ws.Column(6).Width = 16;
+            ws.Column(7).Width = 14;
+            ws.Column(8).Width = 14;
+            ws.Column(9).Width = 16;
+            ws.Column(10).Width = 16;
+            ws.Column(11).Width = 16;
+            ws.Column(12).Width = 14;
         }
 
         private static void SetRule18ColumnWidths(IXLWorksheet ws)
@@ -2752,6 +3129,63 @@ namespace HemisAudit.Services
                     .ToList(),
                 ExcludedRows = summary.ExcludedRows.Select(ToRule32Row).ToList(),
                 RemainingRows = summary.RemainingRows.Select(ToRule32Row).ToList(),
+                Warning = summary.Warning,
+                Error = summary.Error
+            };
+
+        private static Rule16ValidationSummary ToRule16Summary(Rule15ValidationSummary summary) =>
+            new()
+            {
+                Success = summary.Success,
+                StudRecordCount = summary.StudRecordCount,
+                BridgeRecordCount = summary.BridgeRecordCount,
+                CrseRecordCount = summary.CrseRecordCount,
+                UnfulfilledPopulationCount = summary.UnfulfilledPopulationCount,
+                TotalRequested = summary.TotalRequested,
+                TotalValidated = summary.TotalValidated,
+                DisplayedCount = summary.DisplayedCount,
+                IsPreviewOnly = summary.IsPreviewOnly,
+                PreviewLimit = summary.PreviewLimit,
+                PassCount = summary.PassCount,
+                FailCount = summary.FailCount,
+                ExceptionRate = summary.ExceptionRate,
+                Status = summary.Status,
+                Timestamp = summary.Timestamp,
+                Database = summary.Database,
+                StudTable = summary.StudTable,
+                BridgeTable = summary.BridgeTable,
+                CrseTable = summary.CrseTable,
+                TableLinkageText = summary.TableLinkageText,
+                RuleModeText = summary.RuleModeText,
+                ProcedureSteps = summary.ProcedureSteps?.ToList() ?? new List<string>(),
+                ClientId = summary.ClientId,
+                SavedRunId = summary.SavedRunId,
+                ControlSummaries = (summary.ControlSummaries ?? new List<Rule15ControlSummaryItemViewModel>())
+                    .Select(item => new Rule16ControlSummaryItemViewModel
+                    {
+                        ControlType = item.ControlType,
+                        ControlLabel = item.ControlLabel,
+                        CriteriaText = item.CriteriaText,
+                        RequestedCount = item.RequestedCount,
+                        AvailableCount = item.AvailableCount,
+                        AchievedCount = item.AchievedCount,
+                        TotalCount = item.TotalCount,
+                        PassCount = item.PassCount,
+                        FailCount = item.FailCount,
+                        Status = item.Status
+                    })
+                    .ToList(),
+                ReviewRows = (summary.ReviewRows ?? new List<Rule15ValidationRowRecord>())
+                    .Select(row => new Rule16ValidationRowRecord
+                    {
+                        ValidationNumber = row.ValidationNumber,
+                        ControlType = row.ControlType,
+                        ControlLabel = row.ControlLabel,
+                        ValidationResult = row.ValidationResult,
+                        ValidationExplanation = row.ValidationExplanation,
+                        DisplayValues = new Dictionary<string, string?>(row.DisplayValues ?? new Dictionary<string, string?>(), StringComparer.OrdinalIgnoreCase)
+                    })
+                    .ToList(),
                 Warning = summary.Warning,
                 Error = summary.Error
             };

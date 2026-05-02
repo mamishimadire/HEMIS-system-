@@ -243,7 +243,7 @@
         <div class="results-tabs">
             <button class="tab-btn active" type="button" data-tab="results">Analysis Results</button>
             <button class="tab-btn" type="button" data-tab="details">Data Details</button>
-            <button class="tab-btn" type="button" data-tab="charts">Visualizations</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql">SQL Code</button>
             <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
         </div>
@@ -623,7 +623,7 @@
         const safeMessage = escapeHtml(message || `Rule ${ruleNumber} analysis failed.`);
         document.getElementById('tab-results').innerHTML = `<div class="alert alert--danger">Error: ${safeMessage}</div>`;
         document.getElementById('tab-details').innerHTML = '<div class="empty-card"><p>No detailed data yet. Run analysis first.</p></div>';
-        document.getElementById('tab-charts').innerHTML = '<div class="empty-card"><p>Visualizations will appear after running analysis.</p></div>';
+        document.getElementById('tab-charts').innerHTML = '<div class="empty-card"><p>Charts will appear after running analysis.</p></div>';
         document.getElementById('tab-downloads').innerHTML = '<div class="empty-card"><p>Run analysis first, then use Download All or the individual download buttons.</p></div>';
         if (els.downloadAllBtn) els.downloadAllBtn.disabled = true;
         destroyCharts();
@@ -633,7 +633,7 @@
         if (!result) {
             document.getElementById('tab-results').innerHTML = `<div class="empty-card"><p>Run Rule ${ruleNumber} to see validation results.</p></div>`;
             document.getElementById('tab-details').innerHTML = '<div class="empty-card"><p>No detailed data yet. Run analysis first.</p></div>';
-            document.getElementById('tab-charts').innerHTML = '<div class="empty-card"><p>Visualizations will appear after running analysis.</p></div>';
+            document.getElementById('tab-charts').innerHTML = '<div class="empty-card"><p>Charts will appear after running analysis.</p></div>';
             document.getElementById('tab-downloads').innerHTML = '<div class="empty-card"><p>Run analysis first, then use Download All or the individual download buttons.</p></div>';
             if (els.downloadAllBtn) els.downloadAllBtn.disabled = true;
             destroyCharts();
@@ -714,17 +714,17 @@
         if (!chartsHost) return;
 
         if (!result) {
-            chartsHost.innerHTML = '<div class="empty-card"><p>Visualizations will appear after running analysis.</p></div>';
+            chartsHost.innerHTML = '<div class="empty-card"><p>Charts will appear after running analysis.</p></div>';
             destroyCharts();
             return;
         }
 
         chartsHost.innerHTML = `
-            <div class="form-grid">
-                <div class="card" style="padding:16px">
+            <div class="charts-grid">
+                <div class="chart-card">
                     <canvas id="rule${ruleNumber}SummaryChart" height="220"></canvas>
                 </div>
-                <div class="card" style="padding:16px">
+                <div class="chart-card">
                     <canvas id="rule${ruleNumber}StatusChart" height="220"></canvas>
                 </div>
             </div>`;

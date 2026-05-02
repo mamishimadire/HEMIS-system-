@@ -922,67 +922,66 @@
         const failCount = summary.failCount || 0;
         const total = summary.totalValidated || 0;
         const compliance = total > 0 ? ((summary.passCount / total) * 100).toFixed(2) : '0.00';
-        const maxResultCount = Math.max(passCount, failCount, 1);
-        const passHeight = Math.max((passCount / maxResultCount) * 220, passCount > 0 ? 24 : 4);
-        const failHeight = Math.max((failCount / maxResultCount) * 220, failCount > 0 ? 24 : 4);
-        const complianceColor = Number(compliance) >= 90 ? '#008000' : Number(compliance) >= 70 ? '#f59e0b' : '#dc2626';
+        const complianceClass = Number(compliance) >= 90 ? 'chart-progress-fill--green' : Number(compliance) >= 70 ? 'chart-progress-fill--amber' : 'chart-progress-fill--red';
         const breakdownBars = (summary.breakdown || [])
             .slice(0, 10)
             .map(item => {
                 const width = summary.totalValidated > 0 ? ((item.count / summary.totalValidated) * 100).toFixed(2) : 0;
-                return `<div style="margin-bottom:14px">
-                    <div style="display:flex;justify-content:space-between;gap:12px"><strong>${escapeHtml(item.value)}</strong><span>${item.count.toLocaleString()}</span></div>
-                    <div class="viz-bar"><span style="width:${width}%;background:#2563eb"></span></div>
+                return `<div class="chart-progress-item">
+                    <div class="chart-progress-head"><strong>${escapeHtml(item.value)}</strong><span>${item.count.toLocaleString()}</span></div>
+                    <div class="chart-progress-track"><span class="chart-progress-fill chart-progress-fill--blue" style="width:${width}%"></span></div>
                 </div>`;
             }).join('');
 
         els.charts.innerHTML = `
-            <div class="viz-grid">
-                <div class="viz-card">
-                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Filtered Records Tested</div>
-                    <div style="height:220px;display:flex;align-items:flex-end;justify-content:center;padding:12px 0 6px">
-                        <div style="width:120px;height:220px;background:#4CAF50;border:2px solid #1f2937;display:flex;align-items:flex-end;justify-content:center;color:#111827;font-weight:700;padding-bottom:8px">
-                            ${total.toLocaleString()}
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 17 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    <div class="chart-card chart-card--metric">
+                        <div>
+                            <div class="chart-kicker">Filtered Records Tested</div>
+                            <div class="chart-metric">${total.toLocaleString()}</div>
+                        </div>
+                        <div class="summary-text">
+                            <div><span>Browser Preview</span><strong>${summary.displayedCount.toLocaleString()}</strong></div>
+                            <div><span>Matched Filter</span><strong>${summary.matchingCount.toLocaleString()}</strong></div>
                         </div>
                     </div>
-                    <div style="display:flex;justify-content:space-between;color:#64748b;font-size:13px">
-                        <span>Browser preview: ${summary.displayedCount.toLocaleString()}</span>
-                        <span>Matched filter: ${summary.matchingCount.toLocaleString()}</span>
-                    </div>
-                </div>
-                <div class="viz-card">
-                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Validation Results</div>
-                    <div style="height:220px;display:flex;align-items:flex-end;justify-content:center;gap:36px;padding:12px 0 6px">
-                        <div style="text-align:center">
-                            <div style="width:110px;height:${passHeight}px;background:#4CAF50;border:2px solid #1f2937;display:flex;align-items:flex-start;justify-content:center;padding-top:8px;font-weight:700">${passCount.toLocaleString()}</div>
-                            <div style="margin-top:8px;font-size:13px">PASS</div>
+                    <div class="chart-card chart-card--metric">
+                        <div>
+                            <div class="chart-kicker">Validation Results</div>
+                            <div class="chart-metric">${passCount.toLocaleString()} / ${failCount.toLocaleString()}</div>
                         </div>
-                        <div style="text-align:center">
-                            <div style="width:110px;height:${failHeight}px;background:#F44336;border:2px solid #1f2937;display:flex;align-items:flex-start;justify-content:center;padding-top:8px;font-weight:700">${failCount.toLocaleString()}</div>
-                            <div style="margin-top:8px;font-size:13px">FAIL</div>
+                        <div class="summary-text">
+                            <div><span>PASS</span><strong class="text-success">${passCount.toLocaleString()}</strong></div>
+                            <div><span>FAIL</span><strong class="text-danger">${failCount.toLocaleString()}</strong></div>
                         </div>
                     </div>
-                </div>
-                <div class="viz-card">
-                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b;text-align:center">Filter Rule: ${escapeHtml(summary.filterColumn)}="${escapeHtml(summary.filterValue)}"</div>
-                    <div style="display:flex;justify-content:center;align-items:center;padding:18px 0 10px">
-                        <div style="width:240px;height:240px;border-radius:50%;background:#FF9800;border:2px solid #1f2937;display:flex;align-items:flex-end;justify-content:center">
-                            <span style="margin-bottom:-22px;font-size:13px">Filtered population</span>
+                    <div class="chart-card chart-card--metric">
+                        <div>
+                            <div class="chart-kicker">Filter Rule</div>
+                            <div class="chart-metric">${escapeHtml(summary.filterValue)}</div>
                         </div>
+                        <div class="chart-subtle">${escapeHtml(summary.filterColumn)} was used to isolate the full Rule 17 population for validation.</div>
                     </div>
-                </div>
-                <div class="viz-card">
-                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Compliance: ${compliance}%</div>
-                    <div style="background:#e5e7eb;border-radius:999px;height:220px;display:flex;align-items:center;padding:12px">
-                        <div style="width:${compliance}%;min-width:${total > 0 ? '72px' : '0'};height:100%;background:${complianceColor};border:2px solid #1f2937;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;font-weight:800">
-                            ${compliance}%
+                    <div class="chart-card chart-card--status ${summary.status === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                        <h4>Compliance</h4>
+                        <div class="big-status">${compliance}%</div>
+                        <div class="chart-progress-track" style="width:100%;margin-top:12px">
+                            <span class="chart-progress-fill ${complianceClass}" style="width:${compliance}%"></span>
+                        </div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>Status</span><strong>${escapeHtml(summary.status || '')}</strong></div>
+                            <div><span>Total Rows</span><strong>${total.toLocaleString()}</strong></div>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="card" style="padding:20px;margin-top:20px">
                 <h3 class="section-title" style="margin-top:0">${escapeHtml(summary.filterColumn)} Value Breakdown</h3>
-                ${breakdownBars || '<div style="color:#64748b">No source values were returned for the selected filter column.</div>'}
+                <div class="chart-progress-list">
+                    ${breakdownBars || '<div class="chart-subtle">No source values were returned for the selected filter column.</div>'}
+                </div>
             </div>`;
     }
 

@@ -233,17 +233,34 @@ namespace HemisAudit.Controllers
                 });
             }
 
-            var result = await _rule36.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
-
-            if (result.Success)
+            async Task<ValidationSummary> ExecuteValidationAsync(IRule36Service ruleService, IAuditLogService auditService)
             {
-                await _audit.LogAsync(
-                    "run_validation",
-                    $"Rule 36 on client {request.ClientId}: {result.Status} ({result.FailCount} exceptions), run {result.SavedRunId}",
-                    user?.Id,
-                    user?.Email);
+                var result = await ruleService.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
+                if (result.Success)
+                {
+                    await auditService.LogAsync(
+                        "run_validation",
+                        $"Rule 36 on client {request.ClientId}: {result.Status} ({result.FailCount} exceptions), run {result.SavedRunId}",
+                        user?.Id,
+                        user?.Email);
+                }
+
+                return result;
             }
 
+            if (ValidationOperationHttpHelper.IsAsyncRequested(Request))
+            {
+                return ValidationOperationHttpHelper.Queue(
+                    this,
+                    HttpContext.RequestServices.GetRequiredService<IValidationOperationService>(),
+                    ValidationOperationHttpHelper.ResolveOwnerKey(User),
+                    "Rule 36 validation",
+                    async (sp, ct) => await ExecuteValidationAsync(
+                        sp.GetRequiredService<IRule36Service>(),
+                        sp.GetRequiredService<IAuditLogService>()));
+            }
+
+            var result = await ExecuteValidationAsync(_rule36, _audit);
             return Json(result);
         }
 

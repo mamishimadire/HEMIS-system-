@@ -811,28 +811,49 @@
             .slice(0, 10)
             .map(item => {
                 const width = summary.matchingCount > 0 ? ((item.count / summary.matchingCount) * 100).toFixed(2) : 0;
-                return `<div style="margin-bottom:14px">
-                    <div style="display:flex;justify-content:space-between;gap:12px"><strong>${escapeHtml(item.value)}</strong><span>${item.count.toLocaleString()}</span></div>
-                    <div class="viz-bar"><span style="width:${width}%;background:#2563eb"></span></div>
+                return `<div class="chart-progress-item">
+                    <div class="chart-progress-head"><strong>${escapeHtml(item.value)}</strong><span>${item.count.toLocaleString()}</span></div>
+                    <div class="chart-progress-track"><span class="chart-progress-fill chart-progress-fill--blue" style="width:${width}%"></span></div>
                 </div>`;
             }).join('');
 
         els.charts.innerHTML = `
-            <div class="viz-grid">
-                <div class="viz-card">
-                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Matching Count</div>
-                    <div style="font-size:36px;font-weight:800;color:#dc2626">${summary.matchingCount.toLocaleString()}</div>
-                    <div class="viz-bar"><span style="width:${matchRate}%;background:#ef4444"></span></div>
-                </div>
-                <div class="viz-card">
-                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">${summary.sampled ? 'Displayed Sample Size' : 'Displayed Matching Rows'}</div>
-                    <div style="font-size:36px;font-weight:800;color:#0f766e">${summary.displayedCount.toLocaleString()}</div>
-                    <div style="color:#64748b;margin-top:10px">The browser preview is limited to the first ${summary.displayedCount.toLocaleString()} row(s).</div>
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 29 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    <div class="chart-card chart-card--metric">
+                        <div>
+                            <div class="chart-kicker">Matching Count</div>
+                            <div class="chart-metric">${summary.matchingCount.toLocaleString()}</div>
+                        </div>
+                        <div class="chart-progress-track"><span class="chart-progress-fill chart-progress-fill--red" style="width:${matchRate}%"></span></div>
+                        <div class="chart-subtle">${matchRate}% of the validated population matched the selected filter.</div>
+                    </div>
+                    <div class="chart-card chart-card--metric">
+                        <div>
+                            <div class="chart-kicker">${summary.sampled ? 'Displayed Sample Size' : 'Displayed Matching Rows'}</div>
+                            <div class="chart-metric">${summary.displayedCount.toLocaleString()}</div>
+                        </div>
+                        <div class="summary-text">
+                            <div><span>Total Validated</span><strong>${summary.totalValidated.toLocaleString()}</strong></div>
+                            <div><span>Sampled</span><strong>${summary.sampled ? 'Yes' : 'No'}</strong></div>
+                        </div>
+                    </div>
+                    <div class="chart-card chart-card--status ${summary.matchingCount > 0 ? 'chart-card--fail' : 'chart-card--pass'}">
+                        <h4>Run Status</h4>
+                        <div class="big-status">${escapeHtml(summary.status || '')}</div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>Matches</span><strong>${summary.matchingCount.toLocaleString()}</strong></div>
+                            <div><span>Rows Tested</span><strong>${summary.totalValidated.toLocaleString()}</strong></div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="card" style="padding:20px;margin-top:20px">
                 <h3 class="section-title" style="margin-top:0">Breakdown Visual</h3>
-                ${breakdownBars || '<div style="color:#64748b">No breakdown column was selected for this run.</div>'}
+                <div class="chart-progress-list">
+                    ${breakdownBars || '<div class="chart-subtle">No breakdown column was selected for this run.</div>'}
+                </div>
             </div>`;
     }
 

@@ -238,16 +238,34 @@ namespace HemisAudit.Controllers
                 });
             }
 
-            var result = await _rule23.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
-            if (result.Success)
+            async Task<Rule23ValidationSummary> ExecuteValidationAsync(IRule23Service ruleService, IAuditLogService auditService)
             {
-                await _audit.LogAsync(
-                    "run_validation",
-                    $"Rule 23 on client {request.ClientId}: {result.Status} ({result.FailCount} mismatches), run {result.SavedRunId}",
-                    user?.Id,
-                    user?.Email);
+                var result = await ruleService.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
+                if (result.Success)
+                {
+                    await auditService.LogAsync(
+                        "run_validation",
+                        $"Rule 23 on client {request.ClientId}: {result.Status} ({result.FailCount} mismatches), run {result.SavedRunId}",
+                        user?.Id,
+                        user?.Email);
+                }
+
+                return result;
             }
 
+            if (ValidationOperationHttpHelper.IsAsyncRequested(Request))
+            {
+                return ValidationOperationHttpHelper.Queue(
+                    this,
+                    HttpContext.RequestServices.GetRequiredService<IValidationOperationService>(),
+                    ValidationOperationHttpHelper.ResolveOwnerKey(User),
+                    "Rule 23 validation",
+                    async (sp, ct) => await ExecuteValidationAsync(
+                        sp.GetRequiredService<IRule23Service>(),
+                        sp.GetRequiredService<IAuditLogService>()));
+            }
+
+            var result = await ExecuteValidationAsync(_rule23, _audit);
             return Json(result);
         }
 

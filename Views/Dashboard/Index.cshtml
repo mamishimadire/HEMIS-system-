@@ -338,6 +338,24 @@
 
         <div class="module-card-grid">
             <article class="module-card">
+                <div class="module-card__eyebrow">Rule 15</div>
+                <h4 class="module-card__title">Course Credentials Validation</h4>
+                <p class="module-card__text">Test 100% of approved credential courses through the dbo_QUAL -> dbo_CRED -> dbo_CREG path, then review the saved control results and signoffs for the engagement.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule15" class="btn btn-success">Open Rule 15</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 16</div>
+                <h4 class="module-card__title">Student Population Validation</h4>
+                <p class="module-card__text">Test 100% of the linked student population where <code>dbo_STUD._025 = 'N'</code> through the <code>dbo_STUD -> dbo_CREG -> dbo_CRSE</code> path, then review the saved control results.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule16" class="btn btn-success">Open Rule 16</a>
+                </div>
+            </article>
+
+            <article class="module-card">
                 <div class="module-card__eyebrow">Rule 17</div>
                 <h4 class="module-card__title">Graduate Students Fulfilled Qualification Validation</h4>
                 <p class="module-card__text">Validate 100% of the <code>dbo_STUD</code> population where <code>_025 = 'F'</code>, save the filtered result set, and keep the reviewed workspace available across the engagement.</p>
@@ -376,7 +394,7 @@
             <article class="module-card">
                 <div class="module-card__eyebrow">Rule 21</div>
                 <h4 class="module-card__title">First Time Entering Students Validation</h4>
-                <p class="module-card__text">Validate 100% of `dbo_STUD` against the typed `_010` filter value, classify every row as PASS or FAIL, and keep the saved results visible across the engagement workspace.</p>
+                <p class="module-card__text">Validate 100% of <code>dbo_STUD</code> against the typed <code>_010</code> filter value, classify every row as PASS or FAIL, and keep the saved results visible across the engagement workspace.</p>
                 <div class="module-card__actions">
                     <a href="/Rule21" class="btn btn-success">Open Rule 21</a>
                 </div>

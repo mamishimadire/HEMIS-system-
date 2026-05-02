@@ -379,18 +379,33 @@
             const available = Number(item.availableCount || 0);
             const pct = total > 0 ? Math.round((available / total) * 100) : 0;
             return `
-                <div class="card" style="padding:18px">
-                    <h4 style="margin:0 0 8px 0">${escapeHtml(item.controlType)}</h4>
-                    <div style="color:#64748b;font-size:13px;margin-bottom:10px">${escapeHtml(item.controlDefinition)}</div>
-                    <div style="font-size:28px;font-weight:700;margin-bottom:10px">${available.toLocaleString()}</div>
-                    <div style="background:#e5e7eb;border-radius:999px;height:12px;overflow:hidden">
-                        <div style="width:${pct}%;background:#16a34a;height:12px"></div>
+                <div class="chart-card chart-card--metric">
+                    <div>
+                        <div class="chart-kicker">${escapeHtml(item.controlType)}</div>
+                        <div class="chart-metric">${available.toLocaleString()}</div>
                     </div>
-                    <div style="margin-top:8px;color:#64748b;font-size:12px">${pct}% of the classified result set</div>
+                    <div class="chart-subtle">${escapeHtml(item.controlDefinition)}</div>
+                    <div class="chart-progress-track"><span class="chart-progress-fill chart-progress-fill--green" style="width:${pct}%"></span></div>
+                    <div class="chart-subtle">${pct}% of the classified result set</div>
                 </div>`;
         }).join('');
 
-        chartsPane.innerHTML = `<div class="stats-grid">${controlCards}</div>`;
+        chartsPane.innerHTML = `
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 22 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    ${controlCards}
+                    <div class="chart-card chart-card--status ${String(summary.status).toUpperCase() === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                        <h4>Run Status</h4>
+                        <div class="big-status">${escapeHtml(summary.status || '')}</div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>Validated Rows</span><strong>${Number(summary.totalValidated || 0).toLocaleString()}</strong></div>
+                            <div><span>PASS</span><strong class="text-success">${Number(summary.passCount || 0).toLocaleString()}</strong></div>
+                            <div><span>FAIL</span><strong class="text-danger">${Number(summary.failCount || 0).toLocaleString()}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
     }
 
     function renderFilteredTable(rows) {

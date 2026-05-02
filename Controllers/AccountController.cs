@@ -84,7 +84,7 @@ namespace HemisAudit.Controllers
                     TempData["PasswordWarnDays"] = 30 - ageDays;
 
                 await _audit.LogAsync("login", $"User logged in", user.Id, user.Email);
-                return LocalRedirect(EnsureSessionStartReturnUrl(returnUrl));
+                return LocalRedirect(EnsureSessionStartReturnUrl(NormalizeLocalReturnUrl(returnUrl)));
             }
             if (result.IsLockedOut)
             {
@@ -258,6 +258,33 @@ namespace HemisAudit.Controllers
             var pathAndQuery = hashIndex >= 0 ? target[..hashIndex] : target;
             var separator = pathAndQuery.Contains('?') ? "&" : "?";
             return $"{pathAndQuery}{separator}sessionStart=1{hash}";
+        }
+
+        private string NormalizeLocalReturnUrl(string? returnUrl)
+        {
+            if (string.IsNullOrWhiteSpace(returnUrl))
+                return "/Dashboard";
+
+            var candidate = returnUrl.Trim();
+            if (Url.IsLocalUrl(candidate))
+                return candidate;
+
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out var absoluteUri))
+                return "/Dashboard";
+
+            var requestHost = Request.Host.Host ?? string.Empty;
+            if (!string.Equals(absoluteUri.Host, requestHost, StringComparison.OrdinalIgnoreCase))
+                return "/Dashboard";
+
+            var requestPort = Request.Host.Port ?? (Request.IsHttps ? 443 : 80);
+            var absolutePort = absoluteUri.IsDefaultPort
+                ? (string.Equals(absoluteUri.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? 443 : 80)
+                : absoluteUri.Port;
+            if (absolutePort != requestPort)
+                return "/Dashboard";
+
+            var localPath = absoluteUri.PathAndQuery + absoluteUri.Fragment;
+            return Url.IsLocalUrl(localPath) ? localPath : "/Dashboard";
         }
 
         private async Task SendPasswordResetLinkAsync(ApplicationUser user)

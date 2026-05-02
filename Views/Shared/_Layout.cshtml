@@ -200,6 +200,14 @@
 
     <main class="main-content main-area">
         <div class="topnav">
+            <button type="button"
+                    class="shell-menu-btn"
+                    id="shellMenuToggle"
+                    aria-label="Open navigation"
+                    aria-controls="appSidebar"
+                    aria-expanded="false">
+                Menu
+            </button>
             @if (currentPath.StartsWith("/admin/clients"))
             {
                 <form class="topnav-search" asp-controller="Admin" asp-action="Clients" method="get" role="search">
@@ -252,13 +260,67 @@
         </div>
     </main>
 </div>
+<button type="button" class="app-shell-overlay" id="appShellOverlay" aria-label="Close navigation"></button>
 <div id="appToastRegion" class="app-toast-region" aria-live="polite" aria-atomic="true"></div>
 <div id="appDownloadRegion" class="app-download-region" aria-live="polite" aria-atomic="false"></div>
 
 <script>
 (function(){
+    var shell = document.querySelector('.app-shell');
+    var sidebar = document.querySelector('.sidebar');
+    var menuBtn = document.getElementById('shellMenuToggle');
+    var overlay = document.getElementById('appShellOverlay');
+    var mobileQuery = window.matchMedia('(max-width: 900px)');
     var btn = document.getElementById('themeToggle');
     var root = document.documentElement;
+
+    if (sidebar) {
+        sidebar.id = 'appSidebar';
+    }
+
+    function syncSidebarState(open) {
+        if (!shell || !sidebar || !overlay || !menuBtn) return;
+
+        shell.classList.toggle('app-shell--sidebar-open', open);
+        sidebar.classList.toggle('open', open);
+        overlay.classList.toggle('is-visible', open);
+        menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        menuBtn.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    }
+
+    function closeSidebar() {
+        syncSidebarState(false);
+    }
+
+    if (menuBtn && sidebar && overlay) {
+        menuBtn.addEventListener('click', function(){
+            if (!mobileQuery.matches) return;
+            syncSidebarState(!sidebar.classList.contains('open'));
+        });
+
+        overlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('keydown', function(event){
+            if (event.key === 'Escape') closeSidebar();
+        });
+
+        document.querySelectorAll('.sidebar__nav-item').forEach(function(item){
+            item.addEventListener('click', function(){
+                if (mobileQuery.matches) closeSidebar();
+            });
+        });
+
+        var handleViewportChange = function(event){
+            if (!event.matches) closeSidebar();
+        };
+
+        if (typeof mobileQuery.addEventListener === 'function') {
+            mobileQuery.addEventListener('change', handleViewportChange);
+        } else if (typeof mobileQuery.addListener === 'function') {
+            mobileQuery.addListener(handleViewportChange);
+        }
+    }
+
     function syncIcons(isLight){
         var moon = document.getElementById('iconMoon');
         var sun = document.getElementById('iconSun');
@@ -644,6 +706,53 @@
         }
     };
 
+    function isAsyncValidationRequest(url, method) {
+        var normalizedUrl = String(url || '').toLowerCase();
+        var normalizedMethod = String(method || 'GET').toUpperCase();
+        return normalizedMethod === 'POST' && normalizedUrl.indexOf('/runvalidation') >= 0;
+    }
+
+    function withAsyncValidationHeader(requestOptions) {
+        var nextOptions = Object.assign({}, requestOptions || {});
+        var headers = new Headers(nextOptions.headers || {});
+        headers.set('X-Validation-Async', '1');
+        nextOptions.headers = headers;
+        return nextOptions;
+    }
+
+    function delay(ms) {
+        return new Promise(function (resolve) {
+            window.setTimeout(resolve, ms);
+        });
+    }
+
+    async function pollValidationOperation(statusUrl) {
+        for (;;) {
+            await delay(1500);
+
+            var response = await fetch(statusUrl, { method: 'GET' });
+            var contentType = (response.headers.get('content-type') || '').toLowerCase();
+            if (contentType.indexOf('application/json') < 0) {
+                throw new Error('Validation status response was invalid.');
+            }
+
+            var payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.error || payload.message || 'Failed to read validation status.');
+            }
+
+            if (payload && payload.pending) {
+                continue;
+            }
+
+            if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')) {
+                return payload.result;
+            }
+
+            return payload;
+        }
+    }
+
     window.fetchJsonWithProgress = async function (url, requestOptions, explicitProgressOptions) {
         requestOptions = requestOptions || {};
         var method = requestOptions.method || 'GET';
@@ -652,7 +761,11 @@
             : (explicitProgressOptions || window.getTrackedOperationOptions(url, method));
 
         var performFetch = async function () {
-            var response = await fetch(url, requestOptions);
+            var effectiveRequestOptions = isAsyncValidationRequest(url, method)
+                ? withAsyncValidationHeader(requestOptions)
+                : requestOptions;
+
+            var response = await fetch(url, effectiveRequestOptions);
             var contentType = (response.headers.get('content-type') || '').toLowerCase();
 
             if (!response.ok) {
@@ -673,6 +786,23 @@
             }
 
             if (contentType.indexOf('application/json') >= 0) {
+                if (response.status === 202) {
+                    var acceptedResult = await response.json();
+                    var statusUrl = acceptedResult && acceptedResult.statusUrl
+                        ? acceptedResult.statusUrl
+                        : (acceptedResult && acceptedResult.operationId
+                            ? '/ValidationOperations/' + encodeURIComponent(acceptedResult.operationId)
+                            : '');
+
+                    if (!statusUrl) {
+                        throw new Error('Validation status URL was not provided.');
+                    }
+
+                    var polledResult = await pollValidationOperation(statusUrl);
+                    window.ruleWorkspaceUi?.syncWorkspaceSaveLock?.(url, method, requestOptions, polledResult);
+                    return polledResult;
+                }
+
                 var jsonResult = await response.json();
                 window.ruleWorkspaceUi?.syncWorkspaceSaveLock?.(url, method, requestOptions, jsonResult);
                 return jsonResult;
