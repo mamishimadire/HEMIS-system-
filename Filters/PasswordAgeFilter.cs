@@ -52,7 +52,7 @@ namespace HemisAudit.Filters
 
             var now = DateTime.UtcNow;
             var ageDays = _policy.GetPasswordAgeDays(user, now);
-            if (ageDays >= 30)
+            if (_policy.IsPasswordExpired(user, now))
             {
                 if (context.Controller is Controller controller)
                 {
@@ -63,9 +63,11 @@ namespace HemisAudit.Filters
                 return;
             }
 
-            if (ageDays >= 25 && ageDays < 30 && context.Controller is Controller warningController)
+            var warningDays = _policy.GetPasswordWarningDays(user, now);
+            if (warningDays.HasValue && context.Controller is Controller warningController)
             {
-                warningController.TempData["PasswordWarnDays"] = 30 - ageDays;
+                warningController.TempData["PasswordWarnDays"] = warningDays.Value;
+                warningController.TempData["PasswordWarnAgeDays"] = ageDays;
             }
 
             await next();

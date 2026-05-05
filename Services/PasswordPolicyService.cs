@@ -7,17 +7,27 @@ namespace HemisAudit.Services
 {
     public interface IPasswordPolicyService
     {
+        int MaxPasswordAgeDays { get; }
+        int WarningWindowDays { get; }
         IReadOnlyList<string> ValidatePassword(ApplicationUser user, string password, string? currentPasswordHash = null);
         string BuildPasswordHistory(string? existingHistoryJson, string newHash);
+        DateTime? GetPasswordReferenceDate(ApplicationUser user);
         int? GetPasswordWarningDays(ApplicationUser user, DateTime utcNow);
+        int GetPasswordDaysRemaining(ApplicationUser user, DateTime utcNow);
         bool IsPasswordExpired(ApplicationUser user, DateTime utcNow);
         int GetPasswordAgeDays(ApplicationUser user, DateTime utcNow);
     }
 
     public class PasswordPolicyService : IPasswordPolicyService
     {
+        public const int DefaultMaxPasswordAgeDays = 30;
+        public const int DefaultWarningWindowDays = 7;
+
         private static readonly Regex SpecialCharRegex = new(@"[^A-Za-z0-9]", RegexOptions.Compiled);
         private readonly IPasswordHasher<ApplicationUser> _hasher;
+
+        public int MaxPasswordAgeDays => DefaultMaxPasswordAgeDays;
+        public int WarningWindowDays => DefaultWarningWindowDays;
 
         public PasswordPolicyService(IPasswordHasher<ApplicationUser> hasher)
         {
@@ -84,23 +94,34 @@ namespace HemisAudit.Services
             return JsonSerializer.Serialize(history.Take(5).ToList());
         }
 
+        public DateTime? GetPasswordReferenceDate(ApplicationUser user)
+        {
+            var referenceDate = user.PasswordSetDate ?? user.CreatedAt;
+            return referenceDate == default ? null : referenceDate;
+        }
+
         public int? GetPasswordWarningDays(ApplicationUser user, DateTime utcNow)
         {
-            var age = GetPasswordAgeDays(user, utcNow);
-            if (age >= 25 && age < 30)
-                return 30 - age;
-            return null;
+            var daysRemaining = GetPasswordDaysRemaining(user, utcNow);
+            return daysRemaining > 0 && daysRemaining <= WarningWindowDays
+                ? daysRemaining
+                : null;
+        }
+
+        public int GetPasswordDaysRemaining(ApplicationUser user, DateTime utcNow)
+        {
+            return Math.Max(0, MaxPasswordAgeDays - GetPasswordAgeDays(user, utcNow));
         }
 
         public bool IsPasswordExpired(ApplicationUser user, DateTime utcNow)
         {
-            return GetPasswordAgeDays(user, utcNow) >= 30;
+            return GetPasswordAgeDays(user, utcNow) >= MaxPasswordAgeDays;
         }
 
         public int GetPasswordAgeDays(ApplicationUser user, DateTime utcNow)
         {
-            var passwordSetDate = user.PasswordSetDate ?? user.CreatedAt;
-            return passwordSetDate == default ? 0 : (utcNow - passwordSetDate).Days;
+            var passwordSetDate = GetPasswordReferenceDate(user);
+            return passwordSetDate.HasValue ? Math.Max(0, (utcNow - passwordSetDate.Value).Days) : 0;
         }
 
         private static IEnumerable<string> ReadPasswordHistory(string? json)

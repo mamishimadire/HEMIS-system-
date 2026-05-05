@@ -1,0 +1,1118 @@
+@using HemisAudit.Models
+@using HemisAudit.ViewModels
+@{
+    ViewData["Title"] = "Rule 35 - Duplicate Check on dbo_CRSE";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
+}
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <div class="engagement-selector">
+        <label for="clientId">Engagement</label>
+        <select id="clientId">
+            <option value="">Select engagement (results saved here)</option>
+            @foreach (var client in clients)
+            {
+                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                    @client.Name (@client.FiscalYear)
+                </option>
+            }
+        </select>
+        <small>Saved runs reload the last analyst configuration for this engagement.</small>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R35</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 35: Duplicate Check on dbo_CRSE</h1>
+            <p class="rule-header__sub">Count occurrences of the selected field and fail every record that belongs to a duplicate value.</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="accordion-stack">
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="server">Server Name</label>
+                        <input id="server" type="text" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                    </div>
+                    <div class="field-group">
+                        <label for="driver">Driver</label>
+                        <select id="driver">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label for="database">Database</label>
+                        <select id="database"></select>
+                    </div>
+                </div>
+                <div class="action-bar" style="justify-content:flex-start;margin:12px 0 0">
+                    <button type="button" class="btn btn-primary" id="connectBtn">Connect</button>
+                    <button type="button" class="btn btn-info" id="verifyBtn">Verify Table</button>
+                </div>
+                <div id="connectionOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('config')">
+                <span class="acc-icon">CF</span>
+                <span>Rule Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-config" style="display:none">
+                <div class="info-box info-box--red">
+                    <strong>Rule 35 Logic:</strong><br />
+                    Count how many times each value appears in the selected field.
+                    <br />
+                    <code>COUNT = 1</code> means <strong>Unique</strong> and the row <strong>passes</strong>.
+                    <br />
+                    <code>COUNT &gt; 1</code> means <strong>Duplicate</strong> and every row in that duplicate group <strong>fails</strong>.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="tableName">Source Table</label>
+                        <select id="tableName"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="duplicateColumn">Duplicate Field</label>
+                        <select id="duplicateColumn"></select>
+                    </div>
+                </div>
+                <div id="configOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Export Options</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 35 connection, configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the saved Rule 35 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
+                <div id="workspaceRunLabel">No saved run yet</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                <div id="workspaceStatusLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
+                <div id="workspaceEditedLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
+                <div id="workspaceRoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <label for="workspaceSignoffComment">Signoff Comment</label>
+                <textarea id="workspaceSignoffComment" rows="3" placeholder="Add review or completion notes"></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
+            <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
+            <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button type="button" class="btn btn-info" id="verifyBtnBar">Verify Table</button>
+        <button type="button" class="btn btn-success" id="runBtn">Run Rule 35</button>
+        <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+        <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
+    </div>
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="analysis">Analysis</button>
+            <button class="tab-btn" type="button" data-tab="details">Data</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+            <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
+        </div>
+        <div class="tab-pane active" data-tab-panel="analysis"></div>
+        <div class="tab-pane" data-tab-panel="details"></div>
+        <div class="tab-pane" data-tab-panel="charts"></div>
+        <div class="tab-pane" data-tab-panel="sql">
+            <textarea id="sqlText" rows="18" readonly></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="downloads">
+            <div class="alert alert--info" style="margin-bottom:16px">
+                Excel and CSV downloads keep the saved Rule 35 duplicate analysis. SQL downloads generate the same duplicate-count logic used by the module.
+            </div>
+            <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    const currentSystemRole = '@currentSystemRole';
+    const apiBasePath = '/Rule35';
+    const state = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        currentRunId: null,
+        summary: null,
+        sql: '',
+        currentUserEngagementRole: '',
+        currentStatus: '',
+        currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
+        hasDataAnalystSignoff: false,
+        resultsVisible: false,
+        isDirty: false,
+        isHydrating: false,
+        isBeginningWorkspaceEdit: false,
+        editWarningAccepted: false,
+        lastEditedByUserName: '',
+        lastEditedAt: null,
+        lastWorkspaceInfoSignature: ''
+    };
+
+    const els = {
+        clientId: document.getElementById('clientId'),
+        server: document.getElementById('server'),
+        driver: document.getElementById('driver'),
+        database: document.getElementById('database'),
+        tableName: document.getElementById('tableName'),
+        duplicateColumn: document.getElementById('duplicateColumn'),
+        connectionOutput: document.getElementById('connectionOutput'),
+        configOutput: document.getElementById('configOutput'),
+        workspaceInfo: document.getElementById('workspaceInfo'),
+        workspaceRunState: document.getElementById('workspaceRunState'),
+        workspaceRunLabel: document.getElementById('workspaceRunLabel'),
+        workspaceStatusLabel: document.getElementById('workspaceStatusLabel'),
+        workspaceEditedLabel: document.getElementById('workspaceEditedLabel'),
+        workspaceRoleLabel: document.getElementById('workspaceRoleLabel'),
+        workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
+        beginEditBtn: document.getElementById('beginEditBtn'),
+        saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
+        signoffBtn: document.getElementById('signoffBtn'),
+        removeSignoffBtn: document.getElementById('removeSignoffBtn'),
+        downloadAllBtn: document.getElementById('downloadAllBtn'),
+        sqlText: document.getElementById('sqlText'),
+        statusBadge: document.getElementById('statusBadge'),
+        spinner: document.getElementById('spinner'),
+        spinnerMsg: document.getElementById('spinnerMsg')
+    };
+
+    const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+    const tabPanels = Array.from(document.querySelectorAll('.tab-pane'));
+
+    function toggleAccordion(name) {
+        const body = document.getElementById(`body-${name}`);
+        const chevron = document.querySelector(`#app .accordion-toggle[onclick="toggleAccordion('${name}')"] .acc-chevron`);
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : 'block';
+        if (chevron) chevron.textContent = isOpen ? '^' : 'v';
+    }
+    window.toggleAccordion = toggleAccordion;
+
+    function switchTab(tabName) {
+        tabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+        tabPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.tabPanel === tabName));
+    }
+
+    tabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+
+    function setOptions(select, items, selectedValue) {
+        select.innerHTML = '';
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = select === els.database ? 'Select database' : 'Select option';
+        select.appendChild(defaultOption);
+        (items || []).forEach(item => {
+            const option = document.createElement('option');
+            option.value = item;
+            option.textContent = item;
+            select.appendChild(option);
+        });
+        if (selectedValue && items.includes(selectedValue)) {
+            select.value = selectedValue;
+        }
+    }
+
+    function showSpinner(message) {
+        els.spinnerMsg.textContent = message || 'Processing...';
+        els.spinner.style.display = 'flex';
+    }
+
+    function hideSpinner() {
+        els.spinner.style.display = 'none';
+    }
+
+    function setStatus(elId, msg, type = 'info') {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        el.innerHTML = `<div class="alert alert--${type}">${msg}</div>`;
+    }
+
+    function setWorkspaceInfo(msg, type = 'info') {
+        els.workspaceInfo.className = `alert alert--${type}`;
+        els.workspaceInfo.innerHTML = msg;
+        const signature = `${type}|${String(msg)}`;
+        if (state.lastWorkspaceInfoSignature !== signature) {
+            state.lastWorkspaceInfoSignature = signature;
+            window.showWorkspaceActionToast?.(msg, type);
+        }
+    }
+
+    function setWorkspaceRunState(text, type = 'neutral') {
+        els.workspaceRunState.className = `badge badge--${type} badge--sm`;
+        els.workspaceRunState.textContent = text;
+    }
+
+    function isArchivedWorkspace() {
+        return String(state.currentStatus || '').toLowerCase() === 'archived';
+    }
+
+    async function postJson(url, body) {
+        return await window.fetchJsonWithProgress(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {})
+        });
+    }
+
+    async function getJson(url) {
+        return await window.fetchJsonWithProgress(url, { method: 'GET' });
+    }
+
+    async function downloadPost(url, body, fileName) {
+        await window.downloadFileWithProgress({
+            url,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+            defaultFileName: fileName,
+            label: 'Downloading result'
+        });
+    }
+
+    function setStatusBadge(status) {
+        if (!status) {
+            els.statusBadge.style.display = 'none';
+            els.statusBadge.textContent = '';
+            return;
+        }
+        els.statusBadge.style.display = '';
+        els.statusBadge.textContent = String(status).toUpperCase();
+        els.statusBadge.className = `rule-header__badge ${String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail'}`;
+    }
+
+    function applyWorkspaceAccessMode(canEditWorkspace) {
+        ['body-connection', 'body-config'].forEach(id => {
+            const body = document.getElementById(id);
+            if (!body) return;
+            body.style.opacity = canEditWorkspace ? '' : '0.45';
+            body.style.filter = canEditWorkspace ? '' : 'grayscale(0.15)';
+            body.querySelectorAll('input, select, textarea, button').forEach(el => {
+                el.disabled = !canEditWorkspace;
+            });
+        });
+    }
+
+    function renderWorkspaceState() {
+        const role = state.currentUserEngagementRole || currentSystemRole || '';
+        const archived = isArchivedWorkspace();
+        const canEditWorkspace = currentSystemRole === 'DataAnalyst' && role === 'DataAnalyst' && !archived;
+        const canSignWorkspace =
+            !archived &&
+            !!state.currentRunId &&
+            (
+                (currentSystemRole === 'DataAnalyst' && role === 'DataAnalyst') ||
+                (state.resultsVisible && (role === 'Manager' || role === 'Director'))
+            );
+        const canActivateSignoff = !!canSignWorkspace && !!state.isWorkspaceSaved;
+        const canRemoveWorkspaceSignoff = !archived && canSignWorkspace && state.currentUserHasSignedOff;
+        const signedOffLock = !!state.currentUserHasSignedOff;
+        const signoffButtonText = state.currentUserHasSignedOff
+            ? `Signed Off as ${role || 'Reviewer'}`
+            : `Sign Off as ${role || 'Reviewer'}`;
+        const signoffCommentLabel = role === 'DataAnalyst'
+            ? 'Analyst Signoff Comment'
+            : 'Review Signoff Comment';
+
+        els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
+        els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+        els.workspaceEditedLabel.textContent = state.lastEditedAt
+            ? `${state.lastEditedByUserName || 'Unknown'} | ${new Date(state.lastEditedAt).toLocaleString()}`
+            : '-';
+        els.workspaceRoleLabel.textContent = role || '-';
+        document.querySelector('label[for="workspaceSignoffComment"]').textContent = signoffCommentLabel;
+
+        window.ruleWorkspaceUi?.setReadonlyShell('app', !canEditWorkspace || signedOffLock);
+        window.ruleWorkspaceUi?.setFormSectionReadonly('.accordion-stack', !canEditWorkspace || signedOffLock);
+        window.ruleWorkspaceUi?.applyStates([
+            { target: els.beginEditBtn, show: canEditWorkspace && !!state.currentRunId, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
+            { target: els.saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
+            { target: document.getElementById('runBtn'), show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+            { target: document.getElementById('sqlBtn'), show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+            { target: els.workspaceSignoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
+        ]);
+        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
+            allow: ['#downloadAllBtn', '#removeSignoffBtn']
+        });
+        window.ruleWorkspaceUi?.applyStates([
+            {
+                target: els.signoffBtn,
+                show: canSignWorkspace,
+                disabled: !canActivateSignoff || state.isDirty || signedOffLock,
+                text: signoffButtonText,
+                title: ''
+            },
+            {
+                target: els.removeSignoffBtn,
+                show: canRemoveWorkspaceSignoff,
+                disabled: !canRemoveWorkspaceSignoff,
+                title: ''
+            }
+        ]);
+
+        els.downloadAllBtn.disabled = !state.summary;
+        applyWorkspaceAccessMode(canEditWorkspace);
+
+        if (!state.clientId) {
+            setWorkspaceRunState('No engagement selected', 'neutral');
+            setWorkspaceInfo('Select an engagement to load the saved Rule 35 workspace.', 'info');
+            return;
+        }
+
+        if (!state.currentRunId) {
+            setWorkspaceRunState('No saved run loaded', 'neutral');
+            setWorkspaceInfo(
+                canEditWorkspace
+                    ? 'No saved Rule 35 workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.'
+                    : 'No saved Rule 35 workspace exists for this engagement yet. This module is read-only for your role.',
+                'info'
+            );
+            return;
+        }
+
+        if (archived) {
+            setWorkspaceRunState(`Run #${state.currentRunId} archived`, 'warning');
+            setWorkspaceInfo(
+                'This engagement is archived. The saved workspace and results remain visible, but configuration, validation, saving, and signoff are disabled for every role.',
+                'warning'
+            );
+            return;
+        }
+
+        if (state.isDirty) {
+            setWorkspaceRunState(`Run #${state.currentRunId} loaded`, 'warning');
+            setWorkspaceInfo(
+                canEditWorkspace
+                    ? `Saved run <strong>#${state.currentRunId}</strong> is loaded, but the current screen has unsaved changes. Save the workspace or run validation again before signing off.`
+                    : `Saved run <strong>#${state.currentRunId}</strong> is loaded, but your role cannot edit this workspace.`,
+                'warning'
+            );
+            return;
+        }
+
+        if (state.currentUserHasSignedOff) {
+            setWorkspaceRunState(`Run #${state.currentRunId} signed off`, 'success');
+            setWorkspaceInfo(
+                `Saved run <strong>#${state.currentRunId}</strong> is loaded with its last configuration and results. Your ${role === 'DataAnalyst' ? 'analyst' : 'review'} signoff is already on this run.`,
+                'success'
+            );
+            return;
+        }
+
+        if (state.hasDataAnalystSignoff) {
+            setWorkspaceRunState(`Run #${state.currentRunId} analyst-signed`, 'success');
+            setWorkspaceInfo(
+                `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL with its saved configuration and results. Other assigned users can review this analyst-signed run.`,
+                'success'
+            );
+            return;
+        }
+
+        setWorkspaceRunState(`Run #${state.currentRunId} saved`, 'info');
+        setWorkspaceInfo(
+            canEditWorkspace
+                ? `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL. The analyst signoff is still outstanding, but the saved results remain visible to assigned users.`
+                : `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL and is awaiting analyst signoff.`,
+            'info'
+        );
+    }
+
+    function buildRequest() {
+        return {
+            clientId: parseInt(els.clientId.value || '0', 10) || 0,
+            runId: state.currentRunId,
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            tableName: els.tableName.value,
+            duplicateColumn: els.duplicateColumn.value
+        };
+    }
+
+    function updateWorkspaceCore(workspace) {
+        state.currentRunId = workspace?.runId || null;
+        state.currentUserEngagementRole = workspace?.currentUserEngagementRole || '';
+        state.currentStatus = workspace?.currentStatus || '';
+        state.currentUserHasSignedOff = !!workspace?.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace?.isWorkspaceSaved;
+        state.hasDataAnalystSignoff = !!workspace?.hasDataAnalystSignoff;
+        state.lastEditedByUserName = workspace?.lastEditedByUserName || '';
+        state.lastEditedAt = workspace?.lastEditedAt || null;
+        state.resultsVisible = !!workspace?.resultsVisible;
+        els.workspaceSignoffComment.value = workspace?.currentUserSignoffComment || '';
+    }
+
+    function applyWorkspaceReviewState(workspace) {
+        updateWorkspaceCore(workspace);
+        if (workspace?.summary) {
+            renderSummary(workspace.summary, { fromWorkspace: true, preserveDirty: true });
+        } else {
+            renderWorkspaceState();
+        }
+    }
+
+    function renderAnalysis(summary) {
+        const analysisPanel = document.querySelector('[data-tab-panel="analysis"]');
+        analysisPanel.innerHTML = `
+            <div class="stats-grid" style="margin-bottom:24px">
+                <div class="stat-card"><div class="stat-card__label">100% Source Records Tested</div><div class="stat-card__value">${formatNumber(summary.totalValidated)}</div></div>
+                <div class="stat-card stat-card--pass"><div class="stat-card__label">Unique Values</div><div class="stat-card__value">${formatNumber(summary.uniqueValues)}</div></div>
+                <div class="stat-card stat-card--fail"><div class="stat-card__label">Duplicate Values</div><div class="stat-card__value">${formatNumber(summary.duplicateValues)}</div></div>
+                <div class="stat-card"><div class="stat-card__label">Duplicate Records</div><div class="stat-card__value">${formatNumber(summary.duplicateRecords)}</div></div>
+            </div>
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Run Summary</h3>
+                <div class="form-grid">
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Database</div><div>${escapeHtml(summary.database)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Table</div><div>${escapeHtml(summary.tableName)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Duplicate Field</div><div>${escapeHtml(summary.duplicateColumn)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div><div>${escapeHtml(summary.status)}</div></div>
+                    <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Duplicate Record Rate</div><div>${formatRate(summary.exceptionRate)}%</div></div>
+                </div>
+                ${renderDuplicateSummary(summary)}
+            </div>`;
+    }
+
+    function renderDuplicateSummary(summary) {
+        if (!summary.duplicateSummary || !summary.duplicateSummary.length) {
+            return '<div class="alert alert--success" style="margin-top:18px">No duplicate groups were found in this run.</div>';
+        }
+        const rows = summary.duplicateSummary.slice(0, 10).map(item => `
+            <tr>
+                <td style="white-space:nowrap;overflow-wrap:normal">${escapeHtml(item.value || '(blank)')}</td>
+                <td style="white-space:nowrap;overflow-wrap:normal">${formatNumber(item.count)}</td>
+            </tr>`).join('');
+        return `
+            <div style="margin-top:18px">
+                <h4>Duplicate Value Summary</h4>
+                <div class="results-table-shell">
+                    <div class="table-wrapper">
+                        <table class="data-table" style="table-layout:auto;min-width:420px">
+                            <thead>
+                                <tr>
+                                    <th style="white-space:nowrap">Value</th>
+                                    <th style="white-space:nowrap">Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">Showing the first ${Math.min(summary.duplicateSummary.length, 10)} duplicate group(s) in the browser preview.</div>
+                </div>
+            </div>`;
+    }
+
+    function renderDetails(summary) {
+        const panel = document.querySelector('[data-tab-panel="details"]');
+        const rows = summary.validationRows || [];
+        const headers = new Set(['ValidationNumber', 'DuplicateValue', 'OccurrenceCount', 'DuplicateStatus']);
+        rows.forEach(row => Object.keys(row.displayValues || {}).forEach(key => headers.add(key)));
+        const allHeaders = Array.from(headers);
+        const thead = allHeaders.map(header => `<th style="white-space:nowrap">${escapeHtml(header)}</th>`).join('');
+        const body = rows.slice(0, 10).map(row => {
+            const cells = allHeaders.map(header => {
+                if (header === 'ValidationNumber') return `<td style="white-space:nowrap;overflow-wrap:normal">${formatNumber(row.validationNumber)}</td>`;
+                if (header === 'DuplicateValue') return `<td style="white-space:nowrap;overflow-wrap:normal">${escapeHtml(row.duplicateValue || '')}</td>`;
+                if (header === 'OccurrenceCount') return `<td style="white-space:nowrap;overflow-wrap:normal">${formatNumber(row.occurrenceCount)}</td>`;
+                if (header === 'DuplicateStatus') return `<td style="white-space:nowrap;overflow-wrap:normal">${escapeHtml(row.duplicateStatus || '')}</td>`;
+                return `<td style="white-space:nowrap;overflow-wrap:normal">${escapeHtml((row.displayValues || {})[header] || '')}</td>`;
+            }).join('');
+            return `<tr>${cells}</tr>`;
+        }).join('');
+        panel.innerHTML = rows.length
+            ? `<div class="card" style="padding:20px">
+                    <div class="alert alert--info" style="margin-bottom:16px">The browser shows only the first ${rows.slice(0, 10).length} row(s) to stay responsive. Excel and CSV keep the saved result set.</div>
+                    <div class="results-table-shell">
+                        <div class="table-wrapper">
+                            <table class="data-table" style="table-layout:auto;min-width:max-content">
+                                <thead><tr>${thead}</tr></thead>
+                                <tbody>${body}</tbody>
+                            </table>
+                        </div>
+                        <div class="table-footer">${rows.length.toLocaleString()} preview row(s) loaded. Scroll horizontally to read all columns.</div>
+                    </div>
+                </div>`
+            : '<div class="empty-state"><p>Run Rule 35 to see validation rows here.</p></div>';
+    }
+
+    function renderCharts(summary) {
+        const panel = document.querySelector('[data-tab-panel="charts"]');
+        const duplicateGroups = (summary.duplicateSummary || []).slice(0, 10).map(item => {
+            const width = summary.duplicateRecords ? (item.count * 100 / summary.duplicateRecords) : 0;
+            return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><strong>${escapeHtml(item.value || '(blank)')}</strong><span>${formatNumber(item.count)}</span></div><div class="viz-bar"><span style="width:${width.toFixed(2)}%;background:#f97316"></span></div></div>`;
+        }).join('');
+
+        panel.innerHTML = `
+            <div class="viz-grid">
+                <div class="viz-card">
+                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Duplicate Records</div>
+                    <div style="font-size:36px;font-weight:800;color:#dc2626">${formatNumber(summary.duplicateRecords)}</div>
+                    <div class="viz-bar"><span style="width:${summary.totalValidated ? (summary.duplicateRecords * 100 / summary.totalValidated).toFixed(2) : 0}%;background:#ef4444"></span></div>
+                </div>
+                <div class="viz-card">
+                    <div style="font-size:12px;text-transform:uppercase;font-weight:700;color:#64748b">Unique Values</div>
+                    <div style="font-size:36px;font-weight:800;color:#16a34a">${formatNumber(summary.uniqueValues)}</div>
+                    <div class="viz-bar"><span style="width:${summary.totalValidated ? (summary.passCount * 100 / summary.totalValidated).toFixed(2) : 0}%;background:#22c55e"></span></div>
+                </div>
+            </div>
+            <div class="viz-card" style="margin-top:16px">
+                <h3 class="section-title" style="margin-top:0">Duplicate Groups</h3>
+                ${duplicateGroups || '<div class="alert alert--success" style="margin:0">No duplicate groups were found in this run.</div>'}
+            </div>`;
+    }
+
+    function renderSummary(summary, options = {}) {
+        state.summary = summary;
+        state.currentRunId = summary.savedRunId || state.currentRunId;
+        state.currentStatus = summary.status || state.currentStatus;
+        if (!options.preserveDirty) {
+            state.isDirty = false;
+        }
+        setStatusBadge(summary.status);
+        renderAnalysis(summary);
+        renderDetails(summary);
+        renderCharts(summary);
+        renderWorkspaceState();
+    }
+
+    function formatNumber(value) {
+        return Number(value || 0).toLocaleString();
+    }
+
+    function formatRate(value) {
+        return Number(value || 0).toFixed(2);
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    async function markWorkspaceDirty() {
+        if (state.isHydrating) return;
+        if (currentSystemRole === 'Admin') return;
+        if (isArchivedWorkspace()) return;
+
+        if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+            if (state.isBeginningWorkspaceEdit) {
+                state.isDirty = true;
+                renderWorkspaceState();
+                return;
+            }
+
+            const confirmEdit = window.confirm('Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.');
+            if (!confirmEdit) {
+                await loadWorkspace();
+                return;
+            }
+
+            state.isBeginningWorkspaceEdit = true;
+            state.editWarningAccepted = true;
+            showSpinner('Clearing signoffs for the edited workspace...');
+            try {
+                const result = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, buildRequest());
+                if (!result.success) {
+                    state.editWarningAccepted = false;
+                    setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
+                    await loadWorkspace();
+                    return;
+                }
+
+                state.currentUserHasSignedOff = false;
+                state.isWorkspaceSaved = false;
+                state.hasDataAnalystSignoff = false;
+                if (result.workspace) {
+                    applyWorkspaceReviewState(result.workspace);
+                }
+                setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+            } catch (error) {
+                state.editWarningAccepted = false;
+                setWorkspaceInfo(`Error: ${escapeHtml(error?.message || 'Failed to begin editing.')}`, 'error');
+                await loadWorkspace();
+            } finally {
+                state.isBeginningWorkspaceEdit = false;
+                hideSpinner();
+            }
+        }
+
+        state.isDirty = true;
+        renderWorkspaceState();
+    }
+
+    function resetWorkspaceState(clearClient = false) {
+        state.currentRunId = null;
+        state.summary = null;
+        state.sql = '';
+        state.currentUserEngagementRole = '';
+        state.currentStatus = '';
+        state.currentUserHasSignedOff = false;
+        state.isWorkspaceSaved = false;
+        state.hasDataAnalystSignoff = false;
+        state.resultsVisible = false;
+        state.isDirty = false;
+        state.editWarningAccepted = false;
+        state.lastEditedByUserName = '';
+        state.lastEditedAt = null;
+        state.lastWorkspaceInfoSignature = '';
+        if (clearClient) state.clientId = 0;
+
+        els.server.value = '';
+        els.driver.value = 'ODBC Driver 17 for SQL Server';
+        els.database.innerHTML = '<option value="">Select database</option>';
+        els.tableName.innerHTML = '<option value="">Select option</option>';
+        els.duplicateColumn.innerHTML = '<option value="">Select option</option>';
+        els.workspaceSignoffComment.value = '';
+        els.connectionOutput.innerHTML = '';
+        els.configOutput.innerHTML = '';
+        els.sqlText.value = '';
+
+        document.querySelector('[data-tab-panel="analysis"]').innerHTML = '<div class="empty-state"><p>Run Rule 35 to see validation results here.</p></div>';
+        document.querySelector('[data-tab-panel="details"]').innerHTML = '<div class="empty-state"><p>Run Rule 35 to see validation rows here.</p></div>';
+        document.querySelector('[data-tab-panel="charts"]').innerHTML = '<div class="empty-state"><p>Charts will appear after running validation.</p></div>';
+        document.querySelector('[data-tab-panel="downloads"]').innerHTML = `
+            <div class="alert alert--info" style="margin-bottom:16px">
+                Excel and CSV downloads keep the saved Rule 35 duplicate analysis. SQL downloads generate the same duplicate-count logic used by the module.
+            </div>
+            <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
+            </div>`;
+
+        setStatusBadge('');
+        renderWorkspaceState();
+        bindDownloadButtons();
+    }
+
+    async function connect(options = {}) {
+        const server = els.server.value.trim();
+        const driver = els.driver.value;
+        if (!server) {
+            setStatus('connectionOutput', 'Enter a server name first.', 'warning');
+            return null;
+        }
+
+        if (!options.silent) {
+            showSpinner('Connecting to SQL Server...');
+        }
+
+        try {
+            const data = await postJson(`${apiBasePath}/GetDatabases`, { server, driver });
+            if (!data.success) {
+                setStatus('connectionOutput', escapeHtml(data.error || 'Connection failed.'), 'error');
+                return null;
+            }
+
+            setOptions(els.database, data.databases || [], options.preferredDatabase || data.databases?.[0] || '');
+            setStatus('connectionOutput', options.statusMessage || `Connection successful. ${data.databases.length} database(s) loaded.`, 'success');
+            if (els.database.value) {
+                await loadTables({ ...options, preferredTableName: options.preferredTableName, preferredDuplicateColumn: options.preferredDuplicateColumn });
+            }
+            return data;
+        } finally {
+            if (!options.silent) {
+                hideSpinner();
+            }
+        }
+    }
+
+    async function loadTables(options = {}) {
+        if (!els.database.value) return null;
+
+        if (!options.silent) {
+            showSpinner('Loading tables...');
+        }
+
+        const data = await postJson(`${apiBasePath}/GetTables`, {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value
+        });
+
+        try {
+            if (!data.success) {
+                setStatus('configOutput', escapeHtml(data.error || 'Could not load tables.'), 'error');
+                return null;
+            }
+
+            const preferredTable = options.preferredTableName || data.autoStudTable || '';
+            setOptions(els.tableName, data.tables || [], preferredTable);
+            setStatus('configOutput', `Database selected. ${data.tables.length} table(s) loaded.`, 'success');
+            if (els.tableName.value) {
+                await loadColumns({ ...options, preferredDuplicateColumn: options.preferredDuplicateColumn });
+            }
+            return data;
+        } finally {
+            if (!options.silent) {
+                hideSpinner();
+            }
+        }
+    }
+
+    async function loadColumns(options = {}) {
+        if (!els.tableName.value) return null;
+
+        const data = await postJson(`${apiBasePath}/GetColumns`, {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            tableName: els.tableName.value
+        });
+        if (!data.success) {
+            setStatus('configOutput', escapeHtml(data.error || 'Could not load columns.'), 'error');
+            return null;
+        }
+        setOptions(els.duplicateColumn, data.columns || [], options.preferredDuplicateColumn || data.autoDuplicateColumn || '');
+        return data;
+    }
+
+    async function verify() {
+        showSpinner('Verifying source table...');
+        try {
+            const data = await postJson(`${apiBasePath}/VerifyTable`, buildRequest());
+            if (!data.success) {
+                setStatus('connectionOutput', escapeHtml(data.error || 'Verification failed.'), 'error');
+                return;
+            }
+            setStatus(
+                'connectionOutput',
+                `Source records: <strong>${formatNumber(data.totalRecords)}</strong> | Non-null values: <strong>${formatNumber(data.nonNullValues)}</strong> | Distinct values: <strong>${formatNumber(data.distinctValues)}</strong> | Duplicate values: <strong>${formatNumber(data.duplicateValues)}</strong> | Duplicate records: <strong>${formatNumber(data.duplicateRecords)}</strong>`,
+                'success'
+            );
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function runValidation() {
+        showSpinner('Running Rule 35 duplicate check...');
+        try {
+            const data = await postJson(`${apiBasePath}/RunValidation`, buildRequest());
+            if (!data.success) {
+                setWorkspaceInfo(`Error: ${escapeHtml(data.error || 'Rule 35 failed.')}`, 'error');
+                return;
+            }
+            renderSummary(data);
+            state.isWorkspaceSaved = false;
+            state.hasDataAnalystSignoff = false;
+            state.currentUserHasSignedOff = false;
+            setWorkspaceInfo(`Rule 35 run completed. <strong>${formatNumber(data.duplicateRecords)}</strong> duplicate record(s) were found across <strong>${formatNumber(data.duplicateValues)}</strong> duplicate value group(s).`, 'success');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function generateSql() {
+        const data = await postJson(`${apiBasePath}/GenerateSql`, buildRequest());
+        if (!data.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(data.error || 'SQL generation failed.')}`, 'error');
+            return;
+        }
+        state.sql = data.sql || '';
+        els.sqlText.value = state.sql;
+        switchTab('sql');
+    }
+
+    async function loadWorkspace() {
+        state.clientId = parseInt(els.clientId.value || '0', 10) || 0;
+        if (!state.clientId) {
+            renderWorkspaceState();
+            return;
+        }
+
+        showSpinner('Loading saved workspace...');
+        try {
+            const data = await getJson(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`);
+            if (!data.success) {
+                setWorkspaceInfo(`Error: ${escapeHtml(data.error || 'Workspace load failed.')}`, 'error');
+                return;
+            }
+            if (!data.hasWorkspace || !data.workspace) {
+                resetWorkspaceState();
+                return;
+            }
+
+            await hydrateWorkspace(data.workspace);
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function hydrateWorkspace(workspace) {
+        state.isHydrating = true;
+        let reconnectWarning = '';
+
+        try {
+            updateWorkspaceCore(workspace);
+            state.editWarningAccepted = false;
+            state.isDirty = false;
+
+            els.server.value = workspace.server || '';
+            els.driver.value = workspace.driver || 'ODBC Driver 17 for SQL Server';
+
+            if (workspace.summary) {
+                if (state.resultsVisible) {
+                    renderSummary(workspace.summary, { fromWorkspace: true, preserveDirty: true });
+                } else {
+                    updateHeaderBadge(workspace.summary.status || workspace.currentStatus || '');
+                }
+            } else {
+                updateHeaderBadge(workspace.currentStatus || '');
+            }
+
+            try {
+                if (workspace.server) {
+                    await connect({
+                        preferredDatabase: workspace.database || '',
+                        preferredTableName: workspace.tableName || '',
+                        preferredDuplicateColumn: workspace.duplicateColumn || '',
+                        silent: true,
+                        statusMessage: workspace.database
+                            ? `Connection successful. <strong>${escapeHtml(workspace.database)}</strong> was restored from saved run #${workspace.runId}.`
+                            : 'Connection restored using the saved Rule 35 workspace.'
+                    });
+                }
+            } catch (error) {
+                reconnectWarning = state.resultsVisible
+                    ? 'Saved workspace results are still loaded from SQL, but the live source could not be reconnected. The restored results remain on screen.'
+                    : 'The saved workspace was found in SQL, but the live source could not be reconnected.';
+                setStatus('connectionOutput', `Warning: ${escapeHtml(error?.message || 'Live SQL reconnect failed.')}`, 'warning');
+            }
+        } finally {
+            state.isHydrating = false;
+            renderWorkspaceState();
+            if (reconnectWarning) {
+                setWorkspaceInfo(reconnectWarning, 'warning');
+            }
+        }
+    }
+
+    async function beginEdit() {
+        if (!state.currentRunId) {
+            setWorkspaceInfo('Select a saved run before editing the workspace.', 'error');
+            return;
+        }
+
+        const data = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, buildRequest());
+        if (!data.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(data.error || 'Could not begin edit.')}`, 'error');
+            return;
+        }
+        state.currentUserHasSignedOff = false;
+        state.isWorkspaceSaved = false;
+        state.hasDataAnalystSignoff = false;
+        if (data.workspace) {
+            applyWorkspaceReviewState(data.workspace);
+        }
+        state.isDirty = true;
+        setWorkspaceInfo(data.message || 'Editing has begun.', 'warning');
+    }
+
+    async function saveWorkspace() {
+        const data = await postJson(`${apiBasePath}/SaveWorkspace`, buildRequest());
+        if (!data.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(data.error || 'Could not save workspace.')}`, 'error');
+            return;
+        }
+        if (data.workspace) {
+            applyWorkspaceReviewState(data.workspace);
+        }
+        state.isDirty = false;
+        setWorkspaceInfo(data.message || 'Workspace saved.', data.signoffsCleared ? 'warning' : 'success');
+    }
+
+    async function signoffWorkspace() {
+        if (!state.isWorkspaceSaved) {
+            setWorkspaceInfo('Save the workspace first before signing off.', 'warning');
+            return;
+        }
+        if (state.isDirty) {
+            setWorkspaceInfo('Save the workspace first. Editing removes signoffs and requires a fresh review.', 'warning');
+            return;
+        }
+
+        const data = await postJson(`${apiBasePath}/SignOffWorkspace`, {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: els.workspaceSignoffComment.value.trim()
+        });
+        if (!data.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(data.error || 'Could not save signoff.')}`, 'error');
+            return;
+        }
+        const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+            ? !!data.resultsVisible
+            : !!data.workspace?.resultsVisible;
+        if (data.workspace) {
+            data.workspace.resultsVisible = workspaceResultsVisible;
+            await hydrateWorkspace(data.workspace);
+        }
+        state.isDirty = false;
+        setWorkspaceInfo(
+            currentSystemRole === 'DataAnalyst'
+                ? 'Workspace signoff saved. Other assigned users can now review this signed run.'
+                : (data.message || 'Signoff saved.'),
+            'success'
+        );
+    }
+
+    async function removeSignoffWorkspace() {
+        const data = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
+            clientId: state.clientId,
+            runId: state.currentRunId,
+            comment: ''
+        });
+        if (!data.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(data.error || 'Could not remove signoff.')}`, 'error');
+            return;
+        }
+        const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+            ? !!data.resultsVisible
+            : !!data.workspace?.resultsVisible;
+        if (data.workspace) {
+            data.workspace.resultsVisible = workspaceResultsVisible;
+            await hydrateWorkspace(data.workspace);
+        }
+        setWorkspaceInfo(data.message || 'Signoff removed.', 'warning');
+    }
+
+    async function downloadAll() {
+        if (!state.summary) return;
+        if (document.getElementById('chkExcel').checked) {
+            await downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule35_Duplicate_Check.xlsx');
+        }
+        if (document.getElementById('chkCsv').checked) {
+            await downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule35_Duplicate_Check.csv');
+        }
+        if (document.getElementById('chkSql').checked) {
+            await downloadPost(`${apiBasePath}/DownloadSql`, buildRequest(), 'Rule35_Duplicate_Check.sql');
+        }
+    }
+
+    function bindDownloadButtons() {
+        document.getElementById('downloadExcelBtn')?.addEventListener('click', () => state.summary && downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule35_Duplicate_Check.xlsx'));
+        document.getElementById('downloadCsvBtn')?.addEventListener('click', () => state.summary && downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule35_Duplicate_Check.csv'));
+        document.getElementById('downloadSqlBtn')?.addEventListener('click', () => downloadPost(`${apiBasePath}/DownloadSql`, buildRequest(), 'Rule35_Duplicate_Check.sql'));
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', connect);
+    document.getElementById('verifyBtn').addEventListener('click', verify);
+    document.getElementById('verifyBtnBar').addEventListener('click', verify);
+    document.getElementById('runBtn').addEventListener('click', runValidation);
+    document.getElementById('sqlBtn').addEventListener('click', generateSql);
+    document.getElementById('downloadAllBtn').addEventListener('click', downloadAll);
+    els.beginEditBtn.addEventListener('click', beginEdit);
+    els.saveWorkspaceBtn.addEventListener('click', saveWorkspace);
+    els.signoffBtn.addEventListener('click', signoffWorkspace);
+    els.removeSignoffBtn.addEventListener('click', removeSignoffWorkspace);
+    els.clientId.addEventListener('change', loadWorkspace);
+    els.database.addEventListener('change', async () => {
+        await loadTables();
+        await markWorkspaceDirty();
+    });
+    els.tableName.addEventListener('change', async () => {
+        await loadColumns();
+        await markWorkspaceDirty();
+    });
+    els.duplicateColumn.addEventListener('change', markWorkspaceDirty);
+    els.server.addEventListener('input', markWorkspaceDirty);
+    els.driver.addEventListener('change', markWorkspaceDirty);
+
+    bindDownloadButtons();
+    renderWorkspaceState();
+    if (state.clientId) {
+        loadWorkspace();
+    }
+})();
+</script>

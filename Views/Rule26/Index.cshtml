@@ -219,7 +219,7 @@
             <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
             <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
             <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
-            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
         </div>
     </div>
 
@@ -282,6 +282,7 @@
         currentUserEngagementRole: '',
         currentStatus: '',
         currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
         hasDataAnalystSignoff: false,
         resultsVisible: false,
         detailsDirectionFilter: '',
@@ -898,7 +899,9 @@
         state.currentUserEngagementRole = workspace?.currentUserEngagementRole || '';
         state.currentStatus = workspace?.currentStatus || '';
         state.currentUserHasSignedOff = !!workspace?.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace?.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace?.hasDataAnalystSignoff;
+        state.resultsVisible = !!workspace?.resultsVisible;
         state.summary = workspace?.summary || state.summary;
 
         if (workspace) {
@@ -960,6 +963,7 @@
     function updateWorkspaceButtons() {
         const canEdit = currentSystemRole === 'DataAnalyst';
         const canSign = !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
             (currentSystemRole === 'DataAnalyst' ||
              (state.resultsVisible && (state.currentUserEngagementRole === 'Manager' || state.currentUserEngagementRole === 'Director')));
         const locked = !!state.currentUserHasSignedOff;
@@ -1156,6 +1160,7 @@
             const result = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, buildValidationRequest());
             if (!result.success) throw new Error(result.error || 'Could not begin editing.');
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             hydrateWorkspace(result.workspace || null, true);
             els.workspaceInfo.className = 'alert alert--warning';
             els.workspaceInfo.textContent = result.message || 'Workspace editing enabled.';
@@ -1301,3 +1306,5 @@
     if (state.clientId) loadWorkspaceState();
 })();
 </script>
+
+

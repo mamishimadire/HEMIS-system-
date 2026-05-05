@@ -205,7 +205,27 @@ namespace HemisAudit.Controllers
                     Department = user.Department,
                     OfficeAddress = user.OfficeAddress
                 },
-                PasswordChange = passwordModel ?? new ProfilePasswordChangeViewModel()
+                PasswordChange = passwordModel ?? new ProfilePasswordChangeViewModel(),
+                PasswordStatus = BuildPasswordStatus(user)
+            };
+        }
+
+        private PasswordStatusViewModel BuildPasswordStatus(ApplicationUser user)
+        {
+            var now = DateTime.UtcNow;
+            var ageDays = _passwordPolicy.GetPasswordAgeDays(user, now);
+            var daysRemaining = _passwordPolicy.GetPasswordDaysRemaining(user, now);
+            var isExpired = _passwordPolicy.IsPasswordExpired(user, now);
+
+            return new PasswordStatusViewModel
+            {
+                ReferenceDateUtc = _passwordPolicy.GetPasswordReferenceDate(user),
+                AgeDays = ageDays,
+                DaysRemaining = daysRemaining,
+                MaxAgeDays = _passwordPolicy.MaxPasswordAgeDays,
+                WarningWindowDays = _passwordPolicy.WarningWindowDays,
+                IsExpired = isExpired,
+                IsExpiringSoon = !isExpired && daysRemaining > 0 && daysRemaining <= _passwordPolicy.WarningWindowDays
             };
         }
 

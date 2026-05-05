@@ -25,6 +25,7 @@ namespace HemisAudit.Services
         Task<List<ClientListViewModel>> GetClientsAsync(ApplicationUser? user, string role, bool approvedOnly = false, string? search = null, string scope = "all");
         Task<List<ValidationRunRow>> GetRecentRunsAsync(ApplicationUser? user, string role, int take = 10);
         Task<List<ValidationRunRow>> GetCurrentRunsAsync(ApplicationUser? user, string role);
+        Task<bool> IsWorkspaceSavedAsync(int runId);
         Task<int> CreateClientAsync(CreateClientViewModel model, ApplicationUser creator, string role);
         Task<ClientDetailViewModel?> GetClientDetailAsync(int clientId, ApplicationUser? user, string role);
         Task ApproveClientAsync(int clientId, ApplicationUser approver, string role);
@@ -102,7 +103,8 @@ SET FirstName = @FirstName,
     IsActive = @IsActive,
     MustResetPassword = @MustResetPassword,
     PasswordSetDate = @PasswordSetDate,
-    PasswordHistory = @PasswordHistory
+    PasswordHistory = @PasswordHistory,
+    CreatedAt = @CreatedAt
 WHERE UserID = @UserID;";
                 update.Parameters.AddWithValue("@UserID", existingId.Value);
                 update.Parameters.AddWithValue("@FirstName", user.FirstName ?? "");
@@ -114,6 +116,7 @@ WHERE UserID = @UserID;";
                 update.Parameters.AddWithValue("@MustResetPassword", false);
                 update.Parameters.AddWithValue("@PasswordSetDate", user.PasswordSetDate ?? user.CreatedAt);
                 update.Parameters.AddWithValue("@PasswordHistory", (object?)passwordHistory ?? DBNull.Value);
+                update.Parameters.AddWithValue("@CreatedAt", user.CreatedAt);
                 await update.ExecuteNonQueryAsync();
                 return existingId.Value;
             }
@@ -123,7 +126,7 @@ WHERE UserID = @UserID;";
 INSERT INTO dbo.Users
 (FirstName, LastName, Email, EmployeeCode, PasswordHash, SystemRole, IsActive, MustResetPassword, PasswordSetDate, PasswordHistory, CreatedAt, CreatedBy)
 VALUES
-(@FirstName, @LastName, @Email, @EmployeeCode, @PasswordHash, @SystemRole, @IsActive, @MustResetPassword, @PasswordSetDate, @PasswordHistory, GETDATE(), NULL);
+(@FirstName, @LastName, @Email, @EmployeeCode, @PasswordHash, @SystemRole, @IsActive, @MustResetPassword, @PasswordSetDate, @PasswordHistory, @CreatedAt, NULL);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
             insert.Parameters.AddWithValue("@FirstName", user.FirstName ?? "");
             insert.Parameters.AddWithValue("@LastName", user.LastName ?? "");
@@ -135,6 +138,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             insert.Parameters.AddWithValue("@MustResetPassword", false);
             insert.Parameters.AddWithValue("@PasswordSetDate", user.PasswordSetDate ?? user.CreatedAt);
             insert.Parameters.AddWithValue("@PasswordHistory", (object?)passwordHistory ?? DBNull.Value);
+            insert.Parameters.AddWithValue("@CreatedAt", user.CreatedAt);
             var inserted = await insert.ExecuteScalarAsync();
             return Convert.ToInt32(inserted);
         }
@@ -431,7 +435,7 @@ WHERE vr.Status <> 'Reviewed and Completed'
                       FROM dbo.ValidationRuns vr
                       LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
                       LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
-                      ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
+                        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
                 : $@"SELECT TOP ({take}) vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
                             COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
                             ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
@@ -456,10 +460,13 @@ WHERE vr.Status <> 'Reviewed and Completed'
                       FROM dbo.ValidationRuns vr
                       LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
                       LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
-                      WHERE EXISTS (
-                          SELECT 1 FROM dbo.UserClientAssignments a
-                          WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
-                      ) OR vr.UserID = @UserID
+                      WHERE vr.WorkspaceSavedAt IS NOT NULL
+                        AND (
+                            EXISTS (
+                                SELECT 1 FROM dbo.UserClientAssignments a
+                                WHERE a.ClientID = vr.ClientID AND a.UserID = @UserID
+                            ) OR vr.UserID = @UserID
+                        )
                       ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             if (!isAdmin)
                 command.Parameters.AddWithValue("@UserID", userId);
@@ -524,7 +531,7 @@ WHERE vr.Status <> 'Reviewed and Completed'
                       LEFT JOIN dbo.Clients c ON c.ClientID = vr.ClientID
                       LEFT JOIN dbo.Users u ON u.UserID = vr.UserID
                       WHERE vr.IsCurrent = 1
-                      ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
+                        ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;"
                 : @"SELECT vr.RunID, vr.ClientID, ISNULL(c.EngagementName,'') AS ClientName, vr.RuleNumber, vr.RuleName, vr.Status, vr.TotalRecords, vr.PassCount, vr.FailCount, vr.ExceptionRate, vr.RunTimestamp,
                             COALESCE(NULLIF(vr.RunByUserName,''), LTRIM(RTRIM(ISNULL(u.FirstName,'') + ' ' + ISNULL(u.LastName,'')))) AS RunByUserName,
                             ISNULL(vr.LastEditedByUserName,'') AS LastEditedByUserName,
@@ -588,6 +595,27 @@ WHERE vr.Status <> 'Reviewed and Completed'
             }
 
             return list;
+        }
+
+        public async Task<bool> IsWorkspaceSavedAsync(int runId)
+        {
+            if (runId <= 0)
+                return false;
+
+            await using var connection = await OpenConnectionAsync();
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT CASE
+    WHEN EXISTS (
+        SELECT 1
+        FROM dbo.ValidationRuns
+        WHERE RunID = @RunID
+          AND WorkspaceSavedAt IS NOT NULL
+    ) THEN 1
+    ELSE 0
+END;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
         }
 
         public async Task<int> CreateClientAsync(CreateClientViewModel model, ApplicationUser creator, string role)

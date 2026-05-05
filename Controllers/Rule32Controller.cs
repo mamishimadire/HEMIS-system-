@@ -369,7 +369,9 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule32.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: false);
-            return Json(new { success = true, message = "Signoff saved.", workspace });
+            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            if (workspace != null) workspace.ResultsVisible = resultsVisible;
+            return Json(new { success = true, message = "Signoff saved.", resultsVisible, workspace });
         }
 
         [HttpPost]
@@ -382,7 +384,7 @@ namespace HemisAudit.Controllers
                 return Json(new { success = false, error = "Select a saved run before removing signoff." });
 
             if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
-                return Json(new { success = false, error = "Only an assigned user can remove their own signoff." });
+                return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can remove signoff." });
 
             var review = await _rule32.GetSavedRunAsync(model.RunId.Value, user?.Email);
             if (review == null || review.ClientId != model.ClientId)
@@ -393,7 +395,7 @@ namespace HemisAudit.Controllers
                 return Json(new { success = false, error = "Archived engagements are read-only. Signoff removal is disabled." });
 
             if (!review.CurrentUserHasSignedOff)
-                return Json(new { success = false, error = "You can only remove your own signoff." });
+                return Json(new { success = false, error = "There is no signoff for your assigned engagement role to remove." });
 
             try
             {
@@ -405,6 +407,8 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule32.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: false);
+            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            if (workspace != null) workspace.ResultsVisible = resultsVisible;
             var reopenedRunId = workspace?.RunId;
             var preservedHistory = reopenedRunId.HasValue && reopenedRunId.Value != model.RunId.Value;
             var message = preservedHistory
@@ -417,7 +421,7 @@ namespace HemisAudit.Controllers
                     : $"{review.CurrentUserEngagementRole} removed signoff for Rule 32 run {model.RunId.Value} from module workspace",
                 user.Id,
                 user.Email);
-            return Json(new { success = true, message, workspace });
+            return Json(new { success = true, message, resultsVisible, workspace });
         }
 
         [HttpPost]
@@ -530,7 +534,7 @@ namespace HemisAudit.Controllers
 
             if (!review.CurrentUserHasSignedOff)
             {
-                TempData["Error"] = "You can only remove your own signoff.";
+                TempData["Error"] = "There is no signoff for your assigned engagement role to remove.";
                 return RedirectToAction(nameof(Run), new { id = runId });
             }
 
@@ -547,8 +551,8 @@ namespace HemisAudit.Controllers
                 user.Email);
 
             TempData["Success"] = preservedHistory
-                ? $"Your signoff was removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
-                : "Your signoff was removed.";
+                ? $"Signoff removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
+                : "Signoff removed.";
             return RedirectToAction(nameof(Run), new { id = redirectRunId });
         }
 

@@ -6,6 +6,20 @@ namespace HemisAudit.Helpers
     {
         private static readonly ModuleSequenceItem[] Modules =
         {
+            new(1, "Rule 1", "Qualifications without qualification type"),
+            new(2, "Rule 2", "Qualifications without approval status"),
+            new(3, "Rule 3", "Duplicate qualification codes"),
+            new(4, "Rule 4", "Duplicate course codes"),
+            new(5, "Rule 5", "Invalid student numbers"),
+            new(6, "Rule 6", "Students without foundation indicator"),
+            new(7, "Rule 7", "Students with invalid qualifications"),
+            new(8, "Rule 8", "Course registrations for invalid courses"),
+            new(9, "Rule 9", "Course registrations for ghost students"),
+            new(10, "Rule 10", "Joining Rules"),
+            new(11, "Rule 11", "Qualification Selection from dbo_QUAL"),
+            new(12, "Rule 12", "Course Selection from dbo_CREG"),
+            new(13, "Rule 13", "CESM Qualification Population Validation"),
+            new(14, "Rule 14", "Course Registration Validation"),
             new(15, "Rule 15", "Student Population Validation"),
             new(16, "Rule 16", "Student Population Validation"),
             new(17, "Rule 17", "Graduate Students Fulfilled Qualification Validation"),
@@ -19,11 +33,13 @@ namespace HemisAudit.Helpers
             new(25, "Rule 25", "Reconcile Course Datasets"),
             new(26, "Rule 26", "Bi-Directional 5-Control Validation"),
             new(27, "Rule 27", "Error Validation"),
+            new(28, "Rule 28", "Fatal Errors with Exclusions (CESM)"),
             new(29, "Rule 29", "Single Column Filter"),
             new(30, "Rule 30", "Fatal Errors with Exclusions (PROF)"),
             new(31, "Rule 31", "Fatal Errors with Exclusions (QUAL)"),
             new(32, "Rule 32", "Fatal Errors with Exclusions"),
             new(34, "Rule 34", "Census Date Validation"),
+            new(35, "Rule 35", "Duplicate Check on dbo_CRSE"),
             new(36, "Rule 36", "Deceased Students Validation")
         };
 

@@ -43,7 +43,7 @@ namespace HemisAudit.Data
             var existing = await userManager.FindByEmailAsync(adminEmail);
             if (existing != null)
             {
-                existing.PasswordSetDate ??= DateTime.UtcNow;
+                existing.PasswordSetDate ??= existing.CreatedAt == default ? DateTime.UtcNow : existing.CreatedAt;
                 if (string.IsNullOrWhiteSpace(existing.PasswordHistory))
                 {
                     var currentHash = existing.PasswordHash ?? string.Empty;

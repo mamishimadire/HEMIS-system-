@@ -35,25 +35,7 @@
     var managerSignedRuns = Model.ManagerSignedRuns;
     var directorSignedRuns = Model.DirectorSignedRuns;
     var recentInsightRuns = Model.RecentRuns.Take(6).ToList();
-    var recentSignedModuleRuns = Model.RecentRuns
-        .Where(run => run.HasDataAnalystSignoff)
-        .GroupBy(run => new { run.ClientId, run.RuleNumber })
-        .Select(group => group
-            .OrderByDescending(run => run.IsCurrent)
-            .ThenByDescending(run => run.RunAt)
-            .First())
-        .OrderByDescending(run => run.RunAt)
-        .Take(6)
-        .ToList();
-    var moduleReviewActionLabel = (isManager || isDirector) ? "Review and Sign Off" : "Review Results";
-    Func<int, string> controllerForRule = ruleNumber => RuleRouteHelper.GetControllerName(ruleNumber);
-    var archiveReadyEngagements = Model.PortfolioClients.Count(client =>
-        client.IsArchived ||
-        (client.ValidationRunsCount > 0 &&
-         (
-             (client.LastRunStatus?.Contains("Completed", StringComparison.OrdinalIgnoreCase) ?? false) ||
-             (client.LatestSignedOffStatus?.Contains("Completed", StringComparison.OrdinalIgnoreCase) ?? false)
-         )));
+    var archiveReadyEngagements = Model.ArchiveReadyEngagements;
 }
 
 @if (TempData["Success"] != null)
@@ -65,22 +47,28 @@
     <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
 }
 
-<div class="page-header">
-    <div>
-        <h1>My engagements</h1>
-        <p>Welcome back, <strong>@Model.CurrentUserName</strong> | @Model.CurrentUserRole</p>
+<div class="dashboard-page">
+<section class="dashboard-hero">
+    <div class="dashboard-hero__copy">
+        <div class="dashboard-hero__eyebrow">Portfolio command center</div>
+        <div class="page-header" style="margin-bottom:0">
+            <div>
+                <h1>My engagements</h1>
+                <p>Welcome back, <strong>@Model.CurrentUserName</strong> | @Model.CurrentUserRole</p>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                @if (isAdmin || isDirector)
+                {
+                    <a asp-controller="Admin" asp-action="CreateClient" class="btn btn-success">New Engagement</a>
+                }
+                @if (isAdmin || isDirector)
+                {
+                    <a asp-controller="Admin" asp-action="Clients" class="btn btn-secondary">All Engagements</a>
+                }
+            </div>
+        </div>
     </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-        @if (isAdmin || isDirector)
-        {
-            <a asp-controller="Admin" asp-action="CreateClient" class="btn btn-success">New Engagement</a>
-        }
-        @if (isAdmin || isDirector)
-        {
-            <a asp-controller="Admin" asp-action="Clients" class="btn btn-secondary">All Engagements</a>
-        }
-    </div>
-</div>
+</section>
 
 <div class="dashboard-tabs">
     <a class="dashboard-tab is-active" href="#engagements" data-dashboard-tab="engagements">Engagements</a>
@@ -337,6 +325,54 @@
         </div>
 
         <div class="module-card-grid">
+            @foreach (var integrityRule in IntegrityRuleCatalog.GetRuleNumbers().Where(ruleNumber => ruleNumber >= 1 && ruleNumber <= 10).Select(IntegrityRuleCatalog.Get))
+            {
+                <article class="module-card">
+                    <div class="module-card__eyebrow">@integrityRule.RuleLabel</div>
+                    <h4 class="module-card__title">@integrityRule.RuleTitle</h4>
+                    <p class="module-card__text">@integrityRule.DetailedDescription</p>
+                    <div class="module-card__actions">
+                        <a href="@RuleRouteHelper.GetWorkspaceUrl(integrityRule.RuleNumber)" class="btn btn-success">Open @integrityRule.RuleLabel</a>
+                    </div>
+                </article>
+            }
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 11</div>
+                <h4 class="module-card__title">Qualification Selection from dbo_QUAL</h4>
+                <p class="module-card__text">Test 100% of approved undergraduate and postgraduate qualification populations from <code>dbo_QUAL</code> using <code>_004</code>, <code>_005</code>, and the <code>M_____</code> exclusion pattern, then save the workspace for review and signoff.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule11" class="btn btn-success">Open Rule 11</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 12</div>
+                <h4 class="module-card__title">Course Selection from dbo_CREG</h4>
+                <p class="module-card__text">Test 100% of the course population selected from <code>dbo_CREG._030</code>, compare it to <code>dbo_CRSE._030</code>, and keep the saved workspace available for review and signoff.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule12" class="btn btn-success">Open Rule 12</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 13</div>
+                <h4 class="module-card__title">CESM Qualification Population Validation</h4>
+                <p class="module-card__text">Test 100% of the CESM population where <code>dbo_CESM._006 &lt;&gt; 'ZZZZZZ'</code>, verify the <code>dbo_CESM -&gt; dbo_QUAL -&gt; dbo_STUD</code> linkage on <code>_001</code>, and save the reviewed workspace for signoff.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule13" class="btn btn-success">Open Rule 13</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 14</div>
+                <h4 class="module-card__title">Course Registration Validation</h4>
+                <p class="module-card__text">Test 100% of approved courses through the <code>dbo_CRSE -> dbo_CREG</code> path, classify course registration exceptions, and keep the saved workspace available for engagement review.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule14" class="btn btn-success">Open Rule 14</a>
+                </div>
+            </article>
+
             <article class="module-card">
                 <div class="module-card__eyebrow">Rule 15</div>
                 <h4 class="module-card__title">Course Credentials Validation</h4>
@@ -455,6 +491,15 @@
             </article>
 
             <article class="module-card">
+                <div class="module-card__eyebrow">Rule 28</div>
+                <h4 class="module-card__title">Fatal Errors with Exclusions (CESM)</h4>
+                <p class="module-card__text">Filter fatal CESM validation detail errors, remove approved exclusion codes, and fail the run only when non-excluded fatal rows remain.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule28" class="btn btn-success">Open Rule 28</a>
+                </div>
+            </article>
+
+            <article class="module-card">
                 <div class="module-card__eyebrow">Rule 29</div>
                 <h4 class="module-card__title">Single Column Filter</h4>
                 <p class="module-card__text">Filter records where one selected column equals one selected value, then review the matching set with optional breakdown and exports.</p>
@@ -496,6 +541,15 @@
                 <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it to the stored census date, and evaluate weekends and South African public holidays.</p>
                 <div class="module-card__actions">
                     <a href="/Rule34" class="btn btn-success">Open Rule 34</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 35</div>
+                <h4 class="module-card__title">Duplicate Check on dbo_CRSE</h4>
+                <p class="module-card__text">Count duplicate occurrences in the selected dbo_CRSE field, isolate duplicate groups, and save the full duplicate analysis for review and signoff.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule35" class="btn btn-success">Open Rule 35</a>
                 </div>
             </article>
 
@@ -556,13 +610,9 @@
                             <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
                             <td>
                                 <div class="dashboard-actions">
-                                    <a asp-controller="@controllerForRule(run.RuleNumber)"
-                                       asp-action="Run"
-                                       asp-route-id="@run.Id"
+                                    <a href="@RuleRouteHelper.GetRunUrl(run.RuleNumber, run.Id)"
                                        class="btn btn-sm btn-secondary">Open</a>
-                                    <a asp-controller="@controllerForRule(run.RuleNumber)"
-                                       asp-action="DownloadSavedExcel"
-                                       asp-route-runId="@run.Id"
+                                    <a href="/Rule@run.RuleNumber/DownloadSavedExcel?runId=@run.Id"
                                        class="btn btn-sm btn-success">Download</a>
                                 </div>
                             </td>
@@ -649,9 +699,21 @@
                 <h4>Industry workload</h4>
                 <canvas id="industryChart"></canvas>
             </div>
-            <div class="dashboard-insight-chart">
+            <div class="dashboard-insight-chart dashboard-insight-chart--rule-outcome">
                 <h4>Rule pass vs fail</h4>
-                <canvas id="ruleOutcomeChart"></canvas>
+                <p class="dashboard-band__subtitle" style="margin:0 0 10px">Latest current run per engagement and rule from the system database.</p>
+                @if (Model.RuleOutcomeBreakdown.Any())
+                {
+                    <div class="dashboard-insight-chart__scroll">
+                        <canvas id="ruleOutcomeChart"></canvas>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-card" style="padding:20px">
+                        <p>No current rule runs are available for your assigned engagements yet.</p>
+                    </div>
+                }
             </div>
             <div class="dashboard-insight-chart">
                 <h4>Signoff coverage</h4>
@@ -712,6 +774,7 @@
         </div>
     </div>
 </section>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
@@ -728,18 +791,47 @@
 
     const charts = [];
     let insightsChartsReady = false;
-    const mutedText = getVar('--text-muted') || '#6b7280';
-    const border = getVar('--border') || 'rgba(0,0,0,.08)';
-    const green = '#22c55e';
-    const amber = '#f59e0b';
-    const red = '#ef4444';
-    const violet = '#7c3aed';
-    const teal = '#0891b2';
-    const blue = '#3b82f6';
+    const green = '#34d399';
+    const amber = '#fbbf24';
+    const red = '#fb7185';
+    const violet = '#8b5cf6';
+    const teal = '#22d3ee';
+    const blue = '#60a5fa';
+
+    function isLightTheme() {
+        return document.documentElement.classList.contains('light');
+    }
+
+    function getChartTextColor() {
+        return isLightTheme()
+            ? '#000000'
+            : (getVar('--text') || '#f1f5f9');
+    }
+
+    function getChartLegendTextColor() {
+        return isLightTheme()
+            ? '#000000'
+            : (getVar('--text-muted') || '#d5deea');
+    }
+
+    function getChartBorderColor() {
+        return getVar('--border') || 'rgba(0,0,0,.08)';
+    }
+
+    function resetCharts() {
+        while (charts.length) {
+            const chart = charts.pop();
+            chart.destroy();
+        }
+
+        insightsChartsReady = false;
+    }
 
     function makeDoughnut(id, labels, values, colors) {
         const el = document.getElementById(id);
         if (!el) return;
+        const legendText = getChartLegendTextColor();
+        const border = getChartBorderColor();
         charts.push(new Chart(el, {
             type: 'doughnut',
             data: {
@@ -753,13 +845,14 @@
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: true,
+                aspectRatio: 1.35,
                 cutout: '68%',
                 plugins: {
                     legend: {
                         position: 'bottom',
                         labels: {
-                            color: mutedText,
+                            color: legendText,
                             boxWidth: 10,
                             usePointStyle: true,
                             pointStyle: 'circle'
@@ -776,6 +869,11 @@
     function makeBar(id, labels, values, color) {
         const el = document.getElementById(id);
         if (!el) return;
+        const axisText = getChartTextColor();
+        const border = getChartBorderColor();
+        const chartHeight = Math.min(Math.max(labels.length * 72, 180), 260);
+        el.height = chartHeight;
+        el.style.setProperty('height', `${chartHeight}px`, 'important');
         charts.push(new Chart(el, {
             type: 'bar',
             data: {
@@ -796,12 +894,35 @@
                 scales: {
                     x: {
                         beginAtZero: true,
-                        ticks: { color: mutedText, precision: 0 },
+                        ticks: {
+                            color: axisText,
+                            precision: 0,
+                            font: {
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
                         grid: { color: border }
                     },
                     y: {
-                        ticks: { color: mutedText },
+                        afterFit: function (scale) {
+                            scale.width = Math.max(scale.width, 110);
+                        },
+                        ticks: {
+                            color: axisText,
+                            autoSkip: false,
+                            font: {
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
                         grid: { color: border }
+                    }
+                },
+                layout: {
+                    padding: {
+                        left: 12,
+                        right: 8
                     }
                 },
                 plugins: {
@@ -815,6 +936,12 @@
     function makeStackedBar(id, labels, passedValues, failedValues) {
         const el = document.getElementById(id);
         if (!el) return;
+        const axisText = getChartTextColor();
+        const legendText = getChartLegendTextColor();
+        const border = getChartBorderColor();
+        const chartHeight = Math.max(labels.length * 30, 420);
+        el.height = chartHeight;
+        el.style.setProperty('height', `${chartHeight}px`, 'important');
         charts.push(new Chart(el, {
             type: 'bar',
             data: {
@@ -836,26 +963,40 @@
                 }]
             },
             options: {
+                indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
                     x: {
                         stacked: true,
-                        ticks: { color: mutedText },
+                        beginAtZero: true,
+                        ticks: { color: axisText, precision: 0 },
                         grid: { color: border }
                     },
                     y: {
                         stacked: true,
-                        beginAtZero: true,
-                        ticks: { color: mutedText, precision: 0 },
+                        ticks: {
+                            color: axisText,
+                            autoSkip: false,
+                            font: {
+                                size: 13,
+                                weight: '600'
+                            }
+                        },
                         grid: { color: border }
+                    }
+                },
+                layout: {
+                    padding: {
+                        left: 8,
+                        right: 8
                     }
                 },
                 plugins: {
                     legend: {
                         position: 'bottom',
                         labels: {
-                            color: mutedText,
+                            color: legendText,
                             boxWidth: 10,
                             usePointStyle: true,
                             pointStyle: 'circle'
@@ -876,7 +1017,9 @@
         const engagementPending = @Model.PendingApprovalClients;
         const reviewedCompleted = @reviewedAndCompletedRuns;
         const needsReview = @needsReviewRuns;
+        const awaitingReview = @Model.AwaitingReviewRuns;
         const analystSigned = @analystSignedRuns;
+        const analystUnsigned = @Model.UnsignedAnalystRuns;
         const managerSigned = @managerSignedRuns;
         const directorSigned = @directorSignedRuns;
 
@@ -887,17 +1030,28 @@
 
         makeDoughnut('reviewPipelineChart',
             ['Reviewed and completed', 'Awaiting review', 'Unsigned by analyst'],
-            [reviewedCompleted, Math.max(analystSigned - reviewedCompleted, 0), Math.max(needsReview, 0)],
+            [reviewedCompleted, awaitingReview, analystUnsigned],
             [teal, amber, red]);
 
         const industryLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.IndustryBreakdown.Select(i => i.Industry).ToArray()));
         const industryValues = [@string.Join(",", Model.IndustryBreakdown.Select(i => i.Count))];
-        const ruleOutcomeLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.RuleOutcomeBreakdown.Select(i => i.RuleLabel).ToArray()));
-        const rulePassedValues = [@string.Join(",", Model.RuleOutcomeBreakdown.Select(i => i.PassedCount))];
-        const ruleFailedValues = [@string.Join(",", Model.RuleOutcomeBreakdown.Select(i => i.FailedCount))];
+        const ruleOutcomeBreakdown = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+            Model.RuleOutcomeBreakdown.Select(i => new {
+                label = i.RuleLabel,
+                passed = i.PassedCount,
+                failed = i.FailedCount
+            }).ToArray()));
+        const visibleRuleOutcomeBreakdown = ruleOutcomeBreakdown.filter(function (item) {
+            return (item.passed || 0) > 0 || (item.failed || 0) > 0;
+        });
+        const ruleOutcomeLabels = visibleRuleOutcomeBreakdown.map(function (item) { return item.label; });
+        const rulePassedValues = visibleRuleOutcomeBreakdown.map(function (item) { return item.passed; });
+        const ruleFailedValues = visibleRuleOutcomeBreakdown.map(function (item) { return item.failed; });
 
         makeBar('industryChart', industryLabels, industryValues, blue);
-        makeStackedBar('ruleOutcomeChart', ruleOutcomeLabels, rulePassedValues, ruleFailedValues);
+        if (ruleOutcomeLabels.length) {
+            makeStackedBar('ruleOutcomeChart', ruleOutcomeLabels, rulePassedValues, ruleFailedValues);
+        }
 
         makeDoughnut('signoffChart',
             ['Analyst', 'Manager', 'Director'],
@@ -940,8 +1094,25 @@
     const initialHash = (window.location.hash || '').replace('#', '');
     setActivePanel(panelMap.has(initialHash) ? initialHash : 'engagements');
 
+    const themeObserver = new MutationObserver(function () {
+        resetCharts();
+
+        if (document.querySelector('[data-dashboard-panel="insights"].is-active')) {
+            renderInsightsCharts();
+            window.setTimeout(function () {
+                charts.forEach(function (chart) { chart.resize(); });
+            }, 0);
+        }
+    });
+
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class']
+    });
+
     window.addEventListener('beforeunload', function () {
-        charts.forEach(function (chart) { chart.destroy(); });
+        themeObserver.disconnect();
+        resetCharts();
     });
 })();
 </script>

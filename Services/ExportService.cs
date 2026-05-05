@@ -1,17 +1,25 @@
 using ClosedXML.Excel;
+using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using HemisAudit.ViewModels;
 
 namespace HemisAudit.Services
 {
     public interface IExportService
     {
-        byte[] ExportExcel(ValidationSummary summary);
+        byte[] ExportRule36Excel(ValidationSummary summary);
+        byte[] ExportExcel(Rule10ValidationSummary summary);
+        byte[] ExportExcel(Rule11ValidationSummary summary);
+        byte[] ExportExcel(Rule12ValidationSummary summary);
         byte[] ExportExcel(Rule34ValidationSummary summary);
+        byte[] ExportExcel(Rule35ValidationSummary summary);
         byte[] ExportExcel(Rule26ValidationSummary summary);
         byte[] ExportExcel(Rule27ValidationSummary summary);
+        byte[] ExportExcel(Rule13ValidationSummary summary);
         byte[] ExportExcel(Rule20ValidationSummary summary);
         byte[] ExportExcel(Rule17ValidationSummary summary);
+        byte[] ExportExcel(Rule14ValidationSummary summary);
         byte[] ExportExcel(Rule15ValidationSummary summary);
         byte[] ExportExcel(Rule16ValidationSummary summary);
         byte[] ExportExcel(Rule18ValidationSummary summary);
@@ -24,12 +32,18 @@ namespace HemisAudit.Services
         byte[] ExportExcel(Rule29ValidationSummary summary);
         byte[] ExportExcel(Rule31ValidationSummary summary);
         byte[] ExportExcel(Rule32ValidationSummary summary);
-        byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportRule36Csv(ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportCsv(Rule10ValidationSummary summary);
+        byte[] ExportCsv(Rule11ValidationSummary summary);
+        byte[] ExportCsv(Rule12ValidationSummary summary);
         byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false);
+        byte[] ExportCsv(Rule35ValidationSummary summary);
         byte[] ExportCsv(Rule26ValidationSummary summary);
         byte[] ExportCsv(Rule27ValidationSummary summary);
+        byte[] ExportCsv(Rule13ValidationSummary summary);
         byte[] ExportCsv(Rule20ValidationSummary summary);
         byte[] ExportCsv(Rule17ValidationSummary summary);
+        byte[] ExportCsv(Rule14ValidationSummary summary);
         byte[] ExportCsv(Rule15ValidationSummary summary);
         byte[] ExportCsv(Rule16ValidationSummary summary);
         byte[] ExportCsv(Rule18ValidationSummary summary);
@@ -50,7 +64,7 @@ namespace HemisAudit.Services
         private const int Rule18DetailedSheetRowThreshold = 10000;
 
         // ─── Excel Export — mirrors notebook Excel with 3 sheets ─────────────
-        public byte[] ExportExcel(ValidationSummary summary)
+        public byte[] ExportRule36Excel(ValidationSummary summary)
         {
             using var wb = new XLWorkbook();
 
@@ -341,6 +355,114 @@ namespace HemisAudit.Services
 
             wsStats.Column(1).Width = 30;
             wsStats.Column(2).Width = 20;
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportExcel(Rule35ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var headers = GetRule35Headers(summary);
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 35: DUPLICATE CHECK ON dbo_CRSE", 2);
+
+            var duplicateRule = string.IsNullOrWhiteSpace(summary.DuplicateColumn)
+                ? "COUNT(selected field) = 1 => PASS | COUNT(selected field) > 1 => FAIL"
+                : $"COUNT([{summary.DuplicateColumn}]) = 1 => PASS | COUNT([{summary.DuplicateColumn}]) > 1 => FAIL";
+
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("Source Table", summary.TableName),
+                ("Duplicate Field", summary.DuplicateColumn),
+                ("Validation Rule", duplicateRule),
+                ("Validation Date", summary.Timestamp),
+                ("", ""),
+                ("VALIDATION RESULTS", ""),
+                ("Total Validated", summary.TotalValidated.ToString("N0")),
+                ("PASS (Unique Records)", summary.PassCount.ToString("N0")),
+                ("FAIL (Duplicate Records)", summary.FailCount.ToString("N0")),
+                ("Unique Values", summary.UniqueValues.ToString("N0")),
+                ("Duplicate Values", summary.DuplicateValues.ToString("N0")),
+                ("Records with Duplicates", summary.DuplicateRecords.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "VALIDATION RESULTS")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+
+                    if (label == "Status")
+                    {
+                        var color = string.Equals(value, "PASS", StringComparison.OrdinalIgnoreCase)
+                            ? XLColor.FromHtml("#C8E6C9")
+                            : XLColor.FromHtml("#FFCDD2");
+                        wsSummary.Cell(summaryRow, 2).Style.Fill.BackgroundColor = color;
+                        wsSummary.Cell(summaryRow, 2).Style.Font.Bold = true;
+                    }
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 32;
+            wsSummary.Column(2).Width = 70;
+
+            var wsResults = wb.Worksheets.Add("Validation Results");
+            StyleHeaderRow(wsResults, 1, "RULE 35 VALIDATION RESULTS", headers.Count);
+            WriteRule35HeaderRow(wsResults, 2, headers);
+            WriteRule35Rows(wsResults, 3, summary.ValidationRows, headers);
+
+            var wsGroups = wb.Worksheets.Add("Duplicate Groups");
+            StyleHeaderRow(wsGroups, 1, "RULE 35 DUPLICATE GROUPS", 2);
+            wsGroups.Cell(2, 1).Value = "Duplicate Value";
+            wsGroups.Cell(2, 2).Value = "Occurrence Count";
+            for (var col = 1; col <= 2; col++)
+            {
+                var cell = wsGroups.Cell(2, col);
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            for (var i = 0; i < summary.DuplicateSummary.Count; i++)
+            {
+                var item = summary.DuplicateSummary[i];
+                wsGroups.Cell(i + 3, 1).Value = item.Value;
+                wsGroups.Cell(i + 3, 2).Value = item.Count;
+            }
+            wsGroups.Column(1).AdjustToContents();
+            wsGroups.Column(2).AdjustToContents();
+
+            var duplicateRows = summary.ValidationRows
+                .Where(row => string.Equals(row.DuplicateStatus, "DUPLICATE", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (duplicateRows.Count > 0)
+            {
+                var wsExceptions = wb.Worksheets.Add("Exceptions");
+                StyleHeaderRow(wsExceptions, 1, "RULE 35 DUPLICATE RECORDS", headers.Count);
+                WriteRule35HeaderRow(wsExceptions, 2, headers);
+                WriteRule35Rows(wsExceptions, 3, duplicateRows, headers);
+            }
 
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
@@ -923,6 +1045,100 @@ namespace HemisAudit.Services
             return ms.ToArray();
         }
 
+        public byte[] ExportExcel(Rule14ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var headers = GetRule14Headers();
+            var includeDetailedControlSheets = summary.ReviewRows.Count <= Rule18DetailedSheetRowThreshold;
+            var exportNote = includeDetailedControlSheets
+                ? (summary.Warning ?? "")
+                : "Large export mode: the workbook keeps the full All Results sheet and skips duplicate control tabs to reduce preparation time.";
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 14: COURSE REGISTRATION VALIDATION", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("CRSE Table", summary.StudTable),
+                ("CREG Table", summary.BridgeTable),
+                ("Validation Date", summary.Timestamp),
+                ("Join Path", summary.TableLinkageText),
+                ("Validation Mode", summary.RuleModeText),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("Approved Courses", summary.ApprovedCourseCount.ToString("N0")),
+                ("Registered Courses", summary.RegisteredCourseCount.ToString("N0")),
+                ("Missing Registrations", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status),
+                ("Export Note", exportNote)
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 36;
+            wsSummary.Column(2).Width = 70;
+
+            var wsControlSummary = wb.Worksheets.Add("Control Summary");
+            StyleHeaderRow(wsControlSummary, 1, "RULE 14 CONTROL SUMMARY", 6);
+            var controlHeaders = new[] { "Control", "Criteria", "Rows Tested", "PASS", "FAIL", "Status" };
+            for (var i = 0; i < controlHeaders.Length; i++)
+            {
+                var cell = wsControlSummary.Cell(2, i + 1);
+                cell.Value = controlHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+            for (var i = 0; i < summary.ControlSummaries.Count; i++)
+            {
+                var item = summary.ControlSummaries[i];
+                wsControlSummary.Cell(i + 3, 1).Value = item.ControlLabel;
+                wsControlSummary.Cell(i + 3, 2).Value = item.CriteriaText;
+                wsControlSummary.Cell(i + 3, 3).Value = item.TotalCount;
+                wsControlSummary.Cell(i + 3, 4).Value = item.PassCount;
+                wsControlSummary.Cell(i + 3, 5).Value = item.FailCount;
+                wsControlSummary.Cell(i + 3, 6).Value = item.Status;
+            }
+            for (var c = 1; c <= 6; c++)
+                wsControlSummary.Column(c).AdjustToContents();
+
+            var wsAll = wb.Worksheets.Add("All Results");
+            StyleHeaderRow(wsAll, 1, "RULE 14 ALL RESULTS", headers.Count);
+            WriteRule14HeaderRow(wsAll, 2, headers);
+            WriteRule14Rows(wsAll, 3, summary.ReviewRows, headers);
+
+            if (includeDetailedControlSheets)
+            {
+                WriteRule14ControlSheet(wb, "Control1", "RULE 14 CONTROL 1", summary.ReviewRows.Where(r => string.Equals(r.ControlType, "Control_1", StringComparison.OrdinalIgnoreCase)).ToList(), headers);
+            }
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
         public byte[] ExportExcel(Rule18ValidationSummary summary)
         {
             using var wb = new XLWorkbook();
@@ -1222,6 +1438,702 @@ namespace HemisAudit.Services
             }
             wsBreakdown.Column(1).AdjustToContents();
             wsBreakdown.Column(2).AdjustToContents();
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportExcel(Rule13ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 13: CESM QUALIFICATION POPULATION VALIDATION", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("CESM Table", summary.StudTable),
+                ("QUAL Table", summary.QualTable),
+                ("STUD Table", summary.CregTable),
+                ("Linkage Used", summary.TableLinkageText),
+                ("Overall PASS Rule", summary.OverallStatusRuleText),
+                ("Validation Date", summary.Timestamp),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("Qualifying CESM Population", summary.FoundationStudentCount.ToString("N0")),
+                ("Validated Qualifications", summary.TotalValidated.ToString("N0")),
+                ("PASS Qualifications", summary.PassCount.ToString("N0")),
+                ("FAIL Qualifications", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status),
+                ("Warning", summary.Warning ?? "")
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                    if (label == "Status")
+                    {
+                        var color = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2");
+                        wsSummary.Cell(summaryRow, 2).Style.Fill.BackgroundColor = color;
+                        wsSummary.Cell(summaryRow, 2).Style.Font.Bold = true;
+                    }
+                }
+                summaryRow++;
+            }
+
+            if (summary.ProcedureSteps.Any())
+            {
+                wsSummary.Cell(summaryRow, 1).Value = "PROCEDURE PERFORMED";
+                wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                wsSummary.Cell(summaryRow, 1).Style.Font.FontColor = XLColor.White;
+                wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                summaryRow++;
+
+                for (var i = 0; i < summary.ProcedureSteps.Count; i++)
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = $"Step {i + 1}";
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = summary.ProcedureSteps[i];
+                    summaryRow++;
+                }
+            }
+
+            wsSummary.Column(1).Width = 34;
+            wsSummary.Column(2).Width = 80;
+
+            var headers = new[]
+            {
+                "Validation Number",
+                "Qualification Code (_001)",
+                "CESM Major Field (_006)",
+                "Qualification Description (_003)",
+                "Step 1 CESM Check",
+                "Linked STUD _001",
+                "Step 2 Student Linkage",
+                "Overall Result",
+                "Explanation"
+            };
+
+            var wsRows = wb.Worksheets.Add("Validation Results");
+            StyleHeaderRow(wsRows, 1, "RULE 13 VALIDATION RESULTS", headers.Length);
+            for (var i = 0; i < headers.Length; i++)
+            {
+                var cell = wsRows.Cell(2, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var rowIndex = 3;
+            foreach (var row in summary.ReviewRows)
+            {
+                wsRows.Cell(rowIndex, 1).Value = row.ValidationNumber;
+                wsRows.Cell(rowIndex, 2).Value = row.QualificationCode001;
+                wsRows.Cell(rowIndex, 3).Value = row.CourseCode030;
+                wsRows.Cell(rowIndex, 4).Value = row.QualificationDescription003;
+                wsRows.Cell(rowIndex, 5).Value = row.FoundationFlag106;
+                wsRows.Cell(rowIndex, 6).Value = row.FoundationCourse091;
+                wsRows.Cell(rowIndex, 7).Value = row.NotebookStatus;
+                wsRows.Cell(rowIndex, 8).Value = row.ValidationResult;
+                wsRows.Cell(rowIndex, 9).Value = row.ValidationExplanation;
+
+                wsRows.Range(rowIndex, 1, rowIndex, headers.Length).Style.Fill.BackgroundColor =
+                    string.Equals(row.ValidationResult, "PASS", StringComparison.OrdinalIgnoreCase)
+                        ? XLColor.FromHtml("#F3FFF3")
+                        : XLColor.FromHtml("#FFF3F3");
+                rowIndex++;
+            }
+            for (var c = 1; c <= headers.Length; c++) wsRows.Column(c).AdjustToContents();
+
+            var failRows = summary.ReviewRows
+                .Where(row => string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (failRows.Any())
+            {
+                var wsFail = wb.Worksheets.Add("FAIL Rows");
+                StyleHeaderRow(wsFail, 1, "RULE 13 FAIL ROWS", headers.Length);
+                for (var i = 0; i < headers.Length; i++)
+                {
+                    var cell = wsFail.Cell(2, i + 1);
+                    cell.Value = headers[i];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    cell.Style.Font.FontColor = XLColor.White;
+                }
+
+                rowIndex = 3;
+                foreach (var row in failRows)
+                {
+                    wsFail.Cell(rowIndex, 1).Value = row.ValidationNumber;
+                    wsFail.Cell(rowIndex, 2).Value = row.QualificationCode001;
+                    wsFail.Cell(rowIndex, 3).Value = row.CourseCode030;
+                    wsFail.Cell(rowIndex, 4).Value = row.QualificationDescription003;
+                    wsFail.Cell(rowIndex, 5).Value = row.FoundationFlag106;
+                    wsFail.Cell(rowIndex, 6).Value = row.FoundationCourse091;
+                    wsFail.Cell(rowIndex, 7).Value = row.NotebookStatus;
+                    wsFail.Cell(rowIndex, 8).Value = row.ValidationResult;
+                    wsFail.Cell(rowIndex, 9).Value = row.ValidationExplanation;
+                    rowIndex++;
+                }
+                for (var c = 1; c <= headers.Length; c++) wsFail.Column(c).AdjustToContents();
+            }
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportExcel(Rule12ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 12: COURSE SELECTION FROM dbo_CREG", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("CREG Table", summary.CregTable),
+                ("CRSE Table", summary.CrseTable),
+                ("Validation Date", summary.Timestamp),
+                ("Join Path", summary.TableLinkageText),
+                ("Validation Mode", summary.RuleModeText),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("Selected Courses", summary.TotalValidated.ToString("N0")),
+                ("Matched Courses", summary.PassCount.ToString("N0")),
+                ("Missing Courses", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status),
+                ("Export Note", summary.Warning ?? "")
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 34;
+            wsSummary.Column(2).Width = 70;
+
+            var wsControlSummary = wb.Worksheets.Add("Control Summary");
+            StyleHeaderRow(wsControlSummary, 1, "RULE 12 CONTROL SUMMARY", 6);
+            var controlHeaders = new[] { "Control", "Criteria", "Rows Tested", "PASS", "FAIL", "Status" };
+            for (var i = 0; i < controlHeaders.Length; i++)
+            {
+                var cell = wsControlSummary.Cell(2, i + 1);
+                cell.Value = controlHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            for (var i = 0; i < summary.ControlSummaries.Count; i++)
+            {
+                var item = summary.ControlSummaries[i];
+                wsControlSummary.Cell(i + 3, 1).Value = item.ControlLabel;
+                wsControlSummary.Cell(i + 3, 2).Value = item.CriteriaText;
+                wsControlSummary.Cell(i + 3, 3).Value = item.TotalCount;
+                wsControlSummary.Cell(i + 3, 4).Value = item.PassCount;
+                wsControlSummary.Cell(i + 3, 5).Value = item.FailCount;
+                wsControlSummary.Cell(i + 3, 6).Value = item.Status;
+            }
+            for (var c = 1; c <= 6; c++)
+                wsControlSummary.Column(c).AdjustToContents();
+
+            var wsAll = wb.Worksheets.Add("All Results");
+            StyleHeaderRow(wsAll, 1, "RULE 12 ALL RESULTS", 5);
+            var headers = new[] { "Validation Number", "CREG._030", "CRSE._030", "Validation Result", "Validation Explanation" };
+            for (var i = 0; i < headers.Length; i++)
+            {
+                var cell = wsAll.Cell(2, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var rowIndex = 3;
+            foreach (var row in summary.ReviewRows)
+            {
+                wsAll.Cell(rowIndex, 1).Value = row.ValidationNumber;
+                wsAll.Cell(rowIndex, 2).Value = row.DisplayValues.TryGetValue("CREG__030", out var creg) ? creg : "";
+                wsAll.Cell(rowIndex, 3).Value = row.DisplayValues.TryGetValue("CRSE__030", out var crse) ? crse : "";
+                wsAll.Cell(rowIndex, 4).Value = row.ValidationResult;
+                wsAll.Cell(rowIndex, 5).Value = row.ValidationExplanation;
+                rowIndex++;
+            }
+            for (var c = 1; c <= 5; c++)
+                wsAll.Column(c).AdjustToContents();
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportExcel(Rule10ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, BuildIntegrityExportTitle(summary), 2);
+            var summaryData = BuildIntegritySummaryData(summary);
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 34;
+            wsSummary.Column(2).Width = 80;
+
+            var wsRuleSummary = wb.Worksheets.Add("Rule Summary");
+            StyleHeaderRow(wsRuleSummary, 1, $"{summary.RuleLabel.ToUpperInvariant()} SUMMARY", 7);
+            var ruleHeaders = new[] { "Rule", "Name", "Table Scope", "Criteria", "Issues", "Severity", "Status" };
+            for (var i = 0; i < ruleHeaders.Length; i++)
+            {
+                var cell = wsRuleSummary.Cell(2, i + 1);
+                cell.Value = ruleHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            for (var i = 0; i < summary.ControlSummaries.Count; i++)
+            {
+                var item = summary.ControlSummaries[i];
+                wsRuleSummary.Cell(i + 3, 1).Value = item.RuleId;
+                wsRuleSummary.Cell(i + 3, 2).Value = item.ControlLabel;
+                wsRuleSummary.Cell(i + 3, 3).Value = item.TableName;
+                wsRuleSummary.Cell(i + 3, 4).Value = item.CriteriaText;
+                wsRuleSummary.Cell(i + 3, 5).Value = item.ErrorCount;
+                wsRuleSummary.Cell(i + 3, 6).Value = item.Severity;
+                wsRuleSummary.Cell(i + 3, 7).Value = item.Status;
+            }
+            for (var c = 1; c <= 7; c++) wsRuleSummary.Column(c).AdjustToContents();
+
+            var detailKeys = summary.ReviewRows
+                .SelectMany(row => row.DisplayValues.Keys)
+                .Where(key => !string.Equals(key, "Validation_Result", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "Validation_Explanation", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "RULE_LABEL", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "RESULT_BADGE", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "FINAL_RESULT_MESSAGE", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var wsExceptions = wb.Worksheets.Add("Results");
+            StyleHeaderRow(wsExceptions, 1, $"{BuildIntegrityExportTitle(summary)} - RESULTS", detailKeys.Count + 3);
+            var headers = new List<string> { "Rule", "Validation Result", "Validation Explanation" };
+            headers.AddRange(detailKeys.Select(key => GetIntegrityDetailHeader(summary, key)));
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = wsExceptions.Cell(2, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var rowIndex = 3;
+            foreach (var row in summary.ReviewRows)
+            {
+                wsExceptions.Cell(rowIndex, 1).Value = row.RuleId;
+                wsExceptions.Cell(rowIndex, 2).Value = row.ValidationResult;
+                wsExceptions.Cell(rowIndex, 3).Value = row.ValidationExplanation;
+                for (var i = 0; i < detailKeys.Count; i++)
+                {
+                    wsExceptions.Cell(rowIndex, i + 4).Value = row.DisplayValues.TryGetValue(detailKeys[i], out var value) ? value : "";
+                }
+                rowIndex++;
+            }
+            for (var c = 1; c <= headers.Count; c++) wsExceptions.Column(c).AdjustToContents();
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        private static string BuildIntegrityExportTitle(Rule10ValidationSummary summary)
+        {
+            var ruleLabel = string.IsNullOrWhiteSpace(summary.RuleLabel) ? $"Rule {summary.RuleNumber}" : summary.RuleLabel.Trim();
+            var ruleTitle = string.IsNullOrWhiteSpace(summary.RuleTitle) ? "Integrity Check" : summary.RuleTitle.Trim();
+            return $"HEMIS {ruleLabel.ToUpperInvariant()}: {ruleTitle.ToUpperInvariant()}";
+        }
+
+        private static List<(string Label, string Value)> BuildIntegritySummaryData(Rule10ValidationSummary summary)
+        {
+            var rows = new List<(string Label, string Value)>
+            {
+                ("Database", summary.Database),
+                ("Rule", summary.RuleLabel),
+                ("Rule Title", summary.RuleTitle),
+                ("Validation Date", summary.Timestamp),
+                ("Validation Mode", summary.RuleModeText)
+            };
+
+            var criteria = summary.ControlSummaries.FirstOrDefault()?.CriteriaText;
+            if (!string.IsNullOrWhiteSpace(criteria))
+                rows.Add(("Criteria", criteria));
+
+            var parameters = ParseIntegrityRuleParameters(summary.RuleParameterJson);
+
+            switch (summary.RuleNumber)
+            {
+                case 1:
+                case 2:
+                    rows.Add(("QUAL Table", summary.QualTable));
+                    rows.Add(("Check Column", summary.QualColumn));
+                    break;
+                case 3:
+                    rows.Add(("QUAL Table", summary.QualTable));
+                    rows.Add(("Duplicate Check Column", summary.QualColumn));
+                    break;
+                case 4:
+                    rows.Add(("CRSE Table", summary.CrseTable));
+                    rows.Add(("Duplicate Check Column", summary.CrseColumn));
+                    break;
+                case 5:
+                case 6:
+                    rows.Add(("STUD Table", summary.StudTable));
+                    rows.Add(("Check Column", summary.StudColumn));
+                    if (summary.RuleNumber == 5 && parameters.TryGetValue("MatchValue", out var matchValue) && !string.IsNullOrWhiteSpace(matchValue))
+                        rows.Add(("Configured Invalid Value", matchValue));
+                    break;
+                case 7:
+                    rows.Add(("STUD Table", summary.StudTable));
+                    rows.Add(("QUAL Table", summary.QualTable));
+                    rows.Add(("STUD Qualification Column", summary.StudColumn));
+                    rows.Add(("QUAL Qualification Column", summary.QualColumn));
+                    if (parameters.TryGetValue("ContextColumn", out var rule7Context) && !string.IsNullOrWhiteSpace(rule7Context))
+                        rows.Add(("STUD Student Number Column", rule7Context));
+                    break;
+                case 8:
+                    rows.Add(("CREG Table", summary.CregTable));
+                    rows.Add(("CRSE Table", summary.CrseTable));
+                    rows.Add(("CREG Course Column", summary.CregColumn));
+                    rows.Add(("CRSE Course Column", summary.CrseColumn));
+                    if (parameters.TryGetValue("ContextColumn", out var rule8Context) && !string.IsNullOrWhiteSpace(rule8Context))
+                        rows.Add(("CREG Student Number Column", rule8Context));
+                    break;
+                case 9:
+                    rows.Add(("CREG Table", summary.CregTable));
+                    rows.Add(("STUD Table", summary.StudTable));
+                    rows.Add(("CREG Student Number Column", summary.CregColumn));
+                    rows.Add(("STUD Student Number Column", summary.StudColumn));
+                    if (parameters.TryGetValue("ContextColumn", out var rule9CregCourse) && !string.IsNullOrWhiteSpace(rule9CregCourse))
+                        rows.Add(("CREG Course Column", rule9CregCourse));
+                    if (parameters.TryGetValue("SecondaryContextColumn", out var rule9StudCourse) && !string.IsNullOrWhiteSpace(rule9StudCourse))
+                        rows.Add(("STUD Course Column", rule9StudCourse));
+                    break;
+                case 10:
+                    rows.Add(("Join Verification", summary.TableLinkageText));
+                    break;
+                default:
+                    rows.Add(("QUAL Table", summary.QualTable));
+                    rows.Add(("STUD Table", summary.StudTable));
+                    rows.Add(("CREG Table", summary.CregTable));
+                    rows.Add(("CRSE Table", summary.CrseTable));
+                    break;
+            }
+
+            rows.Add(("", ""));
+            rows.Add(("RESULT SUMMARY", ""));
+            rows.Add(("Total Checks", summary.TotalChecks.ToString("N0")));
+            rows.Add(("Passed Checks", summary.PassedChecks.ToString("N0")));
+            rows.Add(("Failed Checks", summary.FailedChecks.ToString("N0")));
+            rows.Add(("Total Issues", summary.TotalIssues.ToString("N0")));
+            rows.Add(("High Severity Rules", summary.HighSeverityCount.ToString("N0")));
+            rows.Add(("Exception Rate", $"{summary.ExceptionRate:F2}%"));
+            rows.Add(("Status", summary.Status));
+            rows.Add(("Overall Status", summary.OverallStatusText));
+            rows.Add(("Export Note", summary.Warning ?? ""));
+
+            return rows;
+        }
+
+        private static Dictionary<string, string> ParseIntegrityRuleParameters(string? json)
+        {
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(json))
+                return values;
+
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                    return values;
+
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.String)
+                    {
+                        var value = property.Value.GetString();
+                        if (!string.IsNullOrWhiteSpace(value))
+                            values[property.Name] = value.Trim();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return values;
+        }
+
+        private static string GetIntegrityDetailHeader(Rule10ValidationSummary summary, string key)
+        {
+            var normalized = key.ToUpperInvariant();
+            return summary.RuleNumber switch
+            {
+                1 or 2 or 5 or 6 => normalized switch
+                {
+                    "TABLE_NAME" => "Selected Table",
+                    "COLUMN_NAME" => "Check Column",
+                    "COLUMN_VALUE" => "Exception Value",
+                    "EXPECTED_VALUE" => "Configured Value",
+                    _ => GetGenericIntegrityDetailHeader(key)
+                },
+                3 or 4 => normalized switch
+                {
+                    "TABLE_NAME" => "Selected Table",
+                    "COLUMN_NAME" => "Duplicate Check Column",
+                    "DUPLICATE_VALUE" => "Duplicated Value",
+                    _ => GetGenericIntegrityDetailHeader(key)
+                },
+                7 => normalized switch
+                {
+                    "STUDENT_TABLE_NAME" => "STUD Table",
+                    "STUDENT_COLUMN_NAME" => "Student Number Column",
+                    "STUDENT_COLUMN_VALUE" => "Student Number",
+                    "LEFT_TABLE_NAME" => "STUD Table",
+                    "LEFT_COLUMN_NAME" => "STUD Qualification Column",
+                    "LEFT_COLUMN_VALUE" => "STUD Qualification Value",
+                    "RIGHT_TABLE_NAME" => "QUAL Table",
+                    "RIGHT_COLUMN_NAME" => "QUAL Qualification Column",
+                    "RIGHT_COLUMN_VALUE" => "QUAL Qualification Value",
+                    _ => GetGenericIntegrityDetailHeader(key)
+                },
+                8 => normalized switch
+                {
+                    "STUDENT_COLUMN_VALUE" => "Student Number",
+                    "LEFT_TABLE_NAME" => "CREG Table",
+                    "LEFT_COLUMN_NAME" => "CREG Course Column",
+                    "LEFT_COLUMN_VALUE" => "CREG Course Value",
+                    "RIGHT_TABLE_NAME" => "CRSE Table",
+                    "RIGHT_COLUMN_NAME" => "CRSE Course Column",
+                    "RIGHT_COLUMN_VALUE" => "CRSE Course Value",
+                    _ => GetGenericIntegrityDetailHeader(key)
+                },
+                9 => normalized switch
+                {
+                    "LEFT_STUDENT_COLUMN_NAME" => "CREG Student Number Column",
+                    "LEFT_STUDENT_COLUMN_VALUE" => "CREG Student Number",
+                    "RIGHT_STUDENT_COLUMN_NAME" => "STUD Student Number Column",
+                    "RIGHT_STUDENT_COLUMN_VALUE" => "STUD Student Number",
+                    "LEFT_CONTEXT_TABLE_NAME" => "CREG Table",
+                    "LEFT_COLUMN_NAME" => "CREG Course Column",
+                    "LEFT_COLUMN_VALUE" => "CREG Course Value",
+                    "RIGHT_CONTEXT_TABLE_NAME" => "STUD Table",
+                    "RIGHT_COLUMN_NAME" => "STUD Course Column",
+                    "RIGHT_COLUMN_VALUE" => "STUD Course Value",
+                    _ => GetGenericIntegrityDetailHeader(key)
+                },
+                10 => normalized switch
+                {
+                    "TABLE_NAME" => "Dataset Table",
+                    "COLUMN_NAME" => "Key Column",
+                    "COLUMN_VALUE" => "Detected Value",
+                    _ => GetGenericIntegrityDetailHeader(key)
+                },
+                _ => GetGenericIntegrityDetailHeader(key)
+            };
+        }
+
+        private static string GetGenericIntegrityDetailHeader(string key) =>
+            key.ToUpperInvariant() switch
+            {
+                "TABLE_NAME" => "Table",
+                "COLUMN_NAME" => "Column",
+                "COLUMN_VALUE" => "Column Value",
+                "EXPECTED_VALUE" => "Configured Value",
+                "DUPLICATE_VALUE" => "Duplicate Value",
+                "DUPLICATE_COUNT" => "Duplicate Count",
+                "STUDENT_TABLE_NAME" => "Student Table",
+                "STUDENT_COLUMN_NAME" => "Student Column",
+                "STUDENT_COLUMN_VALUE" => "Student Value",
+                "LEFT_TABLE_NAME" => "Left Table",
+                "LEFT_COLUMN_NAME" => "Left Column",
+                "LEFT_COLUMN_VALUE" => "Left Value",
+                "RIGHT_TABLE_NAME" => "Right Table",
+                "RIGHT_COLUMN_NAME" => "Right Column",
+                "RIGHT_COLUMN_VALUE" => "Right Value",
+                "LEFT_STUDENT_COLUMN_NAME" => "Left Student Column",
+                "LEFT_STUDENT_COLUMN_VALUE" => "Left Student Value",
+                "RIGHT_STUDENT_COLUMN_NAME" => "Right Student Column",
+                "RIGHT_STUDENT_COLUMN_VALUE" => "Right Student Value",
+                "LEFT_CONTEXT_TABLE_NAME" => "Left Context Table",
+                "RIGHT_CONTEXT_TABLE_NAME" => "Right Context Table",
+                _ => key.Replace('_', ' ')
+            };
+
+        public byte[] ExportExcel(Rule11ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 11: QUALIFICATION SELECTION FROM dbo_QUAL", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("QUAL Table", summary.QualTable),
+                ("Exclude M Pattern", summary.ExcludeMPrefixPattern ? "Yes (M_____ excluded in Control 1)" : "No"),
+                ("Postgraduate Types", summary.PostgraduateTypesCsv),
+                ("Validation Date", summary.Timestamp),
+                ("Rule Mode", summary.RuleModeText),
+                ("", ""),
+                ("RESULT SUMMARY", ""),
+                ("QUAL Records", summary.QualRecordCount.ToString("N0")),
+                ("Approved Qualifications", summary.ApprovedQualificationCount.ToString("N0")),
+                ("Undergraduate Rows", summary.UndergraduateCount.ToString("N0")),
+                ("Postgraduate Rows", summary.PostgraduateCount.ToString("N0")),
+                ("Total Selected Rows", summary.TotalValidated.ToString("N0")),
+                ("PASS Rows", summary.PassCount.ToString("N0")),
+                ("FAIL Rows", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status),
+                ("Export Note", summary.Warning ?? "")
+            };
+
+            var summaryRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULT SUMMARY")
+                {
+                    var hdrCell = wsSummary.Cell(summaryRow, 1);
+                    hdrCell.Value = label;
+                    hdrCell.Style.Font.Bold = true;
+                    hdrCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    hdrCell.Style.Font.FontColor = XLColor.White;
+                    wsSummary.Range(summaryRow, 1, summaryRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsSummary.Cell(summaryRow, 1).Value = label;
+                    wsSummary.Cell(summaryRow, 1).Style.Font.Bold = true;
+                    wsSummary.Cell(summaryRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(summaryRow, 2).Value = value;
+                }
+
+                summaryRow++;
+            }
+            wsSummary.Column(1).Width = 34;
+            wsSummary.Column(2).Width = 80;
+
+            var wsControlSummary = wb.Worksheets.Add("Control Summary");
+            StyleHeaderRow(wsControlSummary, 1, "RULE 11 CONTROL SUMMARY", 6);
+            var controlHeaders = new[] { "Control", "Criteria", "Rows Tested", "PASS", "FAIL", "Status" };
+            for (var i = 0; i < controlHeaders.Length; i++)
+            {
+                var cell = wsControlSummary.Cell(2, i + 1);
+                cell.Value = controlHeaders[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            for (var i = 0; i < summary.ControlSummaries.Count; i++)
+            {
+                var item = summary.ControlSummaries[i];
+                wsControlSummary.Cell(i + 3, 1).Value = item.ControlLabel;
+                wsControlSummary.Cell(i + 3, 2).Value = item.CriteriaText;
+                wsControlSummary.Cell(i + 3, 3).Value = item.TotalCount;
+                wsControlSummary.Cell(i + 3, 4).Value = item.PassCount;
+                wsControlSummary.Cell(i + 3, 5).Value = item.FailCount;
+                wsControlSummary.Cell(i + 3, 6).Value = item.Status;
+            }
+            for (var c = 1; c <= 6; c++)
+                wsControlSummary.Column(c).AdjustToContents();
+
+            var wsAll = wb.Worksheets.Add("All Results");
+            StyleHeaderRow(wsAll, 1, "RULE 11 ALL RESULTS", 8);
+            var headers = new[] { "Validation Number", "Control", "QUAL._001", "QUAL._002", "QUAL._004", "QUAL._005", "Validation Result", "Validation Explanation" };
+            for (var i = 0; i < headers.Length; i++)
+            {
+                var cell = wsAll.Cell(2, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var rowIndex = 3;
+            foreach (var row in summary.ReviewRows)
+            {
+                wsAll.Cell(rowIndex, 1).Value = row.ValidationNumber;
+                wsAll.Cell(rowIndex, 2).Value = row.ControlLabel;
+                wsAll.Cell(rowIndex, 3).Value = row.DisplayValues.TryGetValue("QUAL__001", out var qual001) ? qual001 : "";
+                wsAll.Cell(rowIndex, 4).Value = row.DisplayValues.TryGetValue("QUAL__002", out var qual002) ? qual002 : "";
+                wsAll.Cell(rowIndex, 5).Value = row.DisplayValues.TryGetValue("QUAL__004", out var qual004) ? qual004 : "";
+                wsAll.Cell(rowIndex, 6).Value = row.DisplayValues.TryGetValue("QUAL__005", out var qual005) ? qual005 : "";
+                wsAll.Cell(rowIndex, 7).Value = row.ValidationResult;
+                wsAll.Cell(rowIndex, 8).Value = row.ValidationExplanation;
+                rowIndex++;
+            }
+            for (var c = 1; c <= 8; c++)
+                wsAll.Column(c).AdjustToContents();
 
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
@@ -1721,7 +2633,7 @@ namespace HemisAudit.Services
         }
 
         // ─── CSV Export ───────────────────────────────────────────────────────
-        public byte[] ExportCsv(ValidationSummary summary, bool exceptionsOnly = false)
+        public byte[] ExportRule36Csv(ValidationSummary summary, bool exceptionsOnly = false)
         {
             var sb = new StringBuilder();
 
@@ -1784,6 +2696,31 @@ namespace HemisAudit.Services
             return Encoding.UTF8.GetBytes(sb.ToString());
         }
 
+        public byte[] ExportCsv(Rule35ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            var headers = GetRule35Headers(summary);
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            foreach (var row in summary.ValidationRows)
+            {
+                var values = headers.Select(header => header switch
+                {
+                    "Validation Number" => row.ValidationNumber.ToString(),
+                    "Validation Result" => string.Equals(row.DuplicateStatus, "UNIQUE", StringComparison.OrdinalIgnoreCase) ? "PASS" : "FAIL",
+                    "Exception Reason" => string.Equals(row.DuplicateStatus, "UNIQUE", StringComparison.OrdinalIgnoreCase) ? "" : "Duplicate value found",
+                    "Duplicate Value" => row.DuplicateValue,
+                    "Occurrence Count" => row.OccurrenceCount.ToString(),
+                    "Duplicate Status" => row.DuplicateStatus,
+                    _ => row.DisplayValues.TryGetValue(header, out var value) ? value : null
+                });
+
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
         public byte[] ExportCsv(Rule29ValidationSummary summary)
         {
             var sb = new StringBuilder();
@@ -1829,6 +2766,23 @@ namespace HemisAudit.Services
 
         public byte[] ExportCsv(Rule17ValidationSummary summary) =>
             ExportCsv(ToRule21Summary(summary));
+
+        public byte[] ExportCsv(Rule14ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            var headers = GetRule14Headers();
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            foreach (var row in summary.ReviewRows)
+            {
+                var values = headers.Select(header =>
+                    row.DisplayValues.TryGetValue(header, out var value) ? value : null);
+
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
 
         public byte[] ExportCsv(Rule15ValidationSummary summary)
         {
@@ -1937,6 +2891,124 @@ namespace HemisAudit.Services
                 });
 
                 sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        public byte[] ExportCsv(Rule13ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            var headers = new[]
+            {
+                "Validation_Number",
+                "Qualification_Code_001",
+                "CESM_Major_Field_006",
+                "Qualification_Description_003",
+                "Step1_CESM_Check",
+                "Linked_STUD_001",
+                "Step2_Student_Linkage",
+                "Overall_Result",
+                "Explanation"
+            };
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            foreach (var row in summary.ReviewRows)
+            {
+                var values = new[]
+                {
+                    row.ValidationNumber.ToString(),
+                    row.QualificationCode001,
+                    row.CourseCode030,
+                    row.QualificationDescription003,
+                    row.FoundationFlag106,
+                    row.FoundationCourse091,
+                    row.NotebookStatus,
+                    row.ValidationResult,
+                    row.ValidationExplanation
+                };
+
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        public byte[] ExportCsv(Rule12ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Validation Number,CREG._030,CRSE._030,Validation Result,Validation Explanation");
+
+            foreach (var row in summary.ReviewRows)
+            {
+                var creg = row.DisplayValues.TryGetValue("CREG__030", out var cregValue) ? cregValue : null;
+                var crse = row.DisplayValues.TryGetValue("CRSE__030", out var crseValue) ? crseValue : null;
+                sb.AppendLine(string.Join(",", new[]
+                {
+                    CsvEscape(row.ValidationNumber.ToString()),
+                    CsvEscape(creg),
+                    CsvEscape(crse),
+                    CsvEscape(row.ValidationResult),
+                    CsvEscape(row.ValidationExplanation)
+                }));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        public byte[] ExportCsv(Rule10ValidationSummary summary)
+        {
+            var detailKeys = summary.ReviewRows
+                .SelectMany(row => row.DisplayValues.Keys)
+                .Where(key => !string.Equals(key, "Validation_Result", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "Validation_Explanation", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "RULE_LABEL", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "RESULT_BADGE", StringComparison.OrdinalIgnoreCase) &&
+                              !string.Equals(key, "FINAL_RESULT_MESSAGE", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var sb = new StringBuilder();
+            var headers = new List<string> { "Rule", "Validation Result", "Validation Explanation" };
+            headers.AddRange(detailKeys.Select(key => GetIntegrityDetailHeader(summary, key)));
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+
+            foreach (var row in summary.ReviewRows)
+            {
+                var values = new List<string>
+                {
+                    row.RuleId.ToString(CultureInfo.InvariantCulture),
+                    row.ValidationResult,
+                    row.ValidationExplanation
+                };
+                values.AddRange(detailKeys.Select(key => row.DisplayValues.TryGetValue(key, out var value) ? value ?? "" : ""));
+                sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
+            }
+
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        public byte[] ExportCsv(Rule11ValidationSummary summary)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Validation Number,Control,QUAL._001,QUAL._002,QUAL._004,QUAL._005,Validation Result,Validation Explanation");
+
+            foreach (var row in summary.ReviewRows)
+            {
+                var qual001 = row.DisplayValues.TryGetValue("QUAL__001", out var qual001Value) ? qual001Value : null;
+                var qual002 = row.DisplayValues.TryGetValue("QUAL__002", out var qual002Value) ? qual002Value : null;
+                var qual004 = row.DisplayValues.TryGetValue("QUAL__004", out var qual004Value) ? qual004Value : null;
+                var qual005 = row.DisplayValues.TryGetValue("QUAL__005", out var qual005Value) ? qual005Value : null;
+
+                sb.AppendLine(string.Join(",",
+                    row.ValidationNumber,
+                    CsvEscape(row.ControlLabel),
+                    CsvEscape(qual001),
+                    CsvEscape(qual002),
+                    CsvEscape(qual004),
+                    CsvEscape(qual005),
+                    CsvEscape(row.ValidationResult),
+                    CsvEscape(row.ValidationExplanation)));
             }
 
             return Encoding.UTF8.GetBytes(sb.ToString());
@@ -2297,8 +3369,61 @@ namespace HemisAudit.Services
                     .Concat(summary.RemainingRows)
                     .SelectMany(r => r.DisplayValues.Keys)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+        private static List<string> GetRule35Headers(Rule35ValidationSummary summary) =>
+            new[] { "Validation Number", "Validation Result", "Exception Reason", "Duplicate Value", "Occurrence Count", "Duplicate Status" }
+                .Concat(summary.ValidationRows
+                    .SelectMany(r => r.DisplayValues.Keys)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
                 .ToList();
+
+        private static void WriteRule35HeaderRow(IXLWorksheet ws, int row, IReadOnlyList<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
+        private static void WriteRule35Rows(IXLWorksheet ws, int startRow, IReadOnlyCollection<Rule35ValidationRowRecord> rows, IReadOnlyList<string> headers)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = header switch
+                    {
+                        "Validation Number" => row.ValidationNumber.ToString(),
+                        "Validation Result" => string.Equals(row.DuplicateStatus, "UNIQUE", StringComparison.OrdinalIgnoreCase) ? "PASS" : "FAIL",
+                        "Exception Reason" => string.Equals(row.DuplicateStatus, "UNIQUE", StringComparison.OrdinalIgnoreCase) ? "" : "Duplicate value found",
+                        "Duplicate Value" => row.DuplicateValue,
+                        "Occurrence Count" => row.OccurrenceCount.ToString(),
+                        "Duplicate Status" => row.DuplicateStatus,
+                        _ => row.DisplayValues.TryGetValue(header, out var displayValue) ? displayValue : null
+                    };
+
+                    ws.Cell(rowIndex, i + 1).Value = value ?? "";
+                }
+
+                var fillColor = string.Equals(row.DuplicateStatus, "DUPLICATE", StringComparison.OrdinalIgnoreCase)
+                    ? XLColor.FromHtml("#FFF3F3")
+                    : XLColor.FromHtml("#F3FFF3");
+                ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = fillColor;
+                rowIndex++;
+            }
+
+            for (var c = 1; c <= headers.Count; c++)
+                ws.Column(c).AdjustToContents();
+        }
 
         private static List<string> GetRule29Headers(Rule29ValidationSummary summary) =>
             new[] { "Validation_Number", "Filter_Value", "Breakdown_Value" }
@@ -2320,6 +3445,18 @@ namespace HemisAudit.Services
                 .ThenBy(header => header, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
+
+        private static List<string> GetRule14Headers() =>
+            new()
+            {
+                "Control_Type",
+                "Control_Label",
+                "Validation_Result",
+                "Validation_Explanation",
+                "CRSE__030",
+                "CRSE__031",
+                "CREG__030"
+            };
 
         private static List<string> GetRule15Headers() =>
             new()
@@ -2548,6 +3685,18 @@ namespace HemisAudit.Services
             }
         }
 
+        private static void WriteRule14HeaderRow(IXLWorksheet ws, int row, List<string> headers)
+        {
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = ws.Cell(row, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+        }
+
         private static void WriteRule15HeaderRow(IXLWorksheet ws, int row, List<string> headers)
         {
             for (var i = 0; i < headers.Count; i++)
@@ -2647,6 +3796,28 @@ namespace HemisAudit.Services
             SetRule16ColumnWidths(ws);
         }
 
+        private static void WriteRule14Rows(IXLWorksheet ws, int startRow, List<Rule14ValidationRowRecord> rows, List<string> headers)
+        {
+            var rowIndex = startRow;
+            foreach (var row in rows)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var header = headers[i];
+                    var value = row.DisplayValues.TryGetValue(header, out var currentValue) ? currentValue ?? "" : "";
+                    ws.Cell(rowIndex, i + 1).Value = value;
+                }
+
+                var fill = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)
+                    ? "#FFF3F3"
+                    : "#F3FFF3";
+                ws.Range(rowIndex, 1, rowIndex, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml(fill);
+                rowIndex++;
+            }
+
+            SetRule14ColumnWidths(ws);
+        }
+
         private static void WriteRule15Rows(IXLWorksheet ws, int startRow, List<Rule15ValidationRowRecord> rows, List<string> headers)
         {
             var rowIndex = startRow;
@@ -2699,6 +3870,14 @@ namespace HemisAudit.Services
             WriteRule16Rows(ws, 3, rows, headers);
         }
 
+        private static void WriteRule14ControlSheet(XLWorkbook workbook, string sheetName, string title, List<Rule14ValidationRowRecord> rows, List<string> headers)
+        {
+            var ws = workbook.Worksheets.Add(sheetName);
+            StyleHeaderRow(ws, 1, title, headers.Count);
+            WriteRule14HeaderRow(ws, 2, headers);
+            WriteRule14Rows(ws, 3, rows, headers);
+        }
+
         private static void WriteRule15ControlSheet(XLWorkbook workbook, string sheetName, string title, List<Rule15ValidationRowRecord> rows, List<string> headers)
         {
             var ws = workbook.Worksheets.Add(sheetName);
@@ -2713,6 +3892,17 @@ namespace HemisAudit.Services
             StyleHeaderRow(ws, 1, title, headers.Count);
             WriteRule18HeaderRow(ws, 2, headers);
             WriteRule18Rows(ws, 3, rows, headers);
+        }
+
+        private static void SetRule14ColumnWidths(IXLWorksheet ws)
+        {
+            ws.Column(1).Width = 14;
+            ws.Column(2).Width = 40;
+            ws.Column(3).Width = 16;
+            ws.Column(4).Width = 52;
+            ws.Column(5).Width = 16;
+            ws.Column(6).Width = 14;
+            ws.Column(7).Width = 16;
         }
 
         private static void SetRule15ColumnWidths(IXLWorksheet ws)

@@ -20,6 +20,13 @@ namespace HemisAudit.Helpers
             CanAssignedUserSignOff(engagementRole) ||
             string.Equals(engagementRole, "Trainee", StringComparison.OrdinalIgnoreCase);
 
+        public static bool CanAssignedUserRemoveSignoff(string? engagementRole) =>
+            CanAssignedUserSignOff(engagementRole);
+
+        public static bool IsSignoffOwnedByEngagementRole(string? signoffRole, string? engagementRole) =>
+            CanAssignedUserRemoveSignoff(engagementRole) &&
+            string.Equals(signoffRole, engagementRole, StringComparison.OrdinalIgnoreCase);
+
         public static bool CanViewSignedResults(string? systemRole, string? engagementRole, bool hasDataAnalystSignoff)
         {
             if (IsAdmin(systemRole))
@@ -67,7 +74,7 @@ namespace HemisAudit.Helpers
                 return true;
 
             var engagementRole = await systemDb.GetEngagementRoleAsync(clientId, user, resolvedSystemRole);
-            return CanAssignedUserDownload(engagementRole);
+            return CanAssignedUserRemoveSignoff(engagementRole);
         }
     }
 }

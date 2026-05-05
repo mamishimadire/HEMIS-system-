@@ -1,0 +1,319 @@
+@model HemisAudit.ViewModels.Rule11RunReviewViewModel
+@{
+    ViewData["Title"] = $"Rule 11 Run {Model.RunId}";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var canDownload = ViewBag.CanDownloadSavedRun is bool allowed && allowed;
+    var canManageEngagement = ViewBag.CanManageEngagement is bool manageEngagement && manageEngagement;
+    var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool openWorkspace && openWorkspace;
+    var isArchived = ViewBag.IsArchived is bool archived && archived;
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+@if (moduleNavigation != null)
+{
+    @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+}
+
+<style>
+    .review-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:24px; overflow:auto; }
+    .review-tab { background:none; border:0; border-bottom:3px solid transparent; color:var(--text-muted); cursor:pointer; font:inherit; padding:14px 18px; white-space:nowrap; }
+    .review-tab.is-active { border-bottom-color:var(--brand); color:var(--brand); font-weight:700; }
+    .review-panel { display:none; }
+    .review-panel.is-active { display:block; }
+    .rule11-filterbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:18px; }
+    .rule11-filterbar label { font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); display:block; margin-bottom:6px; }
+    .rule11-table-wrap { overflow:auto; border:1px solid var(--rule15-table-border); border-radius:14px; background:var(--rule15-card-alt); }
+    .rule11-grid { width:100%; min-width:980px; border-collapse:collapse; table-layout:fixed; }
+    .rule11-grid th, .rule11-grid td { border:1px solid var(--rule15-table-border); padding:8px 10px; text-align:left; white-space:normal; word-break:break-word; vertical-align:top; font-family:Consolas, "Courier New", monospace; font-size:12px; color:var(--text); }
+    .rule11-grid .group-qual { background:var(--rule15-group-stud); }
+    .rule11-grid .group-final { background:var(--rule15-group-final); }
+    .rule11-grid .criteria-head, .rule11-grid .criteria-cell { background:var(--rule15-criteria); }
+    .rule11-grid .final-cell { line-height:1.25; }
+    .rule11-grid .is-pass { color:var(--rule15-pass); font-weight:800; }
+    .rule11-grid .is-fail { color:var(--rule15-fail); font-weight:800; }
+    .rule11-grid .result-text { font-weight:800; margin-bottom:4px; display:block; }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>Rule 11 Saved Run</h1>
+        <p>
+            @Model.EngagementName
+            <span style="padding:0 8px">|</span>
+            @Model.MaconomyNumber
+            <span style="padding:0 8px">|</span>
+            Run #@Model.RunId
+            <span style="padding:0 8px">|</span>
+            @Model.Summary.Timestamp
+        </p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+        @if (canOpenWorkspace)
+        {
+            <a asp-action="Index" asp-route-clientId="@Model.ClientId" class="btn btn-secondary">Back to Workspace</a>
+        }
+        <a asp-controller="Dashboard" asp-action="Index" class="btn btn-secondary">Back to Dashboard</a>
+        <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" asp-fragment="validation-runs-panel" class="btn btn-secondary">Back to Validation Runs</a>
+        @if (canManageEngagement)
+        {
+            <a asp-controller="Admin" asp-action="ClientDetail" asp-route-id="@Model.ClientId" class="btn btn-secondary">Back to Engagement</a>
+        }
+    </div>
+</div>
+
+@if (isArchived)
+{
+    <div class="alert alert--info" style="margin-bottom:24px">
+        This engagement is archived. The saved run is available for review and download only.
+    </div>
+}
+
+<div class="card" style="margin-bottom:24px;padding:20px">
+    <h3 class="section-title" style="margin-top:0">Signoffs</h3>
+
+    @if (Model.CanCurrentUserSignOff && !isArchived)
+    {
+        <form asp-action="AddSignoff" method="post" style="margin-bottom:16px">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="RunId" value="@Model.RunId" />
+            <div class="field-group" style="margin-bottom:12px">
+                <label>Comment</label>
+                <textarea name="Comment" rows="3" placeholder="Add review or completion notes" disabled="@(Model.CurrentUserHasSignedOff ? "disabled" : null)">@Model.Signoffs.FirstOrDefault(s => s.IsCurrentUser)?.Comment</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@(Model.CurrentUserHasSignedOff ? "disabled" : null)">
+                @(Model.CurrentUserHasSignedOff ? $"Signed Off as {Model.CurrentUserEngagementRole}" : $"Sign Off as {Model.CurrentUserEngagementRole}")
+            </button>
+        </form>
+
+        @if (Model.CanCurrentUserRemoveSignoff)
+        {
+            <form asp-action="RemoveSignoff" method="post" style="margin-bottom:16px">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="runId" value="@Model.RunId" />
+                <button type="submit" class="btn btn-warning" onclick="return confirm('Remove the signoff for this validation run?')">Remove Signoff</button>
+            </form>
+        }
+    }
+
+    @if (Model.Signoffs.Any())
+    {
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    <th>Reviewer</th>
+                    <th>Comment</th>
+                    <th>Signed At</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var signoff in Model.Signoffs)
+                {
+                    <tr>
+                        <td><span class="badge badge--role">@signoff.SignoffRole</span></td>
+                        <td><strong>@signoff.ReviewerName</strong><br /><small style="color:var(--text-muted)">@signoff.ReviewerEmail</small></td>
+                        <td>@(string.IsNullOrWhiteSpace(signoff.Comment) ? "-" : signoff.Comment)</td>
+                        <td>@signoff.SignedOffAt.ToString("dd MMM yyyy HH:mm")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <div style="color:var(--text-muted)">No signoffs recorded yet.</div>
+    }
+</div>
+
+<div class="card" style="padding:0 0 24px">
+    <div class="review-tabs">
+        <button type="button" class="review-tab is-active" data-review-tab="analysis">Analysis</button>
+        <button type="button" class="review-tab" data-review-tab="results">Results</button>
+        <button type="button" class="review-tab" data-review-tab="sql">SQL Code</button>
+        <button type="button" class="review-tab" data-review-tab="downloads">Downloads</button>
+    </div>
+
+    <div class="review-panel is-active" data-review-panel="analysis" style="padding:24px">
+        <div class="stats-grid" style="margin-bottom:24px">
+            <div class="stat-card"><div class="stat-card__label">QUAL Records</div><div class="stat-card__value">@Model.Summary.QualRecordCount.ToString("N0")</div></div>
+            <div class="stat-card"><div class="stat-card__label">Approved Qualifications</div><div class="stat-card__value">@Model.Summary.ApprovedQualificationCount.ToString("N0")</div></div>
+            <div class="stat-card"><div class="stat-card__label">Undergraduate Rows</div><div class="stat-card__value">@Model.Summary.UndergraduateCount.ToString("N0")</div></div>
+            <div class="stat-card"><div class="stat-card__label">Postgraduate Rows</div><div class="stat-card__value">@Model.Summary.PostgraduateCount.ToString("N0")</div></div>
+            <div class="stat-card"><div class="stat-card__label">PASS Rows</div><div class="stat-card__value">@Model.Summary.PassCount.ToString("N0")</div></div>
+            <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL Rows</div><div class="stat-card__value">@Model.Summary.FailCount.ToString("N0")</div></div>
+        </div>
+
+        <div class="card" style="padding:20px">
+            <h3 class="section-title" style="margin-top:0">Control Summary</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Control</th>
+                        <th>Criteria</th>
+                        <th>Rows Tested</th>
+                        <th>PASS</th>
+                        <th>FAIL</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model.Summary.ControlSummaries)
+                    {
+                        <tr>
+                            <td>@item.ControlLabel</td>
+                            <td>@item.CriteriaText</td>
+                            <td>@item.TotalCount.ToString("N0")</td>
+                            <td>@item.PassCount.ToString("N0")</td>
+                            <td>@item.FailCount.ToString("N0")</td>
+                            <td>@item.Status</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="review-panel" data-review-panel="results" style="padding:24px">
+        <div class="rule11-filterbar">
+            <div class="field-group" style="margin:0;min-width:180px">
+                <label for="resultFilter">Result Filter</label>
+                <select id="resultFilter">
+                    <option value="ALL">All results</option>
+                    <option value="PASS">PASS</option>
+                    <option value="FAIL">FAIL</option>
+                </select>
+            </div>
+            <div class="field-group" style="margin:0;min-width:180px">
+                <label for="controlFilter">Control Filter</label>
+                <select id="controlFilter">
+                    <option value="ALL">All controls</option>
+                    <option value="Control_1">Control 1</option>
+                    <option value="Control_2">Control 2</option>
+                </select>
+            </div>
+        </div>
+        <div id="resultsHost"></div>
+    </div>
+
+    <div class="review-panel" data-review-panel="sql" style="padding:24px">
+        <div class="code-panel"><pre>@Model.GeneratedSql</pre></div>
+    </div>
+
+    <div class="review-panel" data-review-panel="downloads" style="padding:24px">
+        @if (canDownload)
+        {
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <a asp-action="DownloadSavedExcel" asp-route-runId="@Model.RunId" class="btn btn-success">Download Excel</a>
+                <a asp-action="DownloadSavedCsv" asp-route-runId="@Model.RunId" class="btn btn-info">Download CSV</a>
+                <a asp-action="DownloadSavedSql" asp-route-runId="@Model.RunId" class="btn btn-secondary">Download SQL</a>
+            </div>
+        }
+        else
+        {
+            <div class="alert alert--info">The assigned data analyst must sign off before other assigned users can download this run.</div>
+        }
+    </div>
+</div>
+
+<script>
+    const Rule11Summary = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        Model.Summary,
+        new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
+
+    document.querySelectorAll('[data-review-tab]').forEach(button => {
+        button.addEventListener('click', () => {
+            const tab = button.dataset.reviewTab;
+            document.querySelectorAll('[data-review-tab]').forEach(item => item.classList.toggle('is-active', item === button));
+            document.querySelectorAll('[data-review-panel]').forEach(panel => panel.classList.toggle('is-active', panel.dataset.reviewPanel === tab));
+            if (tab === 'results') renderRule11Results();
+        });
+    });
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function renderControlSection(summary, controlType, resultFilter, controlFilter) {
+        if (controlFilter !== 'ALL' && controlFilter !== controlType) return '';
+
+        const controlMeta = (summary.controlSummaries || []).find(item => item.controlType === controlType);
+        const rows = (summary.reviewRows || []).filter(row =>
+            row.controlType === controlType &&
+            (resultFilter === 'ALL' || String(row.validationResult || '').toUpperCase() === resultFilter));
+        const criteriaText = controlMeta?.criteriaText || '';
+
+        const rowHtml = rows.map(row => {
+            const v = row.displayValues || {};
+            const resultText = row.validationResult === 'FAIL' ? 'FAIL' : 'PASS';
+            return `
+                <tr>
+                    <td>${escapeHtml(v.QUAL__001 || '')}</td>
+                    <td>${escapeHtml(v.QUAL__002 || '')}</td>
+                    <td>${escapeHtml(v.QUAL__004 || '')}</td>
+                    <td>${escapeHtml(v.QUAL__005 || '')}</td>
+                    <td class="criteria-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">
+                        ${escapeHtml(v.QUAL_CRITERIA_MESSAGE || '')}<br />
+                        ${escapeHtml(v.QUAL_DETAIL_MESSAGE || '')}
+                    </td>
+                    <td class="final-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">
+                        <div class="result-text">${escapeHtml(resultText)}</div>
+                        <div>${escapeHtml(v.FINAL_RESULT_MESSAGE || row.validationExplanation || '')}</div>
+                    </td>
+                </tr>`;
+        }).join('');
+
+        return `
+            <div class="card" style="padding:20px;margin-bottom:20px">
+                <h3 class="section-title" style="margin-top:0">${escapeHtml(controlMeta?.controlLabel || controlType)}</h3>
+                <p class="text-muted" style="margin:0 0 16px 0">${escapeHtml(criteriaText)}</p>
+                ${rows.length === 0 ? `<div class="alert alert--info" style="margin:0">No rows match the selected filter.</div>` : `
+                <div class="rule11-table-wrap">
+                    <table class="rule11-grid">
+                        <thead>
+                            <tr>
+                                <th colspan="4" class="group-qual">${escapeHtml(summary.qualTable || 'dbo_QUAL')}</th>
+                                <th class="criteria-head">Criteria Result</th>
+                                <th class="group-final">Results</th>
+                            </tr>
+                            <tr>
+                                <th>_001</th>
+                                <th>_002</th>
+                                <th>_004</th>
+                                <th>_005</th>
+                                <th></th>
+                                <th>PASS/FAIL</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowHtml}</tbody>
+                    </table>
+                </div>`}
+            </div>`;
+    }
+
+    function renderRule11Results() {
+        const resultFilter = document.getElementById('resultFilter')?.value || 'ALL';
+        const controlFilter = document.getElementById('controlFilter')?.value || 'ALL';
+        document.getElementById('resultsHost').innerHTML = `
+            ${renderControlSection(Rule11Summary, 'Control_1', resultFilter, controlFilter)}
+            ${renderControlSection(Rule11Summary, 'Control_2', resultFilter, controlFilter)}`;
+    }
+
+    document.getElementById('resultFilter')?.addEventListener('change', renderRule11Results);
+    document.getElementById('controlFilter')?.addEventListener('change', renderRule11Results);
+    renderRule11Results();
+</script>

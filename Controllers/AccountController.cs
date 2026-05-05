@@ -32,6 +32,11 @@ namespace HemisAudit.Controllers
         [HttpGet, AllowAnonymous]
         public async Task<IActionResult> Login(string? returnUrl = null, bool force = false)
         {
+            if (force)
+            {
+                ClearLegacyBrowserState();
+            }
+
             if (force && User.Identity?.IsAuthenticated == true)
             {
                 var user = await _users.GetUserAsync(User);
@@ -45,6 +50,37 @@ namespace HemisAudit.Controllers
                 return RedirectToAction("Index", "Dashboard");
             ViewData["ReturnUrl"] = returnUrl;
             return View();
+        }
+
+        private void ClearLegacyBrowserState()
+        {
+            var knownCookies = new[]
+            {
+                "HemisAudit.Auth",
+                "HemisAudit.Auth.v1",
+                "HemisAudit.Auth.v2",
+                "HemisAudit.AntiForgery",
+                "HemisAudit.AntiForgery.v1",
+                "HemisAudit.AntiForgery.v2",
+                "HemisAudit.Session.v1",
+                ".AspNetCore.Session",
+                ".AspNetCore.Identity.Application",
+                ".AspNetCore.Mvc.CookieTempDataProvider"
+            };
+
+            foreach (var cookieName in knownCookies)
+            {
+                Response.Cookies.Delete(cookieName);
+            }
+
+            foreach (var requestCookie in Request.Cookies.Keys)
+            {
+                if (requestCookie.StartsWith(".AspNetCore.Antiforgery.", StringComparison.OrdinalIgnoreCase) ||
+                    requestCookie.StartsWith(".AspNetCore.Mvc.CookieTempDataProvider", StringComparison.OrdinalIgnoreCase))
+                {
+                    Response.Cookies.Delete(requestCookie);
+                }
+            }
         }
 
         // ── Login POST ─────────────────────────────────────────────────────────
@@ -71,8 +107,9 @@ namespace HemisAudit.Controllers
                 user.LastLoginAt = DateTime.UtcNow;
                 await _users.UpdateAsync(user);
 
-                var ageDays = _passwordPolicy.GetPasswordAgeDays(user, DateTime.UtcNow);
-                if (ageDays >= 30)
+                var now = DateTime.UtcNow;
+                var ageDays = _passwordPolicy.GetPasswordAgeDays(user, now);
+                if (_passwordPolicy.IsPasswordExpired(user, now))
                 {
                     await _signIn.SignOutAsync();
                     await SendPasswordResetLinkAsync(user);
@@ -80,8 +117,12 @@ namespace HemisAudit.Controllers
                     return RedirectToAction(nameof(PasswordExpired), new { email = user.Email });
                 }
 
-                if (ageDays >= 25)
-                    TempData["PasswordWarnDays"] = 30 - ageDays;
+                var warningDays = _passwordPolicy.GetPasswordWarningDays(user, now);
+                if (warningDays.HasValue)
+                {
+                    TempData["PasswordWarnDays"] = warningDays.Value;
+                    TempData["PasswordWarnAgeDays"] = ageDays;
+                }
 
                 await _audit.LogAsync("login", $"User logged in", user.Id, user.Email);
                 return LocalRedirect(EnsureSessionStartReturnUrl(NormalizeLocalReturnUrl(returnUrl)));
@@ -109,23 +150,39 @@ namespace HemisAudit.Controllers
 
         // ── Change Password GET ────────────────────────────────────────────────
         [HttpGet, Authorize]
-        public IActionResult ChangePassword() => View(new ChangePasswordViewModel());
+        public async Task<IActionResult> ChangePassword()
+        {
+            var user = await _users.GetUserAsync(User);
+            if (user == null) return RedirectToAction("Login");
+
+            return View(new ChangePasswordViewModel
+            {
+                PasswordStatus = BuildPasswordStatus(user)
+            });
+        }
 
         // ── Change Password POST ───────────────────────────────────────────────
         [HttpPost, Authorize, ValidateAntiForgeryToken]
         public async Task<IActionResult> ChangePassword(ChangePasswordViewModel model)
         {
-            if (!ModelState.IsValid) return View(model);
-
             var user = await _users.GetUserAsync(User);
             if (user == null) return RedirectToAction("Login");
+
+            if (!ModelState.IsValid)
+            {
+                model.PasswordStatus = BuildPasswordStatus(user);
+                return View(model);
+            }
 
             var policyErrors = _passwordPolicy.ValidatePassword(user, model.NewPassword);
             foreach (var error in policyErrors)
                 ModelState.AddModelError("", error);
 
             if (!ModelState.IsValid)
+            {
+                model.PasswordStatus = BuildPasswordStatus(user);
                 return View(model);
+            }
 
             var result = await _users.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
             if (result.Succeeded)
@@ -143,6 +200,7 @@ namespace HemisAudit.Controllers
 
             foreach (var e in result.Errors)
                 ModelState.AddModelError("", e.Description);
+            model.PasswordStatus = BuildPasswordStatus(user);
             return View(model);
         }
 
@@ -301,6 +359,25 @@ namespace HemisAudit.Controllers
                 <p>{url}</p>";
 
             await _email.SendAsync(user.Email ?? string.Empty, "HEMIS Audit password reset", html, true);
+        }
+
+        private PasswordStatusViewModel BuildPasswordStatus(ApplicationUser user)
+        {
+            var now = DateTime.UtcNow;
+            var ageDays = _passwordPolicy.GetPasswordAgeDays(user, now);
+            var daysRemaining = _passwordPolicy.GetPasswordDaysRemaining(user, now);
+            var isExpired = _passwordPolicy.IsPasswordExpired(user, now);
+
+            return new PasswordStatusViewModel
+            {
+                ReferenceDateUtc = _passwordPolicy.GetPasswordReferenceDate(user),
+                AgeDays = ageDays,
+                DaysRemaining = daysRemaining,
+                MaxAgeDays = _passwordPolicy.MaxPasswordAgeDays,
+                WarningWindowDays = _passwordPolicy.WarningWindowDays,
+                IsExpired = isExpired,
+                IsExpiringSoon = !isExpired && daysRemaining > 0 && daysRemaining <= _passwordPolicy.WarningWindowDays
+            };
         }
     }
 }

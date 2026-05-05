@@ -201,7 +201,7 @@
                 <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
             }
             <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
-            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
         </div>
     </div>
 
@@ -275,7 +275,9 @@ window.toggleAccordion = function (section) {
         resultsVisible: false,
         currentUserEngagementRole: '',
         currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
         hasDataAnalystSignoff: false,
+        hasPendingValidation: false,
         currentStatus: '',
         resultFilter: 'ALL',
         controlFilter: 'ALL',
@@ -354,7 +356,7 @@ window.toggleAccordion = function (section) {
     }
 
     function normalizeRole(value) {
-        return String(value || '').trim().toLowerCase();
+        return String(value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
     }
 
     function setAlert(target, type, message) {
@@ -443,9 +445,12 @@ window.toggleAccordion = function (section) {
         const role = state.currentUserEngagementRole || currentSystemRole || '';
         const normalizedRole = normalizeRole(role);
         const normalizedSystemRole = normalizeRole(currentSystemRole);
+        const hasUnsavedValidation = !!state.summary &&
+            (!!state.hasPendingValidation || (!state.currentRunId && !state.isWorkspaceSaved));
         const canEdit = !isResultsOnlyRole &&
-            (normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst');
-        const canSign = !!state.currentRunId &&
+            (normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst' || hasUnsavedValidation);
+        const canSign = !state.hasPendingValidation && !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
             (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
         const signoffLocked = !!state.currentUserHasSignedOff;
 
@@ -456,8 +461,8 @@ window.toggleAccordion = function (section) {
             { target: 'verifyBtn', disabled: !canEdit || signoffLocked },
             { target: 'runBtn', disabled: !canEdit || signoffLocked },
             { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
-            { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId },
-            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || !state.summary },
+            { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || state.hasPendingValidation },
+            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !hasUnsavedValidation },
             {
                 target: els.signoffBtn,
                 disabled: signoffLocked || !canSign,
@@ -608,9 +613,11 @@ window.toggleAccordion = function (section) {
         };
     }
 
-    function applySummary(summary) {
+    function applySummary(summary, options = {}) {
         state.summary = normalizeBrowserSummary(summary);
-        state.currentRunId = summary?.savedRunId || state.currentRunId;
+        if (!options.fromWorkspace) {
+            state.currentRunId = summary?.savedRunId || state.currentRunId;
+        }
         state.currentStatus = summary?.status || state.currentStatus;
         state.resultsVisible = !!summary || state.resultsVisible;
 
@@ -622,13 +629,19 @@ window.toggleAccordion = function (section) {
             return;
         }
 
-        els.workspaceRunState.textContent = state.currentRunId
-            ? `Run #${state.currentRunId} | ${state.currentStatus || 'Completed'}`
-            : 'No saved run loaded';
-        els.workspaceRunLabel.textContent = state.currentRunId
-            ? `Run #${state.currentRunId}`
-            : 'No saved run yet';
-        els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+        if (state.hasPendingValidation) {
+            els.workspaceRunState.textContent = `Pending save | ${summary.status || 'Completed'}`;
+            els.workspaceRunLabel.textContent = 'Unsaved Rule 16 validation';
+            els.workspaceStatusLabel.textContent = 'Pending Save';
+        } else {
+            els.workspaceRunState.textContent = state.currentRunId
+                ? `Run #${state.currentRunId} | ${state.currentStatus || 'Completed'}`
+                : 'No saved run loaded';
+            els.workspaceRunLabel.textContent = state.currentRunId
+                ? `Run #${state.currentRunId}`
+                : 'No saved run yet';
+            els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+        }
         if (!els.workspaceRoleLabel.textContent?.trim()) {
             els.workspaceRoleLabel.textContent = state.currentUserEngagementRole || currentSystemRole || '-';
         }
@@ -646,8 +659,10 @@ window.toggleAccordion = function (section) {
             state.currentStatus = '';
             state.currentUserEngagementRole = '';
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
             state.resultsVisible = false;
+            state.hasPendingValidation = false;
             els.workspaceRunState.textContent = 'No saved run loaded';
             els.workspaceRunLabel.textContent = 'No saved run yet';
             els.workspaceStatusLabel.textContent = '-';
@@ -666,8 +681,10 @@ window.toggleAccordion = function (section) {
         state.currentStatus = workspace.currentStatus || '';
         state.currentUserEngagementRole = workspace.currentUserEngagementRole || currentSystemRole || '';
         state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
         state.resultsVisible = !!resultsVisible;
+        state.hasPendingValidation = false;
 
         if (els.server) els.server.value = workspace.server || '';
         if (els.driver) els.driver.value = workspace.driver || 'ODBC Driver 17 for SQL Server';
@@ -694,12 +711,12 @@ window.toggleAccordion = function (section) {
         }
 
         setWorkspaceState(workspace.summary
-            ? 'Saved Rule 16 workspace loaded.'
+            ? 'Saved workspace loaded. The last analyst configuration and results are ready.'
             : 'Rule 16 workspace loaded. Run the validation to generate results.',
             'success');
 
         if (workspace.summary) {
-            applySummary(workspace.summary);
+            applySummary(workspace.summary, { fromWorkspace: true });
         } else if (!preserveExistingSummary) {
             applySummary(null);
         } else {
@@ -797,19 +814,20 @@ window.toggleAccordion = function (section) {
             const data = await postJson(`${apiBasePath}/RunValidation`, request);
             if (!data.success) throw new Error(data.error || 'Rule 16 failed.');
 
+            state.hasPendingValidation = true;
+            state.currentRunId = null;
+            state.currentStatus = data.status || '';
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
+            state.resultsVisible = true;
             state.currentUserEngagementRole = state.currentUserEngagementRole || currentSystemRole || 'DataAnalyst';
-            await loadWorkspace();
-
-            if (!state.currentRunId) {
-                throw new Error('Rule 16 finished, but the saved workspace could not be reloaded from the system database.');
-            }
+            applySummary(data);
 
             const control1 = (data.controlSummaries || []).find(item => item.controlType === 'Control_1');
             const control2 = (data.controlSummaries || []).find(item => item.controlType === 'Control_2');
             const control3 = (data.controlSummaries || []).find(item => item.controlType === 'Control_3');
-            setWorkspaceState(`Rule 16 run completed and the saved workspace was reloaded from the system database. Unfulfilled qualification population: ${formatNumber(data.unfulfilledPopulationCount)} | Control 1 matches: ${formatNumber(control1?.passCount || 0)} | Control 2 matches: ${formatNumber(control2?.passCount || 0)} | Control 3 matches: ${formatNumber(control3?.passCount || 0)}. Overall ${data.status}.`, 'success');
+            setWorkspaceState(`Rule 16 validation completed. Unfulfilled qualification population: ${formatNumber(data.unfulfilledPopulationCount)} | Control 1 matches: ${formatNumber(control1?.passCount || 0)} | Control 2 matches: ${formatNumber(control2?.passCount || 0)} | Control 3 matches: ${formatNumber(control3?.passCount || 0)}. The current run is already in the system database. Click Save Workspace before signoff or visibility to other users.`, 'success');
         } finally {
             hideSpinner();
         }
@@ -833,7 +851,10 @@ window.toggleAccordion = function (section) {
         try {
             const data = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, getRequest());
             if (!data.success) throw new Error(data.error || 'Could not begin editing.');
-            applyWorkspace(data.workspace, true, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
             setWorkspaceState(data.message || 'Workspace ready for editing.', 'warning');
         } finally {
             hideSpinner();
@@ -845,7 +866,11 @@ window.toggleAccordion = function (section) {
         try {
             const data = await postJson(`${apiBasePath}/SaveWorkspace`, getRequest());
             if (!data.success) throw new Error(data.error || 'Could not save workspace.');
-            applyWorkspace(data.workspace, true, true);
+            state.hasPendingValidation = false;
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
             setWorkspaceState(data.message || 'Workspace saved.', data.signoffsCleared ? 'warning' : 'success');
         } finally {
             hideSpinner();
@@ -862,7 +887,10 @@ window.toggleAccordion = function (section) {
             });
             if (!data.success) throw new Error(data.error || 'Signoff failed.');
             state.currentUserHasSignedOff = true;
-            applyWorkspace(data.workspace, true, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
             setWorkspaceState(data.message || 'Signoff saved.', 'success');
         } finally {
             hideSpinner();
@@ -872,6 +900,7 @@ window.toggleAccordion = function (section) {
     async function removeWorkspaceSignoff() {
         showSpinner('Removing signoff...');
         try {
+            const previousRunId = state.currentRunId;
             const data = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
                 clientId: state.clientId,
                 runId: state.currentRunId,
@@ -879,7 +908,12 @@ window.toggleAccordion = function (section) {
             });
             if (!data.success) throw new Error(data.error || 'Could not remove signoff.');
             state.currentUserHasSignedOff = false;
-            applyWorkspace(data.workspace, true, true);
+            state.isWorkspaceSaved = false;
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            const preserveExistingSummary = !!(data.workspace && previousRunId && data.workspace.runId === previousRunId);
+            applyWorkspace(data.workspace, workspaceResultsVisible, preserveExistingSummary);
             setWorkspaceState(data.message || 'Signoff removed.', 'warning');
         } finally {
             hideSpinner();
@@ -1153,6 +1187,8 @@ window.toggleAccordion = function (section) {
     }
 })();
 </script>
+
+
 
 
 

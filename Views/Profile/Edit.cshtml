@@ -110,6 +110,27 @@
             <h3 class="section-title" style="margin-top:0">Change Password</h3>
             <p style="color:#757575;margin-bottom:16px">Use your current password to set a new one.</p>
 
+            @{
+                var passwordStatus = Model.PasswordStatus;
+                var passwordAlertClass = passwordStatus.IsExpired
+                    ? "alert--error"
+                    : passwordStatus.IsExpiringSoon
+                        ? "alert--warning"
+                        : "alert--info";
+            }
+            <div class="alert @passwordAlertClass" style="margin-bottom:16px">
+                <div><strong>Current password age:</strong> @passwordStatus.AgeDays day(s)</div>
+                <div><strong>Counted from:</strong> @(passwordStatus.ReferenceDateUtc?.ToString("dd MMM yyyy") ?? "Not available")</div>
+                @if (passwordStatus.IsExpired)
+                {
+                    <div><strong>Status:</strong> Expired. A new password is required immediately.</div>
+                }
+                else
+                {
+                    <div><strong>Expires in:</strong> @passwordStatus.DaysRemaining day(s) of the @passwordStatus.MaxAgeDays-day policy.</div>
+                }
+            </div>
+
             <div class="field-group" style="margin-bottom:14px">
                 <label>Current Password</label>
                 <input asp-for="PasswordChange.OldPassword" type="password" />

@@ -96,7 +96,7 @@
             <form asp-action="RemoveSignoff" method="post" style="margin-bottom:16px">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="runId" value="@Model.RunId" />
-                <button type="submit" class="btn btn-warning" onclick="return confirm('Remove your signoff for this validation run?')">Remove My Signoff</button>
+                <button type="submit" class="btn btn-warning" onclick="return confirm('Remove the signoff for this validation run?')">Remove Signoff</button>
             </form>
         }
     }

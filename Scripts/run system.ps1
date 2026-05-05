@@ -109,8 +109,32 @@ function Open-Browser {
         [string]$Url
     )
 
-    Start-Process $Url
-    Write-Host "Opened $Url" -ForegroundColor Green
+    $edgeCandidates = @(
+        (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+
+    if ($edgeCandidates.Count -gt 0) {
+        $edgePath = $edgeCandidates | Select-Object -First 1
+        Start-Process -FilePath $edgePath -ArgumentList @("--inprivate", $Url) | Out-Null
+        Write-Host "Opened latest HemisAudit build in Edge InPrivate: $Url" -ForegroundColor Green
+        return
+    }
+
+    $chromeCandidates = @(
+        (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+
+    if ($chromeCandidates.Count -gt 0) {
+        $chromePath = $chromeCandidates | Select-Object -First 1
+        Start-Process -FilePath $chromePath -ArgumentList @("--incognito", $Url) | Out-Null
+        Write-Host "Opened latest HemisAudit build in Chrome Incognito: $Url" -ForegroundColor Green
+        return
+    }
+
+    Start-Process $Url | Out-Null
+    Write-Host "Opened $Url in the default browser" -ForegroundColor Green
 }
 
 function Start-HemisAudit {
