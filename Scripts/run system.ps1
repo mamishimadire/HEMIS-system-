@@ -14,6 +14,27 @@ $stderrLog = Join-Path $logFolder "run_system.stderr.log"
 $pidFile = Join-Path $runRoot "hemisaudit.pid"
 $healthTimeoutSeconds = 90
 
+function Get-FreshLoopbackHost {
+    $activeHosts = Get-CimInstance Win32_Process |
+        Where-Object {
+            $_.Name -eq "dotnet.exe" -and
+            $_.CommandLine -and
+            $_.CommandLine -match "HemisAudit\.dll" -and
+            $_.CommandLine -match "--urls\s+http://([^:/\s]+):"
+        } |
+        ForEach-Object { $Matches[1] }
+
+    $candidates = 20..250 |
+        ForEach-Object { "127.0.0.$_" } |
+        Where-Object { $_ -notin $activeHosts }
+
+    if (-not $candidates) {
+        throw "No free loopback host could be selected for HemisAudit."
+    }
+
+    return Get-Random -InputObject $candidates
+}
+
 function Get-HemisAuditProcessInfo {
     $processes = Get-CimInstance Win32_Process |
         Where-Object {
@@ -95,14 +116,18 @@ function Open-Browser {
 function Start-HemisAudit {
     param(
         [Parameter(Mandatory = $true)]
-        [int]$Port
+        [int]$Port,
+        [Parameter(Mandatory = $true)]
+        [string]$LoopbackHost
     )
 
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
         throw ".NET SDK was not found on PATH. Install .NET, then run this script again."
     }
 
-    $baseUrl = "http://localhost:$Port"
+    # Use a fresh loopback IP instead of localhost so stale browser cookies
+    # from previous runs do not cause Kestrel to reject the first request.
+    $baseUrl = "http://${LoopbackHost}:$Port"
 
     foreach ($path in @($runRoot, $buildFolder, $logFolder)) {
         if (-not (Test-Path $path)) {
@@ -156,6 +181,7 @@ if ($existingProcesses.Count -gt 0) {
     Start-Sleep -Seconds 2
 }
 
-$started = Start-HemisAudit -Port $preferredPort
+$selectedHost = Get-FreshLoopbackHost
+$started = Start-HemisAudit -Port $preferredPort -LoopbackHost $selectedHost
 Open-Browser -Url "$($started.Url)$launchPath"
 Write-Host "HemisAudit is ready on $($started.Url)" -ForegroundColor Green

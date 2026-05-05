@@ -566,17 +566,52 @@
         const issueMax = Math.max(...((summary.issueCounts || []).map(x => Number(x.count || 0))), 1);
         chartsPane.innerHTML = `
             <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 23 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    <div class="chart-card chart-card--metric">
+                        <div>
+                            <div class="chart-kicker">Reconciled Rows</div>
+                            <div class="chart-metric">${Number(summary.totalValidated || 0).toLocaleString()}</div>
+                        </div>
+                        <div class="summary-text">
+                            <div><span>Pass Sample Saved</span><strong>${Number(summary.passSampleCount || 0).toLocaleString()}</strong></div>
+                            <div><span>Fail Rows Saved</span><strong>${Number(summary.savedFailRowCount || 0).toLocaleString()}</strong></div>
+                        </div>
+                    </div>
+                    <div class="chart-card chart-card--metric">
+                        <div>
+                            <div class="chart-kicker">Reconciliation Outcome</div>
+                            <div class="chart-metric">${Number(summary.matches || 0).toLocaleString()} / ${Number(summary.mismatches || 0).toLocaleString()}</div>
+                        </div>
+                        <div class="summary-text">
+                            <div><span>Matches</span><strong class="text-success">${Number(summary.matches || 0).toLocaleString()}</strong></div>
+                            <div><span>Mismatches</span><strong class="text-danger">${Number(summary.mismatches || 0).toLocaleString()}</strong></div>
+                        </div>
+                    </div>
+                    <div class="chart-card chart-card--status ${String(summary.status).toUpperCase() === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                        <h4>Run Status</h4>
+                        <div class="big-status">${escapeHtml(summary.status || '')}</div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>Mismatch Rate</span><strong>${Number(summary.exceptionRate || 0).toFixed(2)}%</strong></div>
+                            <div><span>Database</span><strong>${escapeHtml(summary.database || '')}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card" style="padding:20px;margin-top:20px">
                 <h3 class="section-title" style="margin-top:0">Issue Distribution</h3>
-                ${(summary.issueCounts || []).length ? (summary.issueCounts || []).map(item => `
-                    <div style="margin-bottom:14px">
-                        <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px">
-                            <strong>${escapeHtml(item.status)}</strong>
-                            <span>${Number(item.count || 0).toLocaleString()}</span>
-                        </div>
-                        <div style="height:12px;background:#e5e7eb;border-radius:999px;overflow:hidden">
-                            <div style="height:100%;width:${Math.max(6, Math.round((Number(item.count || 0) / issueMax) * 100))}%;background:linear-gradient(135deg,#ef4444,#f97316)"></div>
-                        </div>
-                    </div>`).join('') : '<div class="alert alert--success">No exception categories to chart.</div>'}
+                <div class="chart-progress-list">
+                    ${(summary.issueCounts || []).length ? (summary.issueCounts || []).map(item => `
+                        <div class="chart-progress-item">
+                            <div class="chart-progress-head">
+                                <strong>${escapeHtml(item.status)}</strong>
+                                <span>${Number(item.count || 0).toLocaleString()}</span>
+                            </div>
+                            <div class="chart-progress-track">
+                                <span class="chart-progress-fill chart-progress-fill--red" style="width:${Math.max(6, Math.round((Number(item.count || 0) / issueMax) * 100))}%"></span>
+                            </div>
+                        </div>`).join('') : '<div class="chart-subtle">No exception categories to chart.</div>'}
+                </div>
             </div>`;
     }
 

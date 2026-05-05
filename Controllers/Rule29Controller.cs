@@ -238,16 +238,34 @@ namespace HemisAudit.Controllers
                 });
             }
 
-            var result = await _rule29.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
-            if (result.Success)
+            async Task<Rule29ValidationSummary> ExecuteValidationAsync(IRule29Service ruleService, IAuditLogService auditService)
             {
-                await _audit.LogAsync(
-                    "run_validation",
-                    $"Rule 29 on client {request.ClientId}: {result.Status} ({result.MatchingCount} matches), run {result.SavedRunId}",
-                    user?.Id,
-                    user?.Email);
+                var result = await ruleService.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
+                if (result.Success)
+                {
+                    await auditService.LogAsync(
+                        "run_validation",
+                        $"Rule 29 on client {request.ClientId}: {result.Status} ({result.MatchingCount} matches), run {result.SavedRunId}",
+                        user?.Id,
+                        user?.Email);
+                }
+
+                return result;
             }
 
+            if (ValidationOperationHttpHelper.IsAsyncRequested(Request))
+            {
+                return ValidationOperationHttpHelper.Queue(
+                    this,
+                    HttpContext.RequestServices.GetRequiredService<IValidationOperationService>(),
+                    ValidationOperationHttpHelper.ResolveOwnerKey(User),
+                    "Rule 29 validation",
+                    async (sp, ct) => await ExecuteValidationAsync(
+                        sp.GetRequiredService<IRule29Service>(),
+                        sp.GetRequiredService<IAuditLogService>()));
+            }
+
+            var result = await ExecuteValidationAsync(_rule29, _audit);
             return Json(result);
         }
 

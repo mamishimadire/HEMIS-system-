@@ -284,11 +284,13 @@
         <div class="results-tabs">
             <button class="tab-btn active" type="button" data-tab="analysis">Analysis</button>
             <button class="tab-btn" type="button" data-tab="results">Results</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql">SQL</button>
             <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
         </div>
         <div class="tab-pane active" data-tab-panel="analysis" id="analysisPane"></div>
         <div class="tab-pane" data-tab-panel="results" id="resultsPane"></div>
+        <div class="tab-pane" data-tab-panel="charts" id="chartsPane"></div>
         <div class="tab-pane" data-tab-panel="sql">
             <textarea id="sqlText" rows="18" readonly></textarea>
         </div>
@@ -316,6 +318,7 @@
     @Html.AntiForgeryToken()
 </form>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 (() => {
     const currentSystemRole = '@currentSystemRole';
@@ -335,7 +338,8 @@
         isHydrating: false,
         isDirty: false,
         workspaceRequestVersion: 0,
-        uiMutationVersion: 0
+        uiMutationVersion: 0,
+        chartInstances: {}
     };
 
     const els = {
@@ -358,6 +362,7 @@
         filterOutput: document.getElementById('filterOutput'),
         analysisPane: document.getElementById('analysisPane'),
         resultsPane: document.getElementById('resultsPane'),
+        chartsPane: document.getElementById('chartsPane'),
         sqlText: document.getElementById('sqlText'),
         statusBadge: document.getElementById('statusBadge'),
         workspaceInfo: document.getElementById('workspaceInfo'),
@@ -607,6 +612,124 @@
             </div>`;
     }
 
+    function destroyCharts() {
+        Object.values(state.chartInstances || {}).forEach(chart => {
+            if (chart && typeof chart.destroy === 'function') {
+                chart.destroy();
+            }
+        });
+        state.chartInstances = {};
+    }
+
+    function renderCharts(summary) {
+        destroyCharts();
+
+        if (!els.chartsPane) {
+            return;
+        }
+
+        if (!summary) {
+            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts will appear after running Rule 19.</p></div>';
+            return;
+        }
+
+        if (typeof Chart === 'undefined') {
+            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts could not load because Chart.js is unavailable.</p></div>';
+            return;
+        }
+
+        const breakdown = (summary.breakdown || []).slice(0, 8);
+        const breakdownLabels = breakdown.map(item => item.value || '(blank)');
+        const breakdownCounts = breakdown.map(item => Number(item.count || 0));
+        const totalValidated = Number(summary.totalValidated || 0);
+        const passRate = totalValidated > 0 ? Number(((Number(summary.passCount || 0) / totalValidated) * 100).toFixed(2)) : 0;
+        const failRate = totalValidated > 0 ? Number(((Number(summary.failCount || 0) / totalValidated) * 100).toFixed(2)) : 0;
+
+        els.chartsPane.innerHTML = `
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 19 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    <div class="chart-card">
+                        <h4>Population Overview</h4>
+                        <canvas id="rule19ChartPopulation"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4>PASS vs FAIL</h4>
+                        <canvas id="rule19ChartOutcome"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4>Qualification Type Breakdown</h4>
+                        <canvas id="rule19ChartBreakdown"></canvas>
+                    </div>
+                    <div class="chart-card chart-card--status ${Number(summary.failCount || 0) > 0 ? 'chart-card--fail' : 'chart-card--pass'}">
+                        <h4>Run Status</h4>
+                        <div class="big-status">${htmlEscape(summary.status || '')}</div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>Eligible Population</span><strong>${formatNumber(summary.totalValidated)}</strong></div>
+                            <div><span>PASS Rate</span><strong>${passRate.toFixed(2)}%</strong></div>
+                            <div><span>FAIL Rate</span><strong>${failRate.toFixed(2)}%</strong></div>
+                            <div><span>Fulfilled Value</span><strong>${htmlEscape(summary.fulfilledValue || '')}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+        state.chartInstances.population = new Chart(document.getElementById('rule19ChartPopulation'), {
+            type: 'bar',
+            data: {
+                labels: ['STUD Records', 'QUAL Records', 'Eligible Population'],
+                datasets: [{
+                    data: [
+                        Number(summary.studRecordCount || 0),
+                        Number(summary.qualRecordCount || 0),
+                        totalValidated
+                    ],
+                    backgroundColor: ['#2563EB', '#8B5CF6', '#10B981']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+
+        state.chartInstances.outcome = new Chart(document.getElementById('rule19ChartOutcome'), {
+            type: 'doughnut',
+            data: {
+                labels: ['PASS', 'FAIL'],
+                datasets: [{
+                    data: [Number(summary.passCount || 0), Number(summary.failCount || 0)],
+                    backgroundColor: ['#4CAF50', '#F44336'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+
+        state.chartInstances.breakdown = new Chart(document.getElementById('rule19ChartBreakdown'), {
+            type: 'bar',
+            data: {
+                labels: breakdownLabels.length ? breakdownLabels : ['No linked rows'],
+                datasets: [{
+                    data: breakdownCounts.length ? breakdownCounts : [0],
+                    backgroundColor: '#0EA5E9'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
     function renderResults(summary) {
         if (!summary || !(summary.matchingRows || []).length) {
             els.resultsPane.innerHTML = '<div class="empty-card"><p>No Rule 19 rows loaded.</p></div>';
@@ -695,6 +818,7 @@
         els.downloadAllBtn.disabled = !summary;
         renderAnalysis(summary);
         renderResults(summary);
+        renderCharts(summary);
         updateWorkspaceButtons();
     }
 
@@ -1040,6 +1164,9 @@
             document.querySelectorAll('[data-tab-panel]').forEach(panel => panel.classList.remove('active'));
             button.classList.add('active');
             document.querySelector(`[data-tab-panel="${tab}"]`)?.classList.add('active');
+            if (tab === 'charts') {
+                window.setTimeout(() => renderCharts(state.summary), 0);
+            }
         });
     });
 
@@ -1131,6 +1258,7 @@
     });
 
     applySummary(null);
+    renderCharts(null);
     updateWorkspaceButtons();
     if (state.clientId) {
         fetchWorkspace().catch(err => setWorkspaceInfo('error', err.message || 'Failed to load workspace.'));

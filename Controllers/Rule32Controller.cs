@@ -230,16 +230,34 @@ namespace HemisAudit.Controllers
                 });
             }
 
-            var result = await _rule32.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
-            if (result.Success)
+            async Task<Rule32ValidationSummary> ExecuteValidationAsync(IRule32Service ruleService, IAuditLogService auditService)
             {
-                await _audit.LogAsync(
-                    "run_validation",
-                    $"Rule 32 on client {request.ClientId}: {result.Status} ({result.FailCount} remaining), run {result.SavedRunId}",
-                    user?.Id,
-                    user?.Email);
+                var result = await ruleService.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
+                if (result.Success)
+                {
+                    await auditService.LogAsync(
+                        "run_validation",
+                        $"Rule 32 on client {request.ClientId}: {result.Status} ({result.FailCount} remaining), run {result.SavedRunId}",
+                        user?.Id,
+                        user?.Email);
+                }
+
+                return result;
             }
 
+            if (ValidationOperationHttpHelper.IsAsyncRequested(Request))
+            {
+                return ValidationOperationHttpHelper.Queue(
+                    this,
+                    HttpContext.RequestServices.GetRequiredService<IValidationOperationService>(),
+                    ValidationOperationHttpHelper.ResolveOwnerKey(User),
+                    "Rule 32 validation",
+                    async (sp, ct) => await ExecuteValidationAsync(
+                        sp.GetRequiredService<IRule32Service>(),
+                        sp.GetRequiredService<IAuditLogService>()));
+            }
+
+            var result = await ExecuteValidationAsync(_rule32, _audit);
             return Json(result);
         }
 

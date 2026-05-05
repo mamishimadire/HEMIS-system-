@@ -208,43 +208,43 @@
      -->
     <div class="results-panel">
         <div class="results-tabs">
-            <button class="tab-btn active" onclick="switchTab('validation')">Validation Results</button>
-            <button class="tab-btn" onclick="switchTab('exceptions')">Exceptions List</button>
-            <button class="tab-btn" onclick="switchTab('charts')">Visualizations</button>
-            <button class="tab-btn" onclick="switchTab('sql')">SQL Code</button>
-            <button class="tab-btn" onclick="switchTab('downloads')">Downloads</button>
+            <button class="tab-btn active" type="button" data-tab="validation" onclick="switchTab('validation')">Validation Results</button>
+            <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
+            <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+            <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
         <!-- Validation Results -->
-        <div class="tab-pane active" id="tab-validation">
+        <div class="tab-pane active" id="tab-validation" data-tab-panel="validation">
             <div id="validationContent" class="empty-state">
                 <p>Run validation to see results here.</p>
             </div>
         </div>
 
         <!-- Exceptions List -->
-        <div class="tab-pane" id="tab-exceptions">
+        <div class="tab-pane" id="tab-exceptions" data-tab-panel="exceptions">
             <div id="exceptionsContent" class="empty-state">
                 <p>No exceptions data yet. Run validation first.</p>
             </div>
         </div>
 
         <!-- Charts -->
-        <div class="tab-pane" id="tab-charts">
+        <div class="tab-pane" id="tab-charts" data-tab-panel="charts">
             <div id="chartsContent" class="empty-state">
                 <p>Charts will appear after running validation.</p>
             </div>
         </div>
 
         <!-- SQL Code -->
-        <div class="tab-pane" id="tab-sql">
+        <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
             <div id="sqlContent" class="empty-state">
                 <p>Click "Generate SQL" or run validation to generate the SQL script.</p>
             </div>
         </div>
 
         <!-- Downloads -->
-        <div class="tab-pane" id="tab-downloads">
+        <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state">
                 <p>Run validation first, then use "Download All" or individual download buttons.</p>
             </div>

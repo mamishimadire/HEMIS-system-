@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using System.IO.Compression;
@@ -9,10 +10,17 @@ using HemisAudit.Models;
 using HemisAudit.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+var dataProtectionPath = Path.Combine(builder.Environment.ContentRootPath, ".run", "data-protection-keys");
+
+Directory.CreateDirectory(dataProtectionPath);
 
 // SQLite-backed application database for the current MVC app
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath))
+    .SetApplicationName("HemisAudit");
 
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
@@ -33,10 +41,16 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
+    options.Cookie.Name = "HemisAudit.Auth.v2";
     options.LoginPath = "/Account/Login";
     options.AccessDeniedPath = "/Account/AccessDenied";
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = false;
+});
+
+builder.Services.AddAntiforgery(options =>
+{
+    options.Cookie.Name = "HemisAudit.AntiForgery.v2";
 });
 
 builder.Services.AddScoped<IPasswordPolicyService, PasswordPolicyService>();
@@ -69,6 +83,9 @@ builder.Services.AddControllersWithViews(options =>
     options.Filters.AddService<PasswordAgeFilter>();
 }).AddNewtonsoftJson();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IRule15Service, Rule15Service>();
+builder.Services.AddScoped<IRule17Service, Rule17Service>();
+builder.Services.AddScoped<IRule16Service, Rule16Service>();
 builder.Services.AddScoped<IRule22Service, Rule22Service>();
 builder.Services.AddScoped<IRule18Service, Rule18Service>();
 builder.Services.AddScoped<IRule19Service, Rule19Service>();
@@ -87,6 +104,7 @@ builder.Services.AddScoped<IRule29Service, Rule29Service>();
 builder.Services.AddScoped<IRule27Service, Rule27Service>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddSingleton<IValidationOperationService, ValidationOperationService>();
 
 var app = builder.Build();
 
@@ -144,6 +162,21 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule15-short",
+    pattern: "Rule15",
+    defaults: new { controller = "Rule15", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule16-short",
+    pattern: "Rule16",
+    defaults: new { controller = "Rule16", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule17-short",
+    pattern: "Rule17",
+    defaults: new { controller = "Rule17", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule18-short",

@@ -243,24 +243,42 @@ namespace HemisAudit.Controllers
                 });
             }
 
-            var result = await _rule22.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
-            _logger.LogInformation(
-                "Rule22 RunValidation completed for {Email}. Success={Success}, Status={Status}, Error={Error}, TotalValidated={TotalValidated}, SavedRunId={SavedRunId}",
-                user?.Email,
-                result.Success,
-                result.Status,
-                result.Error,
-                result.TotalValidated,
-                result.SavedRunId);
-            if (result.Success)
+            async Task<Rule22ValidationSummary> ExecuteValidationAsync(IRule22Service ruleService, IAuditLogService auditService)
             {
-                await _audit.LogAsync(
-                    "run_validation",
-                    $"Rule 22 on client {request.ClientId}: {result.Status} ({result.FailCount} fail rows), run {result.SavedRunId}",
-                    user?.Id,
-                    user?.Email);
+                var result = await ruleService.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
+                _logger.LogInformation(
+                    "Rule22 RunValidation completed for {Email}. Success={Success}, Status={Status}, Error={Error}, TotalValidated={TotalValidated}, SavedRunId={SavedRunId}",
+                    user?.Email,
+                    result.Success,
+                    result.Status,
+                    result.Error,
+                    result.TotalValidated,
+                    result.SavedRunId);
+                if (result.Success)
+                {
+                    await auditService.LogAsync(
+                        "run_validation",
+                        $"Rule 22 on client {request.ClientId}: {result.Status} ({result.FailCount} fail rows), run {result.SavedRunId}",
+                        user?.Id,
+                        user?.Email);
+                }
+
+                return result;
             }
 
+            if (ValidationOperationHttpHelper.IsAsyncRequested(Request))
+            {
+                return ValidationOperationHttpHelper.Queue(
+                    this,
+                    HttpContext.RequestServices.GetRequiredService<IValidationOperationService>(),
+                    ValidationOperationHttpHelper.ResolveOwnerKey(User),
+                    "Rule 22 validation",
+                    async (sp, ct) => await ExecuteValidationAsync(
+                        sp.GetRequiredService<IRule22Service>(),
+                        sp.GetRequiredService<IAuditLogService>()));
+            }
+
+            var result = await ExecuteValidationAsync(_rule22, _audit);
             return Json(result);
         }
 

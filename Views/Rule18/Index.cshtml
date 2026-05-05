@@ -219,11 +219,13 @@
         <div class="results-tabs">
             <button class="tab-btn active" type="button" data-tab="analysis">Analysis</button>
             <button class="tab-btn" type="button" data-tab="results">Results</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql">SQL</button>
             <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
         </div>
         <div class="tab-pane active" data-tab-panel="analysis" id="analysisPane"></div>
         <div class="tab-pane" data-tab-panel="results" id="resultsPane"></div>
+        <div class="tab-pane" data-tab-panel="charts" id="chartsPane"></div>
         <div class="tab-pane" data-tab-panel="sql">
             <textarea id="sqlText" rows="18" readonly></textarea>
         </div>
@@ -251,6 +253,7 @@
     @Html.AntiForgeryToken()
 </form>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 window.toggleAccordion = function (section) {
     const body = document.getElementById(`body-${section}`);
@@ -275,7 +278,8 @@ window.toggleAccordion = function (section) {
         hasDataAnalystSignoff: false,
         currentStatus: '',
         resultFilter: 'ALL',
-        controlFilter: 'ALL'
+        controlFilter: 'ALL',
+        chartInstances: {}
     };
 
     const els = {
@@ -290,6 +294,7 @@ window.toggleAccordion = function (section) {
         configOutput: document.getElementById('configOutput'),
         analysisPane: document.getElementById('analysisPane'),
         resultsPane: document.getElementById('resultsPane'),
+        chartsPane: document.getElementById('chartsPane'),
         sqlText: document.getElementById('sqlText'),
         downloadAllBtn: document.getElementById('downloadAllBtn'),
         workspaceInfo: document.getElementById('workspaceInfo'),
@@ -330,6 +335,8 @@ window.toggleAccordion = function (section) {
 
         if (tab === 'results') {
             window.setTimeout(() => renderResults(true), 0);
+        } else if (tab === 'charts') {
+            window.setTimeout(() => renderCharts(state.summary), 0);
         }
     }
 
@@ -465,6 +472,125 @@ window.toggleAccordion = function (section) {
         });
     }
 
+    function destroyCharts() {
+        Object.values(state.chartInstances || {}).forEach(chart => {
+            if (chart && typeof chart.destroy === 'function') {
+                chart.destroy();
+            }
+        });
+        state.chartInstances = {};
+    }
+
+    function renderCharts(summary) {
+        destroyCharts();
+
+        if (!els.chartsPane) {
+            return;
+        }
+
+        if (!summary) {
+            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts will appear after running Rule 18.</p></div>';
+            return;
+        }
+
+        if (typeof Chart === 'undefined') {
+            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts could not load because Chart.js is unavailable.</p></div>';
+            return;
+        }
+
+        const controls = summary.controlSummaries || [];
+        const labels = controls.map(item => item.controlLabel || String(item.controlType || '').replace('_', ' '));
+        const passCounts = controls.map(item => Number(item.passCount || 0));
+        const failCounts = controls.map(item => Number(item.failCount || 0));
+        const successRates = controls.map(item => {
+            const total = Number(item.totalCount || 0);
+            return total > 0 ? Number(((Number(item.passCount || 0) / total) * 100).toFixed(2)) : 0;
+        });
+
+        els.chartsPane.innerHTML = `
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 18 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    <div class="chart-card">
+                        <h4>Rows by Control</h4>
+                        <canvas id="rule18ChartControlTotals"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4>Overall PASS vs FAIL</h4>
+                        <canvas id="rule18ChartOutcome"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4>Control Success Rate</h4>
+                        <canvas id="rule18ChartRates"></canvas>
+                    </div>
+                    <div class="chart-card chart-card--status ${summary.failCount > 0 ? 'chart-card--fail' : 'chart-card--pass'}">
+                        <h4>Run Status</h4>
+                        <div class="big-status">${escapeHtml(summary.status || '')}</div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>NSFAS Population</span><strong>${formatNumber(summary.nsfasPopulationCount)}</strong></div>
+                            <div><span>Validated Rows</span><strong>${formatNumber(summary.totalValidated)}</strong></div>
+                            <div><span>PASS</span><strong class="text-success">${formatNumber(summary.passCount)}</strong></div>
+                            <div><span>FAIL</span><strong class="text-danger">${formatNumber(summary.failCount)}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+        state.chartInstances.controlTotals = new Chart(document.getElementById('rule18ChartControlTotals'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'PASS', data: passCounts, backgroundColor: '#4CAF50' },
+                    { label: 'FAIL', data: failCounts, backgroundColor: '#F44336' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+
+        state.chartInstances.outcome = new Chart(document.getElementById('rule18ChartOutcome'), {
+            type: 'doughnut',
+            data: {
+                labels: ['PASS', 'FAIL'],
+                datasets: [{
+                    data: [Number(summary.passCount || 0), Number(summary.failCount || 0)],
+                    backgroundColor: ['#4CAF50', '#F44336'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+
+        state.chartInstances.rates = new Chart(document.getElementById('rule18ChartRates'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Success %',
+                    data: successRates,
+                    backgroundColor: ['#2563EB', '#0EA5E9', '#8B5CF6']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, max: 100 }
+                }
+            }
+        });
+    }
+
     function normalizeBrowserSummary(summary) {
         if (!summary) return summary;
         const rows = Array.isArray(summary.reviewRows) ? summary.reviewRows : [];
@@ -509,6 +635,7 @@ window.toggleAccordion = function (section) {
         setStatusBadge(summary.status, summary.failCount > 0 ? 'fail' : 'pass');
         renderAnalysis(summary);
         renderResults();
+        renderCharts(summary);
         updateWorkspaceButtons();
     }
 
@@ -1016,6 +1143,7 @@ window.toggleAccordion = function (section) {
 
     renderAnalysis(null);
     renderResults();
+    renderCharts(null);
     updateWorkspaceButtons();
     if (state.clientId) {
         loadWorkspace().catch(err => setWorkspaceState(err.message, 'error'));
