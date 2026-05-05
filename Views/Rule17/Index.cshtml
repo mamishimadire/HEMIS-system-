@@ -216,7 +216,7 @@
             <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
             <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
             <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
-            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
         </div>
     </div>
 
@@ -282,6 +282,7 @@
         currentUserEngagementRole: '',
         currentStatus: '',
         currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
         hasDataAnalystSignoff: false,
         resultsVisible: false,
         isHydrating: false,
@@ -323,7 +324,7 @@
     };
 
     function normalizeRole(value) {
-        return String(value || '').trim().toLowerCase();
+        return String(value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
     }
 
     function toggleAccordion(name) {
@@ -424,7 +425,9 @@
         state.currentUserEngagementRole = workspace?.currentUserEngagementRole || '';
         state.currentStatus = workspace?.currentStatus || state.currentStatus || '';
         state.currentUserHasSignedOff = !!workspace?.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace?.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace?.hasDataAnalystSignoff;
+        state.resultsVisible = !!workspace?.resultsVisible;
         state.isDirty = false;
 
         els.workspaceSignoffComment.value = workspace?.currentUserSignoffComment || '';
@@ -445,6 +448,7 @@
         state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
         state.currentStatus = workspace.currentStatus || '';
         state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
         state.resultsVisible = !!resultsVisible;
         state.isDirty = false;
@@ -498,6 +502,7 @@
         const normalizedSystemRole = normalizeRole(currentSystemRole);
         const canEdit = normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst';
         const canSign = !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
             (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
         const signoffLocked = !!state.currentUserHasSignedOff;
         window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signoffLocked);
@@ -733,6 +738,7 @@
             state.currentStatus = data.status || '';
             state.currentUserEngagementRole = state.currentUserEngagementRole || currentSystemRole || 'DataAnalyst';
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
             state.resultsVisible = true;
             state.isDirty = false;
@@ -821,6 +827,7 @@
         }
 
         state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
         if (data.workspace) updateWorkspaceCard(data.workspace);
         updateWorkspaceButtons();
         setWorkspaceInfo('success', data.message || 'Signoff removed.');
@@ -1087,3 +1094,5 @@
     if (state.clientId) fetchWorkspace();
 })();
 </script>
+
+

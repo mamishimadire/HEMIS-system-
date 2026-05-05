@@ -423,10 +423,13 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule34.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: false);
+            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            if (workspace != null) workspace.ResultsVisible = resultsVisible;
             return Json(new
             {
                 success = true,
                 message = "Signoff saved.",
+                resultsVisible,
                 workspace
             });
         }
@@ -451,7 +454,7 @@ namespace HemisAudit.Controllers
                 return Json(new
                 {
                     success = false,
-                    error = "Only an assigned user can remove their own signoff."
+                    error = "Only the assigned data analyst, manager, or director can remove signoff."
                 });
             }
 
@@ -480,7 +483,7 @@ namespace HemisAudit.Controllers
                 return Json(new
                 {
                     success = false,
-                    error = "You can only remove your own signoff."
+                    error = "There is no signoff for your assigned engagement role to remove."
                 });
             }
 
@@ -498,6 +501,8 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule34.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: false);
+            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            if (workspace != null) workspace.ResultsVisible = resultsVisible;
             var reopenedRunId = workspace?.RunId;
             var preservedHistory = reopenedRunId.HasValue && reopenedRunId.Value != model.RunId.Value;
             var message = preservedHistory
@@ -514,6 +519,7 @@ namespace HemisAudit.Controllers
             {
                 success = true,
                 message,
+                resultsVisible,
                 workspace
             });
         }
@@ -628,7 +634,7 @@ namespace HemisAudit.Controllers
 
             if (!review.CurrentUserHasSignedOff)
             {
-                TempData["Error"] = "You can only remove your own signoff.";
+                TempData["Error"] = "There is no signoff for your assigned engagement role to remove.";
                 return RedirectToAction(nameof(Run), new { id = runId });
             }
 
@@ -645,8 +651,8 @@ namespace HemisAudit.Controllers
                 user.Email);
 
             TempData["Success"] = preservedHistory
-                ? $"Your signoff was removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
-                : "Your signoff was removed.";
+                ? $"Signoff removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
+                : "Signoff removed.";
             return RedirectToAction(nameof(Run), new { id = redirectRunId });
         }
 

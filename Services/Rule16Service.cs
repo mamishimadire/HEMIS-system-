@@ -10,10 +10,12 @@ namespace HemisAudit.Services
     {
         private const int BrowserPreviewRowLimit = 10;
         private readonly IConfiguration _configuration;
+        private readonly IPendingValidationCacheService _pendingValidationCache;
 
-        public Rule16Service(IConfiguration configuration)
+        public Rule16Service(IConfiguration configuration, IPendingValidationCacheService pendingValidationCache)
         {
             _configuration = configuration;
+            _pendingValidationCache = pendingValidationCache;
         }
 
         public async Task<DatabaseListResult> GetDatabasesAsync(string server, string driver)
@@ -138,14 +140,34 @@ namespace HemisAudit.Services
                 {
                     try
                     {
-                        summary.SavedRunId = await SaveValidationRunAsync(request, summary, userEmail, userName);
+                        var summaryToPersist = CloneSummary(summary);
+                        if (summaryToPersist.IsPreviewOnly || summaryToPersist.ReviewRows.Count < summaryToPersist.TotalValidated)
+                            summaryToPersist = await AnalyseAsync(request, includeAllReviewRows: true);
+
+                        summaryToPersist.SavedRunId = null;
+                        summary.SavedRunId = await SaveValidationRunAsync(request, summaryToPersist, userEmail, userName, markWorkspaceSaved: false);
+
+                        if (!string.IsNullOrWhiteSpace(userEmail))
+                            _pendingValidationCache.ClearPending(16, request.ClientId, userEmail!);
                     }
                     catch (Exception ex)
                     {
-                        summary.Success = false;
-                        summary.Error = $"Validation completed, but the saved run could not be written to the system database: {ex.Message}";
-                        return summary;
+                        summary.Warning = $"Analysis completed, but the workspace could not be saved automatically: {ex.Message}";
                     }
+                }
+
+                if (!summary.SavedRunId.HasValue)
+                {
+                    if (summary.Success && request.ClientId > 0 && !string.IsNullOrWhiteSpace(userEmail))
+                        _pendingValidationCache.StorePending(16, request.ClientId, userEmail!, request, CloneSummary(summary), userName);
+
+                    summary.Warning = string.IsNullOrWhiteSpace(summary.Warning)
+                        ? "Rule 16 validation completed. Click Save Workspace to write this validated result to the system database."
+                        : summary.Warning;
+                }
+                else
+                {
+                    summary.Warning = "The current Rule 16 run has been written to the system database. Click Save Workspace to finalize it for signoff.";
                 }
 
                 ApplyBrowserPreview(summary);
@@ -167,6 +189,22 @@ namespace HemisAudit.Services
             await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.BridgeTable, request.CrseTable);
             return await AnalyseAsync(request, includeAllReviewRows: true);
         }
+
+        public Task<Rule16ValidationSummary?> GetPendingValidationPreviewAsync(int clientId, string reviewerEmail)
+        {
+            var pending = _pendingValidationCache.GetPending<Rule16ValidationRequest, Rule16ValidationSummary>(16, clientId, reviewerEmail);
+            if (pending == null)
+                return Task.FromResult<Rule16ValidationSummary?>(null);
+
+            var preview = CloneSummary(pending.Summary);
+            preview.SavedRunId = null;
+            preview.Warning = "This Rule 16 validation is still pending. Click Save Workspace to write it to the system database.";
+            ApplyBrowserPreview(preview);
+            return Task.FromResult<Rule16ValidationSummary?>(preview);
+        }
+
+        public Task<bool> HasPendingValidationAsync(int clientId, string reviewerEmail)
+            => Task.FromResult(_pendingValidationCache.HasPending(16, clientId, reviewerEmail));
 
         public async Task<int?> GetClientIdForRunAsync(int runId)
         {
@@ -236,11 +274,13 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
 
             var signoffs = await GetRunSignoffsAsync(connection, workspace.RunId!.Value, currentUserId);
             workspace.HasDataAnalystSignoff = signoffs.Any(s => string.Equals(s.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
-            var currentUserSignoff = signoffs.FirstOrDefault(s => s.IsCurrentUser);
-            workspace.CurrentUserHasSignedOff = currentUserSignoff != null;
-            workspace.CurrentUserSignoffComment = currentUserSignoff?.Comment ?? "";
+            var currentRoleSignoff = signoffs.FirstOrDefault(s =>
+                HemisAudit.Helpers.ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, workspace.CurrentUserEngagementRole));
+            workspace.CurrentUserHasSignedOff = currentRoleSignoff != null;
+            workspace.CurrentUserSignoffComment = currentRoleSignoff?.Comment ?? "";
+            workspace.IsWorkspaceSaved = await IsWorkspaceSavedAsync(connection, workspace.RunId!.Value);
 
-            if (workspace.Summary != null && workspace.Summary.SavedRunId.GetValueOrDefault() <= 0)
+            if (workspace.Summary != null)
                 workspace.Summary.SavedRunId = workspace.RunId;
 
             return workspace;
@@ -314,67 +354,94 @@ WHERE vr.RunID = @RunID
             {
                 ValidateRequest(request);
 
-                if (request.RunId is null || request.RunId <= 0)
+                if (request.RunId.HasValue && request.RunId.Value > 0)
                 {
-                    return new Rule16WorkspaceSaveResult
+                    await using var connection = await OpenSystemConnectionAsync();
+                    var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
+                    if (!clientId.HasValue || clientId.Value != request.ClientId)
                     {
-                        Success = false,
-                        Error = "Run the validation first so the workspace can be saved."
-                    };
-                }
+                        return new Rule16WorkspaceSaveResult
+                        {
+                            Success = false,
+                            Error = "The saved workspace could not be found for this engagement."
+                        };
+                    }
 
-                await using var connection = await OpenSystemConnectionAsync();
-                var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
-                if (!clientId.HasValue || clientId.Value != request.ClientId)
-                {
-                    return new Rule16WorkspaceSaveResult
-                    {
-                        Success = false,
-                        Error = "The saved workspace could not be found for this engagement."
-                    };
-                }
+                    await EnsureClientNotArchivedAsync(connection, request.ClientId);
 
-                await EnsureClientNotArchivedAsync(connection, request.ClientId);
+                    var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
+                    var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
 
-                var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
-                var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
-                await using var command = connection.CreateConfiguredCommand();
-                command.CommandText = @"
+                    await using var command = connection.CreateConfiguredCommand();
+                    command.CommandText = @"
 UPDATE dbo.ValidationRuns
-SET HemisServer = @HemisServer,
-    AuditDatabase = @AuditDatabase,
-    StudTable = @StudTable,
-    DeceasedTable = @BridgeTable,
-    StudColumn = @CrseTable,
-    LastEditedByUserName = @LastEditedByUserName,
+SET LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = GETDATE(),
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
 WHERE RunID = @RunID
-  AND ClientID = @ClientID
-  AND RuleNumber = 16;";
-                command.Parameters.AddWithValue("@RunID", request.RunId.Value);
-                command.Parameters.AddWithValue("@ClientID", request.ClientId);
-                command.Parameters.AddWithValue("@HemisServer", request.Server);
-                command.Parameters.AddWithValue("@AuditDatabase", request.Database);
-                command.Parameters.AddWithValue("@StudTable", request.StudTable);
-                command.Parameters.AddWithValue("@BridgeTable", request.BridgeTable);
-                command.Parameters.AddWithValue("@CrseTable", request.CrseTable);
-                command.Parameters.AddWithValue("@LastEditedByUserName", (object?)(reviewerName ?? reviewerEmail) ?? DBNull.Value);
-                command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
-                command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule16|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.StudTable}|{request.BridgeTable}|{request.CrseTable}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
-                await command.ExecuteNonQueryAsync();
+  AND ClientID = @ClientID;";
+                    command.Parameters.AddWithValue("@RunID", request.RunId.Value);
+                    command.Parameters.AddWithValue("@ClientID", request.ClientId);
+                    command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule16|{request.RunId.Value}|{request.ClientId}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
+                    await command.ExecuteNonQueryAsync();
+
+                    if (!string.IsNullOrWhiteSpace(reviewerEmail))
+                        _pendingValidationCache.ClearPending(16, request.ClientId, reviewerEmail);
+
+                    var currentWorkspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
+                    return new Rule16WorkspaceSaveResult
+                    {
+                        Success = true,
+                        Message = clearedSignoffs > 0
+                            ? "Workspace saved. Existing signoffs were removed and the run must be reviewed again."
+                            : "Workspace saved and marked for review again.",
+                        SignoffsCleared = clearedSignoffs > 0,
+                        ClearedSignoffCount = clearedSignoffs,
+                        Workspace = currentWorkspace
+                    };
+                }
+
+                var pending = _pendingValidationCache.GetPending<Rule16ValidationRequest, Rule16ValidationSummary>(16, request.ClientId, reviewerEmail);
+                if (pending == null)
+                {
+                    return new Rule16WorkspaceSaveResult
+                    {
+                        Success = false,
+                        Error = "Run Rule 16 first so the current workspace is written to the system database."
+                    };
+                }
+
+                if (!RequestsMatchForPendingSave(request, pending.Request))
+                {
+                    return new Rule16WorkspaceSaveResult
+                    {
+                        Success = false,
+                        Error = "Workspace settings changed after validation. Run Rule 16 again before saving."
+                    };
+                }
+
+                var summaryToSave = CloneSummary(pending.Summary);
+                if (summaryToSave.IsPreviewOnly || summaryToSave.ReviewRows.Count < summaryToSave.TotalValidated)
+                {
+                    summaryToSave = await AnalyseAsync(pending.Request, includeAllReviewRows: true);
+                }
+
+                summaryToSave.SavedRunId = null;
+                var savedRunId = await SaveValidationRunAsync(pending.Request, summaryToSave, reviewerEmail, reviewerName ?? pending.ReviewerName, markWorkspaceSaved: true);
+                _pendingValidationCache.ClearPending(16, request.ClientId, reviewerEmail);
 
                 var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
                 return new Rule16WorkspaceSaveResult
                 {
                     Success = true,
-                    Message = clearedSignoffs > 0
-                        ? "Workspace saved. Existing signoffs were removed and the run must be reviewed again."
-                        : "Workspace saved and marked for review again.",
-                    SignoffsCleared = clearedSignoffs > 0,
-                    ClearedSignoffCount = clearedSignoffs,
+                    Message = $"Workspace saved as Run #{savedRunId}. Sign off this saved workspace when you are ready.",
+                    SignoffsCleared = false,
+                    ClearedSignoffCount = 0,
                     Workspace = workspace
                 };
             }
@@ -407,20 +474,24 @@ WHERE RunID = @RunID
                 var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, runId);
                 var previousHash = await GetValidationRecordHashAsync(connection, runId);
 
-                await using var command = connection.CreateConfiguredCommand();
-                command.CommandText = @"
+                await using var markEdit = connection.CreateConfiguredCommand();
+                markEdit.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = NULL,
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
 WHERE RunID = @RunID;";
-                command.Parameters.AddWithValue("@RunID", runId);
-                command.Parameters.AddWithValue("@LastEditedByUserName", (object?)(reviewerName ?? reviewerEmail) ?? DBNull.Value);
-                command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
-                command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"BeginWorkspaceEdit|Rule16|{runId}|{reviewerEmail}|{DateTime.UtcNow:o}|{previousHash}"));
-                await command.ExecuteNonQueryAsync();
+                markEdit.Parameters.AddWithValue("@RunID", runId);
+                markEdit.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
+                markEdit.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+                markEdit.Parameters.AddWithValue("@RecordHash", ComputeHash($@"BeginWorkspaceEdit|Rule16|{runId}|{reviewerEmail}|{DateTime.UtcNow:o}|{previousHash}"));
+                await markEdit.ExecuteNonQueryAsync();
+
+                if (!string.IsNullOrWhiteSpace(reviewerEmail))
+                    _pendingValidationCache.ClearPending(16, clientId.Value, reviewerEmail);
 
                 var workspace = await GetCurrentWorkspaceStateAsync(clientId.Value, reviewerEmail, includeSummary: false);
                 return new Rule16WorkspaceSaveResult
@@ -456,6 +527,9 @@ WHERE RunID = @RunID;";
                 throw new InvalidOperationException("The selected Rule 16 run could not be found.");
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
+
+            if (!await IsWorkspaceSavedAsync(connection, runId))
+                throw new InvalidOperationException("The data analyst must save the workspace before signoff is available.");
 
             var signoffRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
             if (!CanSignOffAsRole(signoffRole))
@@ -512,7 +586,11 @@ END";
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
 
-            var removal = await ReviewSignoffSqlHelper.RemoveReviewerSignoffWithVersioningAsync(connection, runId, reviewerId.Value);
+            var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
+            if (!HemisAudit.Helpers.ValidationRunAccessPolicy.CanAssignedUserRemoveSignoff(engagementRole))
+                throw new InvalidOperationException("Only the assigned data analyst, manager, or director can remove signoff from this run.");
+
+            var removal = await ReviewSignoffSqlHelper.RemoveRoleSignoffWithVersioningAsync(connection, runId, engagementRole!, reviewerEmail);
             if (removal.RemovedCount <= 0)
                 return;
         }
@@ -655,7 +733,7 @@ ORDER BY NEWID();";
             };
         }
 
-        private async Task<int> SaveValidationRunAsync(Rule16ValidationRequest request, Rule16ValidationSummary summary, string? userEmail, string? userName)
+        private async Task<int> SaveValidationRunAsync(Rule16ValidationRequest request, Rule16ValidationSummary summary, string? userEmail, string? userName, bool markWorkspaceSaved)
         {
             await using var connection = await OpenSystemConnectionAsync();
             await EnsureClientNotArchivedAsync(connection, request.ClientId);
@@ -674,13 +752,13 @@ INSERT INTO dbo.ValidationRuns
 (
     ClientID, UserID, RuleNumber, RuleName, Status, TotalRecords, PassCount, FailCount, ExceptionRate, RunTimestamp,
     HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
-    ExceptionsJSON, ResultsJSON, RunByUserName, LastEditedByUserName, LastEditedAt, PreviousHash, RecordHash, IsCurrent
+    ExceptionsJSON, ResultsJSON, RunByUserName, LastEditedByUserName, LastEditedAt, PreviousHash, RecordHash, WorkspaceSavedAt, IsCurrent
 )
 VALUES
 (
     @ClientID, @UserID, 16, @RuleName, @Status, @TotalRecords, @PassCount, @FailCount, @ExceptionRate, GETDATE(),
     @HemisServer, @AuditDatabase, @StudTable, @BridgeTable, @CrseTable, NULL,
-    @ExceptionsJSON, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, 1
+    @ExceptionsJSON, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, @WorkspaceSavedAt, 1
 );
 SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@ClientID", request.ClientId);
@@ -702,6 +780,7 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary)));
             command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+            command.Parameters.AddWithValue("@WorkspaceSavedAt", markWorkspaceSaved ? DateTime.UtcNow : (object)DBNull.Value);
 
             var runId = Convert.ToInt32(await command.ExecuteScalarAsync());
             summary.SavedRunId = runId;
@@ -856,7 +935,7 @@ FROM
         ROW_NUMBER() OVER
         (
             PARTITION BY Control_Type
-            ORDER BY NEWID()
+            ORDER BY STUD__007, BRIDGE__030, CRSE__030, STUD__001
         ) AS Preview_Row_Num
     FROM ControlResults
 ) Results
@@ -1422,7 +1501,30 @@ WHERE ClientID = @ClientID
             var value = await command.ExecuteScalarAsync();
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
-
+        private static async Task<bool> IsWorkspaceSavedAsync(SqlConnection connection, int runId)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT CASE
+    WHEN EXISTS (
+        SELECT 1
+        FROM dbo.ValidationRuns
+        WHERE RunID = @RunID
+          AND (
+                WorkspaceSavedAt IS NOT NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM dbo.ReviewSignoffs rs
+                    WHERE rs.RunID = ValidationRuns.RunID
+                      AND rs.SignoffRole = 'DataAnalyst'
+                )
+          )
+    ) THEN 1
+    ELSE 0
+END;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        }
         private async Task<bool> HasSignoffRoleAsync(SqlConnection connection, int runId, string signoffRole)
         {
             await using var command = connection.CreateConfiguredCommand();
@@ -1662,6 +1764,20 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
         private static string FormatRule16ColumnValue(string? value) =>
             string.IsNullOrWhiteSpace(value) ? "[blank]" : value.Trim();
 
+        private static bool RequestsMatchForPendingSave(Rule16ValidationRequest current, Rule16ValidationRequest pending)
+        {
+            return current.ClientId == pending.ClientId &&
+                   string.Equals(current.Server?.Trim(), pending.Server?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.Database?.Trim(), pending.Database?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.Driver?.Trim(), pending.Driver?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.StudTable?.Trim(), pending.StudTable?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.BridgeTable?.Trim(), pending.BridgeTable?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.CrseTable?.Trim(), pending.CrseTable?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   current.SampleControl1Size == pending.SampleControl1Size &&
+                   current.SampleControl2Size == pending.SampleControl2Size &&
+                   current.SampleControl3Size == pending.SampleControl3Size;
+        }
+
         private static int GetInt(SqlDataReader reader, int ordinal) =>
             reader.IsDBNull(ordinal) ? 0 : Convert.ToInt32(reader.GetValue(ordinal));
 
@@ -1669,6 +1785,8 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             values.TryGetValue(key, out var value) ? value ?? "" : "";
     }
 }
+
+
 
 
 

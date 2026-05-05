@@ -58,6 +58,16 @@ builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<PasswordAgeFilter>();
 builder.Services.AddScoped<ISystemDatabaseService, SystemDatabaseService>();
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+    options.Cookie.Name = "HemisAudit.Session.v1";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.IdleTimeout = TimeSpan.FromHours(8);
+});
+builder.Services.AddSingleton<IPendingValidationCacheService, PendingValidationCacheService>();
 builder.Services.AddResponseCompression(options =>
 {
     options.EnableForHttps = true;
@@ -81,8 +91,14 @@ builder.Services.Configure<GzipCompressionProviderOptions>(options =>
 builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.AddService<PasswordAgeFilter>();
-}).AddNewtonsoftJson();
+}).AddNewtonsoftJson()
+  .AddSessionStateTempDataProvider();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IRule12Service, Rule12Service>();
+builder.Services.AddScoped<IRule10Service, Rule10Service>();
+builder.Services.AddScoped<IRule11Service, Rule11Service>();
+builder.Services.AddScoped<IRule13Service, Rule13Service>();
+builder.Services.AddScoped<IRule14Service, Rule14Service>();
 builder.Services.AddScoped<IRule15Service, Rule15Service>();
 builder.Services.AddScoped<IRule17Service, Rule17Service>();
 builder.Services.AddScoped<IRule16Service, Rule16Service>();
@@ -95,6 +111,8 @@ builder.Services.AddScoped<IRule23Service, Rule23Service>();
 builder.Services.AddScoped<IRule24Service, Rule24Service>();
 builder.Services.AddScoped<IRule25Service, Rule25Service>();
 builder.Services.AddScoped<IRule26Service, Rule26Service>();
+builder.Services.AddScoped<IRule28Service, Rule28Service>();
+builder.Services.AddScoped<IRule35Service, Rule35Service>();
 builder.Services.AddScoped<IRule36Service, Rule36Service>();
 builder.Services.AddScoped<IRule34Service, Rule34Service>();
 builder.Services.AddScoped<IRule32Service, Rule32Service>();
@@ -138,6 +156,7 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 app.UseRouting();
+app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (context, next) =>
@@ -162,6 +181,34 @@ app.MapControllerRoute(
     name: "dashboard-short",
     pattern: "Dashboard",
     defaults: new { controller = "Dashboard", action = "Index" });
+
+for (var integrityRuleNumber = 1; integrityRuleNumber <= 10; integrityRuleNumber++)
+{
+    app.MapControllerRoute(
+        name: $"rule{integrityRuleNumber}-short",
+        pattern: $"Rule{integrityRuleNumber}/{{action=Index}}/{{id?}}",
+        defaults: new { controller = "Rule10", action = "Index", ruleNumber = integrityRuleNumber });
+}
+
+app.MapControllerRoute(
+    name: "rule11-short",
+    pattern: "Rule11",
+    defaults: new { controller = "Rule11", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule12-short",
+    pattern: "Rule12",
+    defaults: new { controller = "Rule12", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule13-short",
+    pattern: "Rule13",
+    defaults: new { controller = "Rule13", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule14-short",
+    pattern: "Rule14",
+    defaults: new { controller = "Rule14", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule15-short",
@@ -224,6 +271,11 @@ app.MapControllerRoute(
     defaults: new { controller = "Rule26", action = "Index" });
 
 app.MapControllerRoute(
+    name: "rule28-short",
+    pattern: "Rule28",
+    defaults: new { controller = "Rule28", action = "Index" });
+
+app.MapControllerRoute(
     name: "rule29-short",
     pattern: "Rule29",
     defaults: new { controller = "Rule29", action = "Index" });
@@ -247,6 +299,11 @@ app.MapControllerRoute(
     name: "rule32-short",
     pattern: "Rule32",
     defaults: new { controller = "Rule32", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule35-short",
+    pattern: "Rule35",
+    defaults: new { controller = "Rule35", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule36-short",

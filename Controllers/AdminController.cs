@@ -66,7 +66,8 @@ namespace HemisAudit.Controllers
                     CreatedAt            = u.CreatedAt,
                     LastLoginAt          = u.LastLoginAt,
                     Roles                = roles.ToList(),
-                    AssignedClientsCount = assignedClients
+                    AssignedClientsCount = assignedClients,
+                    PasswordStatus       = BuildPasswordStatus(u)
                 });
             }
 
@@ -679,6 +680,25 @@ namespace HemisAudit.Controllers
 
             if (!string.Equals(current, updated, StringComparison.Ordinal))
                 changes[field] = updated;
+        }
+
+        private PasswordStatusViewModel BuildPasswordStatus(ApplicationUser user)
+        {
+            var now = DateTime.UtcNow;
+            var ageDays = _passwordPolicy.GetPasswordAgeDays(user, now);
+            var daysRemaining = _passwordPolicy.GetPasswordDaysRemaining(user, now);
+            var isExpired = _passwordPolicy.IsPasswordExpired(user, now);
+
+            return new PasswordStatusViewModel
+            {
+                ReferenceDateUtc = _passwordPolicy.GetPasswordReferenceDate(user),
+                AgeDays = ageDays,
+                DaysRemaining = daysRemaining,
+                MaxAgeDays = _passwordPolicy.MaxPasswordAgeDays,
+                WarningWindowDays = _passwordPolicy.WarningWindowDays,
+                IsExpired = isExpired,
+                IsExpiringSoon = !isExpired && daysRemaining > 0 && daysRemaining <= _passwordPolicy.WarningWindowDays
+            };
         }
 
         private async Task<string> GetCurrentSystemRoleAsync(ApplicationUser? user)

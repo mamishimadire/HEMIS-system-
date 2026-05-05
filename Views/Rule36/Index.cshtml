@@ -193,7 +193,7 @@
         <div class="workspace-signoff-actions">
             <button class="btn btn-success" id="saveWorkspaceBtn" onclick="saveWorkspace()">Save Workspace</button>
             <button class="btn btn-primary" id="signOffBtn" onclick="signOffWorkspace()">Sign Off</button>
-            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove My Signoff</button>
+            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove Signoff</button>
         </div>
     </div>
     <div class="action-bar">
@@ -282,6 +282,7 @@ const state = {
     currentUserEngagementRole: '',
     currentStatus: '',
     currentUserHasSignedOff: false,
+    isWorkspaceSaved: false,
     hasDataAnalystSignoff: false,
     resultsVisible: false,
     editWarningAccepted: false,
@@ -420,6 +421,7 @@ async function markWorkspaceDirty() {
             }
 
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
 
             if (result.workspace) {
@@ -462,6 +464,7 @@ function resetWorkspaceState(clearClient = false) {
     state.currentUserEngagementRole = '';
     state.currentStatus = '';
     state.currentUserHasSignedOff = false;
+    state.isWorkspaceSaved = false;
     state.hasDataAnalystSignoff = false;
     state.resultsVisible = false;
     state.editWarningAccepted = false;
@@ -521,6 +524,7 @@ function renderWorkspaceState() {
                 (role === 'Manager' || role === 'Director')
             )
         );
+    const canActivateSignoff = !!canSignWorkspace && !!state.isWorkspaceSaved;
     const canRemoveWorkspaceSignoff = !archived && canSignWorkspace && state.currentUserHasSignedOff;
     const showDisabledArchivedSignoff = archived && !!state.currentRunId;
     const runValidationBtn = document.getElementById('runValidationBtn');
@@ -532,13 +536,16 @@ function renderWorkspaceState() {
     const signoffLabel = document.getElementById('workspaceSignoffLabel');
     const actionBar = document.querySelector('.action-bar');
     const signedOffLock = !!state.currentUserHasSignedOff;
+    const signoffButtonText = state.currentUserHasSignedOff
+        ? `Signed Off as ${role || 'Reviewer'}`
+        : `Sign Off as ${role || 'Reviewer'}`;
     window.ruleWorkspaceUi.setReadonlyShell('app', !canEditWorkspace || signedOffLock);
     window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEditWorkspace || signedOffLock);
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
-        { target: signoffComment, disabled: archived || !canSignWorkspace || signedOffLock }
+        { target: signoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
     window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
         allow: ['#downloadAllBtn', '#removeWorkspaceSignoffBtn']
@@ -550,7 +557,7 @@ function renderWorkspaceState() {
                 target: signOffBtn,
                 show: true,
                 disabled: true,
-                text: `Sign Off as ${role || 'Reviewer'}`,
+                text: signoffButtonText,
                 title: 'Archived engagements are read-only. Signoff is disabled.'
             },
             {
@@ -565,8 +572,8 @@ function renderWorkspaceState() {
             {
                 target: signOffBtn,
                 show: canSignWorkspace,
-                disabled: !canSignWorkspace || state.isDirty || signedOffLock,
-                text: `Sign Off as ${role || 'Reviewer'}`,
+                disabled: !canActivateSignoff || state.isDirty || signedOffLock,
+                text: signoffButtonText,
                 title: ''
             },
             {
@@ -705,6 +712,7 @@ async function hydrateWorkspace(workspace) {
         state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
         state.currentStatus = workspace.currentStatus || '';
         state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
         state.resultsVisible = !!workspace.resultsVisible;
         state.editWarningAccepted = false;
@@ -1039,7 +1047,9 @@ async function runValidation(options = {}) {
 function applyValidationResult(result, options = {}) {
     state.validationResult = result;
     state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
-    state.currentRunId = result.savedRunId || state.currentRunId;
+    if (!options.fromWorkspace) {
+        state.currentRunId = result.savedRunId || state.currentRunId;
+    }
     state.currentUserHasSignedOff = options.fromWorkspace ? !!state.currentUserHasSignedOff : false;
     state.hasDataAnalystSignoff = options.fromWorkspace ? !!state.hasDataAnalystSignoff : false;
     if (!options.fromWorkspace) {
@@ -1552,6 +1562,10 @@ async function signOffWorkspace() {
         setWorkspaceInfo('This workspace can only be signed off by the assigned analyst, manager, or director after the analyst review is available.', 'error');
         return;
     }
+    if (!state.isWorkspaceSaved) {
+        setWorkspaceInfo('Save the workspace first before signing off.', 'warning');
+        return;
+    }
     if (isArchivedWorkspace()) {
         setWorkspaceInfo('Archived engagements are read-only. Signoff is disabled.', 'error');
         return;
@@ -1581,15 +1595,12 @@ async function signOffWorkspace() {
             return;
         }
 
+        const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+            ? !!result.resultsVisible
+            : !!result.workspace?.resultsVisible;
         if (result.workspace) {
-            state.currentRunId = result.workspace.runId || state.currentRunId;
-            state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
-            state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
-            state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
-            document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || document.getElementById('signoffComment').value;
-            if (result.workspace.summary) {
-                applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
-            }
+            result.workspace.resultsVisible = workspaceResultsVisible;
+            await hydrateWorkspace(result.workspace);
         }
 
         state.isDirty = false;
@@ -1615,7 +1626,7 @@ async function removeWorkspaceSignoff() {
         );
 
     if (!canSignWorkspace || !state.currentUserHasSignedOff) {
-        setWorkspaceInfo('You can only remove your own signoff.', 'error');
+        setWorkspaceInfo('There is no signoff for your assigned engagement role to remove.', 'error');
         return;
     }
 
@@ -1633,18 +1644,15 @@ async function removeWorkspaceSignoff() {
             return;
         }
 
+        const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+            ? !!result.resultsVisible
+            : !!result.workspace?.resultsVisible;
         if (result.workspace) {
-            state.currentRunId = result.workspace.runId || state.currentRunId;
-            state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
-            state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
-            state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
-            state.resultsVisible = !!result.workspace.resultsVisible;
-            if (result.workspace.summary) {
-                applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
-            }
+            result.workspace.resultsVisible = workspaceResultsVisible;
+            await hydrateWorkspace(result.workspace);
         }
 
-        setWorkspaceInfo('Your signoff was removed.', 'warning');
+        setWorkspaceInfo('Signoff removed.', 'warning');
         renderWorkspaceState();
     } finally {
         hideSpinner();
@@ -1699,5 +1707,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 </script>
+
 
 

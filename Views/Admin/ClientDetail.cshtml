@@ -24,6 +24,62 @@
         .OrderByDescending(run => run.RunAt)
         .ThenByDescending(run => run.Id)
         .ToList();
+    Func<ValidationRunRow, bool> isPassedInsightRun = run =>
+        string.Equals(run.Status, "PASS", StringComparison.OrdinalIgnoreCase) ||
+        (!string.Equals(run.Status, "FAIL", StringComparison.OrdinalIgnoreCase) && run.TotalValidated > 0 && run.FailCount <= 0);
+    Func<ValidationRunRow, bool> isFailedInsightRun = run =>
+        string.Equals(run.Status, "FAIL", StringComparison.OrdinalIgnoreCase) ||
+        (!string.Equals(run.Status, "PASS", StringComparison.OrdinalIgnoreCase) && run.FailCount > 0);
+    var engagementInsightCurrentRuns = Model.ValidationRuns
+        .Where(run => run.IsCurrent)
+        .OrderByDescending(run => run.RunAt)
+        .ThenByDescending(run => run.Id)
+        .ToList();
+    var engagementInsightLatestRuleRuns = engagementInsightCurrentRuns
+        .GroupBy(run => run.RuleNumber)
+        .Select(group => group
+            .OrderByDescending(run => run.RunAt)
+            .ThenByDescending(run => run.Id)
+            .First())
+        .OrderBy(run => run.RuleNumber)
+        .ToList();
+    var engagementInsightReviewedAndCompletedRuns = engagementInsightLatestRuleRuns.Count(run => run.IsReviewedAndCompleted);
+    var engagementInsightPendingAnalystRuns = engagementInsightLatestRuleRuns.Count(run => !run.HasDataAnalystSignoff);
+    var engagementInsightAwaitingReviewRuns = engagementInsightLatestRuleRuns.Count(run => run.HasDataAnalystSignoff && !run.IsReviewedAndCompleted);
+    var engagementInsightNeedsReviewRuns = engagementInsightLatestRuleRuns.Count(run => !run.IsReviewedAndCompleted);
+    var engagementInsightPassedRuleRuns = engagementInsightLatestRuleRuns.Count(run => isPassedInsightRun(run));
+    var engagementInsightFailedRuleRuns = engagementInsightLatestRuleRuns.Count(run => isFailedInsightRun(run));
+    var engagementInsightPassedRuleRecords = engagementInsightLatestRuleRuns.Sum(run => Math.Max(run.PassCount, 0));
+    var engagementInsightFailedRuleRecords = engagementInsightLatestRuleRuns.Sum(run => Math.Max(run.FailCount, 0));
+    var engagementInsightTotalRuleRecords = engagementInsightLatestRuleRuns.Sum(run => Math.Max(run.TotalValidated, 0));
+    var engagementInsightPassedRuleRecordRate = engagementInsightTotalRuleRecords > 0
+        ? Math.Round(engagementInsightPassedRuleRecords * 100m / engagementInsightTotalRuleRecords, 2)
+        : 0m;
+    var engagementInsightFailedRuleRecordRate = engagementInsightTotalRuleRecords > 0
+        ? Math.Round(engagementInsightFailedRuleRecords * 100m / engagementInsightTotalRuleRecords, 2)
+        : 0m;
+    var engagementInsightAnalystSignedRuns = engagementInsightLatestRuleRuns.Count(run => run.HasDataAnalystSignoff);
+    var engagementInsightManagerSignedRuns = engagementInsightLatestRuleRuns.Count(run => run.HasManagerSignoff);
+    var engagementInsightDirectorSignedRuns = engagementInsightLatestRuleRuns.Count(run => run.HasDirectorSignoff);
+    var engagementInsightRecentRuns = Model.ValidationRuns
+        .OrderByDescending(run => run.RunAt)
+        .ThenByDescending(run => run.Id)
+        .Take(6)
+        .ToList();
+    var engagementInsightRuleOutcomeBreakdown = RuleRouteHelper.GetSupportedRuleNumbers()
+        .Select(ruleNumber =>
+        {
+            var run = engagementInsightLatestRuleRuns.FirstOrDefault(item => item.RuleNumber == ruleNumber);
+            return new HemisAudit.ViewModels.DashboardRuleOutcomeMetric
+            {
+                RuleNumber = ruleNumber,
+                RuleLabel = $"Rule {ruleNumber}",
+                PassedCount = run != null && isPassedInsightRun(run) ? 1 : 0,
+                FailedCount = run != null && isFailedInsightRun(run) ? 1 : 0
+            };
+        })
+        .Where(metric => metric.PassedCount > 0 || metric.FailedCount > 0)
+        .ToList();
 }
 
 @if (TempData["Success"] != null)
@@ -73,6 +129,7 @@
         {
             <span class="btn btn-secondary" style="pointer-events:none;opacity:.75">Modules Locked</span>
         }
+        <a href="#engagement-insight-panel" class="btn btn-secondary">Engagement Insight</a>
 
         @if (User.IsInRole("Admin") && !Model.IsApproved && !isArchived)
         {
@@ -140,9 +197,7 @@
                 Open the latest signed-off validation run or download it directly. No edits are allowed on archived engagements.
             </p>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <a asp-controller="@RuleRouteHelper.GetControllerName(Model.CurrentRunRuleNumber ?? 0)"
-                   asp-action="Run"
-                   asp-route-id="@Model.CurrentRunId"
+                <a href="@RuleRouteHelper.GetRunUrl(Model.CurrentRunRuleNumber ?? 10, Model.CurrentRunId ?? 0)"
                    class="btn btn-primary">
                     Open Latest Results
                 </a>
@@ -170,7 +225,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 34 and 36</span>
+            <span class="collapsible-trigger__meta">Rules 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35 and 36</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -178,6 +233,54 @@
                 @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
                 {
                     <div class="module-card-grid">
+                        @foreach (var integrityRule in IntegrityRuleCatalog.GetRuleNumbers().Where(ruleNumber => ruleNumber >= 1 && ruleNumber <= 10).Select(IntegrityRuleCatalog.Get))
+                        {
+                            <article class="module-card">
+                                <div class="module-card__eyebrow">@integrityRule.RuleLabel</div>
+                                <h4 class="module-card__title">@integrityRule.RuleTitle</h4>
+                                <p class="module-card__text">@integrityRule.DetailedDescription</p>
+                                <div class="module-card__actions">
+                                    <a href="@RuleRouteHelper.GetWorkspaceUrl(integrityRule.RuleNumber, Model.Id)" class="btn btn-success">Open @integrityRule.RuleLabel</a>
+                                </div>
+                            </article>
+                        }
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 11</div>
+                            <h4 class="module-card__title">Qualification Selection from dbo_QUAL</h4>
+                            <p class="module-card__text">Test 100% of approved undergraduate and postgraduate qualification populations from <code>dbo_QUAL</code> using <code>_004</code>, <code>_005</code>, and the <code>M_____</code> exclusion pattern, then keep the saved result set available for review and signoff.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule11?clientId=@Model.Id" class="btn btn-success">Open Rule 11</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 12</div>
+                            <h4 class="module-card__title">Course Selection from dbo_CREG</h4>
+                            <p class="module-card__text">Test 100% of the course population selected from <code>dbo_CREG._030</code>, compare it to <code>dbo_CRSE._030</code>, and keep the saved result set available for review and signoff.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule12?clientId=@Model.Id" class="btn btn-success">Open Rule 12</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 13</div>
+                            <h4 class="module-card__title">CESM Qualification Population Validation</h4>
+                            <p class="module-card__text">Test 100% of the CESM population where <code>dbo_CESM._006 &lt;&gt; 'ZZZZZZ'</code>, verify the <code>dbo_CESM -&gt; dbo_QUAL -&gt; dbo_STUD</code> linkage on <code>_001</code>, and keep the saved result set available for review and signoff.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule13?clientId=@Model.Id" class="btn btn-success">Open Rule 13</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 14</div>
+                            <h4 class="module-card__title">Course Registration Validation</h4>
+                            <p class="module-card__text">Test 100% of approved courses through the dbo_CRSE -&gt; dbo_CREG path, classify course-registration exceptions, and keep the saved workspace available for engagement review.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule14?clientId=@Model.Id" class="btn btn-success">Open Rule 14</a>
+                            </div>
+                        </article>
+
                         <article class="module-card">
                             <div class="module-card__eyebrow">Rule 15</div>
                             <h4 class="module-card__title">Course Credentials Validation</h4>
@@ -296,6 +399,15 @@
                         </article>
 
                         <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 28</div>
+                            <h4 class="module-card__title">Fatal Errors with Exclusions (CESM)</h4>
+                            <p class="module-card__text">Filter fatal CESM validation detail errors, remove approved exclusion codes, and escalate only the fatal errors that remain.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule28?clientId=@Model.Id" class="btn btn-success">Open Rule 28</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
                             <div class="module-card__eyebrow">Rule 29</div>
                             <h4 class="module-card__title">Single Column Filter</h4>
                             <p class="module-card__text">Filter records where one selected column equals one selected value, then review the matching set with an optional breakdown column.</p>
@@ -333,6 +445,14 @@
                             <p class="module-card__text">Calculate the midpoint between first and last class dates, compare it with the stored census date, and evaluate weekends and SA public holidays.</p>
                             <div class="module-card__actions">
                                 <a href="/Rule34?clientId=@Model.Id" class="btn btn-success">Open Rule 34</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 35</div>
+                            <h4 class="module-card__title">Duplicate Check on dbo_CRSE</h4>
+                            <p class="module-card__text">Count duplicate occurrences in the selected dbo_CRSE field, isolate duplicate groups, and save the full duplicate analysis for review and signoff.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule35?clientId=@Model.Id" class="btn btn-success">Open Rule 35</a>
                             </div>
                         </article>
                         <article class="module-card">
@@ -462,6 +582,128 @@
     </div>
 </details>
 
+<details class="collapsible-section" id="engagement-insight-panel" style="margin-bottom:24px">
+    <summary class="collapsible-trigger">
+        <div>
+            <span class="collapsible-trigger__title">Engagement Insight</span>
+            <span class="collapsible-trigger__subtitle">Insight for this engagement only, based on its current and historical validation runs.</span>
+        </div>
+        <span class="collapsible-trigger__icon" aria-hidden="true"></span>
+    </summary>
+    <div class="collapsible-panel">
+        <div class="card" style="padding:18px 20px;margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                <div>
+                    <h3 class="section-title" style="margin:0">Insight for @Model.EngagementName</h3>
+                    <p style="margin:6px 0 0;color:#64748b">@Model.MaconomyNumber | @Model.Industry | @Model.Status</p>
+                </div>
+                <div style="color:#64748b">Role: @(string.IsNullOrWhiteSpace(Model.CurrentUserEngagementRole) ? "-" : Model.CurrentUserEngagementRole)</div>
+            </div>
+        </div>
+
+        <div class="dashboard-insight-grid" style="margin-bottom:18px">
+            <div class="dashboard-insight-card">
+                <div class="dashboard-insight-card__label">Current rule runs</div>
+                <div class="dashboard-insight-card__value">
+                    <strong>@engagementInsightLatestRuleRuns.Count</strong>
+                    <span>latest current run per rule</span>
+                </div>
+            </div>
+            <div class="dashboard-insight-card">
+                <div class="dashboard-insight-card__label">Completed reviews</div>
+                <div class="dashboard-insight-card__value">
+                    <strong>@engagementInsightReviewedAndCompletedRuns</strong>
+                    <span>all signoffs captured</span>
+                </div>
+            </div>
+            <div class="dashboard-insight-card">
+                <div class="dashboard-insight-card__label">Needs review</div>
+                <div class="dashboard-insight-card__value">
+                    <strong>@engagementInsightNeedsReviewRuns</strong>
+                    <span>current runs waiting on review</span>
+                </div>
+            </div>
+            <div class="dashboard-insight-card">
+                <div class="dashboard-insight-card__label">Analyst pending</div>
+                <div class="dashboard-insight-card__value">
+                    <strong>@engagementInsightPendingAnalystRuns</strong>
+                    <span>current runs not yet analyst-signed</span>
+                </div>
+            </div>
+            <div class="dashboard-insight-card">
+                <div class="dashboard-insight-card__label">Passed rules</div>
+                <div class="dashboard-insight-card__value">
+                    <strong>@engagementInsightPassedRuleRuns</strong>
+                    <span>@engagementInsightPassedRuleRecords.ToString("N0") passing records | @engagementInsightPassedRuleRecordRate.ToString("0.##")%</span>
+                </div>
+            </div>
+            <div class="dashboard-insight-card">
+                <div class="dashboard-insight-card__label">Failed rules</div>
+                <div class="dashboard-insight-card__value">
+                    <strong>@engagementInsightFailedRuleRuns</strong>
+                    <span>@engagementInsightFailedRuleRecords.ToString("N0") failing records | @engagementInsightFailedRuleRecordRate.ToString("0.##")%</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-insight-layout">
+            <div class="dashboard-insight-rows">
+                <div class="dashboard-insight-chart">
+                    <h4>Review pipeline</h4>
+                    <canvas id="engagementReviewPipelineChart"></canvas>
+                </div>
+                <div class="dashboard-insight-chart dashboard-insight-chart--rule-outcome">
+                    <h4>Rule pass vs fail</h4>
+                    <p class="dashboard-band__subtitle" style="margin:0 0 10px">Latest current run per rule for this engagement.</p>
+                    @if (engagementInsightRuleOutcomeBreakdown.Any())
+                    {
+                        <div class="dashboard-insight-chart__scroll">
+                            <canvas id="engagementRuleOutcomeChart"></canvas>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-card" style="padding:20px">
+                            <p>No current rule runs are available for the insight chart yet.</p>
+                        </div>
+                    }
+                </div>
+                <div class="dashboard-insight-chart">
+                    <h4>Signoff coverage</h4>
+                    <canvas id="engagementSignoffChart"></canvas>
+                </div>
+            </div>
+
+            <div class="dashboard-insight-feed">
+                <h4>Latest activity</h4>
+                @if (engagementInsightRecentRuns.Any())
+                {
+                    <div class="dashboard-activity-list">
+                        @foreach (var run in engagementInsightRecentRuns)
+                        {
+                            var complete = run.IsReviewedAndCompleted;
+                            var reviewed = run.HasDataAnalystSignoff && !complete;
+                            var pending = !run.HasDataAnalystSignoff;
+                            <div class="dashboard-activity-item">
+                                <span class="dashboard-activity-item__dot @(complete ? "dashboard-activity-item__dot--complete" : reviewed ? "dashboard-activity-item__dot--review" : "dashboard-activity-item__dot--pending")"></span>
+                                <div>
+                                    <div class="dashboard-activity-item__title">Rule @run.RuleNumber - @run.RuleName</div>
+                                    <div class="dashboard-activity-item__meta">@run.Status | @run.RunAt.ToString("dd MMM yyyy HH:mm")</div>
+                                    <div class="dashboard-activity-item__meta">Run by @run.RunByUserName | @run.PassCount.ToString("N0") PASS | @run.FailCount.ToString("N0") FAIL</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="dashboard-activity-empty">No validation activity has been saved for this engagement yet.</div>
+                }
+            </div>
+        </div>
+    </div>
+</details>
+
 
 <details class="collapsible-section" id="validation-runs-panel">
     <summary class="collapsible-trigger">
@@ -523,9 +765,7 @@
                                 <td>@run.RunByUserName</td>
                                 <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
                                 <td>
-                                    <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
-                                       asp-action="Index"
-                                       asp-route-clientId="@Model.Id"
+                                    <a href="@RuleRouteHelper.GetWorkspaceUrl(run.RuleNumber, Model.Id)"
                                        class="btn btn-sm btn-secondary">Open Results</a>
                                 </td>
                             </tr>
@@ -584,9 +824,7 @@
                                 <td>@run.RunByUserName</td>
                                 <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
                                 <td>
-                                    <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
-                                       asp-action="Index"
-                                       asp-route-clientId="@Model.Id"
+                                    <a href="@RuleRouteHelper.GetWorkspaceUrl(run.RuleNumber, Model.Id)"
                                        class="btn btn-sm btn-secondary">Open Results</a>
                                 </td>
                             </tr>
@@ -648,9 +886,7 @@
                                 <td>@run.RunByUserName</td>
                                 <td>@run.RunAt.ToString("dd MMM yyyy HH:mm")</td>
                                 <td>
-                                    <a asp-controller="@RuleRouteHelper.GetControllerName(run.RuleNumber)"
-                                       asp-action="Run"
-                                       asp-route-id="@run.Id"
+                                    <a href="@RuleRouteHelper.GetRunUrl(run.RuleNumber, run.Id)"
                                        class="btn btn-sm btn-secondary">Review</a>
                                 </td>
                             </tr>
@@ -670,7 +906,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="/Rule15?clientId=@Model.Id">Open Rule 15</a>, <a href="/Rule16?clientId=@Model.Id">Open Rule 16</a>, <a href="/Rule17?clientId=@Model.Id">Open Rule 17</a>, <a href="/Rule18?clientId=@Model.Id">Open Rule 18</a>, <a href="/Rule21?clientId=@Model.Id">Open Rule 21</a>, <a href="/Rule22?clientId=@Model.Id">Open Rule 22</a>, <a href="/Rule23?clientId=@Model.Id">Open Rule 23</a>, <a href="/Rule24?clientId=@Model.Id">Open Rule 24</a>, <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="@RuleRouteHelper.GetWorkspaceUrl(1, Model.Id)">Open Rule 1</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(2, Model.Id)">Open Rule 2</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(3, Model.Id)">Open Rule 3</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(4, Model.Id)">Open Rule 4</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(5, Model.Id)">Open Rule 5</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(6, Model.Id)">Open Rule 6</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(7, Model.Id)">Open Rule 7</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(8, Model.Id)">Open Rule 8</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(9, Model.Id)">Open Rule 9</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(10, Model.Id)">Open Rule 10</a>, <a href="/Rule11?clientId=@Model.Id">Open Rule 11</a>, <a href="/Rule12?clientId=@Model.Id">Open Rule 12</a>, <a href="/Rule13?clientId=@Model.Id">Open Rule 13</a>, <a href="/Rule14?clientId=@Model.Id">Open Rule 14</a>, <a href="/Rule15?clientId=@Model.Id">Open Rule 15</a>, <a href="/Rule16?clientId=@Model.Id">Open Rule 16</a>, <a href="/Rule17?clientId=@Model.Id">Open Rule 17</a>, <a href="/Rule18?clientId=@Model.Id">Open Rule 18</a>, <a href="/Rule21?clientId=@Model.Id">Open Rule 21</a>, <a href="/Rule22?clientId=@Model.Id">Open Rule 22</a>, <a href="/Rule23?clientId=@Model.Id">Open Rule 23</a>, <a href="/Rule24?clientId=@Model.Id">Open Rule 24</a>, <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule28?clientId=@Model.Id">Open Rule 28</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, <a href="/Rule35?clientId=@Model.Id">Open Rule 35</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
         }
         else if (Model.IsArchived)
         {
@@ -685,20 +921,253 @@ else
     </div>
 </details>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 (() => {
-    if (window.location.hash !== '#validation-runs-panel') {
-        return;
+    const focusablePanelIds = ['engagement-insight-panel', 'validation-runs-panel'];
+    const charts = [];
+    let engagementInsightChartsReady = false;
+
+    function focusPanelFromHash() {
+        const panelId = window.location.hash.replace('#', '');
+        if (!focusablePanelIds.includes(panelId)) {
+            return;
+        }
+
+        const panel = document.getElementById(panelId);
+        if (!panel) {
+            return;
+        }
+
+        panel.open = true;
+        if (panelId === 'engagement-insight-panel') {
+            renderEngagementInsightCharts();
+            window.setTimeout(() => {
+                charts.forEach(chart => chart.resize());
+            }, 0);
+        }
+
+        window.setTimeout(() => {
+            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
     }
 
-    const panel = document.getElementById('validation-runs-panel');
-    if (!panel) {
-        return;
+    function getVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     }
 
-    panel.open = true;
-    setTimeout(() => {
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 50);
+    function renderEngagementInsightCharts() {
+        if (engagementInsightChartsReady || typeof Chart === 'undefined') {
+            return;
+        }
+
+        const green = '#34d399';
+        const amber = '#fbbf24';
+        const red = '#fb7185';
+        const violet = '#8b5cf6';
+        const teal = '#22d3ee';
+        const blue = '#60a5fa';
+
+        function isLightTheme() {
+            return document.documentElement.classList.contains('light');
+        }
+
+        function getChartTextColor() {
+            return isLightTheme()
+                ? '#000000'
+                : (getVar('--text') || '#f1f5f9');
+        }
+
+        function getChartLegendTextColor() {
+            return isLightTheme()
+                ? '#000000'
+                : (getVar('--text-muted') || '#d5deea');
+        }
+
+        function getChartBorderColor() {
+            return getVar('--border') || 'rgba(0,0,0,.08)';
+        }
+
+        function resetCharts() {
+            while (charts.length) {
+                const chart = charts.pop();
+                chart.destroy();
+            }
+
+            engagementInsightChartsReady = false;
+        }
+
+        function makeDoughnut(id, labels, values, colors) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const legendText = getChartLegendTextColor();
+            const border = getChartBorderColor();
+
+            charts.push(new Chart(el, {
+                type: 'doughnut',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: colors,
+                        borderColor: border,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 1.35,
+                    cutout: '68%',
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: legendText,
+                                boxWidth: 10,
+                                usePointStyle: true,
+                                pointStyle: 'circle'
+                            }
+                        }
+                    }
+                }
+            }));
+        }
+
+        function makeStackedBar(id, labels, passedValues, failedValues) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const axisText = getChartTextColor();
+            const legendText = getChartLegendTextColor();
+            const border = getChartBorderColor();
+
+            const chartHeight = Math.max(labels.length * 30, 420);
+            el.height = chartHeight;
+            el.style.setProperty('height', `${chartHeight}px`, 'important');
+            charts.push(new Chart(el, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'PASS',
+                        data: passedValues,
+                        backgroundColor: green,
+                        borderColor: green,
+                        borderWidth: 1,
+                        borderRadius: 8
+                    }, {
+                        label: 'FAIL',
+                        data: failedValues,
+                        backgroundColor: red,
+                        borderColor: red,
+                        borderWidth: 1,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: { color: axisText, precision: 0 },
+                            grid: { color: border }
+                        },
+                        y: {
+                            stacked: true,
+                            ticks: {
+                                color: axisText,
+                                autoSkip: false,
+                                font: {
+                                    size: 13,
+                                    weight: '600'
+                                }
+                            },
+                            grid: { color: border }
+                        }
+                    },
+                    layout: {
+                        padding: {
+                            left: 8,
+                            right: 8
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: legendText,
+                                boxWidth: 10,
+                                usePointStyle: true,
+                                pointStyle: 'circle'
+                            }
+                        }
+                    }
+                }
+            }));
+        }
+
+        makeDoughnut(
+            'engagementReviewPipelineChart',
+            ['Reviewed and completed', 'Awaiting review', 'Analyst signoff pending'],
+            [@engagementInsightReviewedAndCompletedRuns, @engagementInsightAwaitingReviewRuns, @engagementInsightPendingAnalystRuns],
+            [teal, amber, red]
+        );
+
+        makeDoughnut(
+            'engagementSignoffChart',
+            ['Analyst', 'Manager', 'Director'],
+            [@engagementInsightAnalystSignedRuns, @engagementInsightManagerSignedRuns, @engagementInsightDirectorSignedRuns],
+            [blue, amber, violet]
+        );
+
+        const engagementRuleLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(engagementInsightRuleOutcomeBreakdown.Select(metric => metric.RuleLabel).ToArray()));
+        const engagementRulePassedValues = [@string.Join(",", engagementInsightRuleOutcomeBreakdown.Select(metric => metric.PassedCount))];
+        const engagementRuleFailedValues = [@string.Join(",", engagementInsightRuleOutcomeBreakdown.Select(metric => metric.FailedCount))];
+        if (engagementRuleLabels.length) {
+            makeStackedBar('engagementRuleOutcomeChart', engagementRuleLabels, engagementRulePassedValues, engagementRuleFailedValues);
+        }
+
+        engagementInsightChartsReady = true;
+    }
+
+    const engagementInsightPanel = document.getElementById('engagement-insight-panel');
+    if (engagementInsightPanel) {
+        engagementInsightPanel.addEventListener('toggle', () => {
+            if (!engagementInsightPanel.open) {
+                return;
+            }
+
+            renderEngagementInsightCharts();
+            window.setTimeout(() => {
+                charts.forEach(chart => chart.resize());
+            }, 0);
+        });
+    }
+
+    const themeObserver = new MutationObserver(() => {
+        resetCharts();
+
+        if (engagementInsightPanel && engagementInsightPanel.open) {
+            renderEngagementInsightCharts();
+            window.setTimeout(() => {
+                charts.forEach(chart => chart.resize());
+            }, 0);
+        }
+    });
+
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class']
+    });
+
+    focusPanelFromHash();
+    window.addEventListener('hashchange', focusPanelFromHash);
+    window.addEventListener('beforeunload', () => {
+        themeObserver.disconnect();
+        resetCharts();
+    });
 })();
 </script>

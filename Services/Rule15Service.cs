@@ -10,10 +10,12 @@ namespace HemisAudit.Services
     {
         private const int BrowserPreviewRowLimit = 10;
         private readonly IConfiguration _configuration;
+        private readonly IPendingValidationCacheService _pendingValidationCache;
 
-        public Rule15Service(IConfiguration configuration)
+        public Rule15Service(IConfiguration configuration, IPendingValidationCacheService pendingValidationCache)
         {
             _configuration = configuration;
+            _pendingValidationCache = pendingValidationCache;
         }
 
         public async Task<DatabaseListResult> GetDatabasesAsync(string server, string driver)
@@ -140,14 +142,34 @@ namespace HemisAudit.Services
                 {
                     try
                     {
-                        summary.SavedRunId = await SaveValidationRunAsync(request, summary, userEmail, userName);
+                        var summaryToPersist = CloneSummary(summary);
+                        if (summaryToPersist.IsPreviewOnly || summaryToPersist.ReviewRows.Count < summaryToPersist.TotalValidated)
+                            summaryToPersist = await AnalyseAsync(request, includeAllReviewRows: true);
+
+                        summaryToPersist.SavedRunId = null;
+                        summary.SavedRunId = await SaveValidationRunAsync(request, summaryToPersist, userEmail, userName, markWorkspaceSaved: false);
+
+                        if (!string.IsNullOrWhiteSpace(userEmail))
+                            _pendingValidationCache.ClearPending(15, request.ClientId, userEmail!);
                     }
                     catch (Exception ex)
                     {
-                        summary.Success = false;
-                        summary.Error = $"Validation completed, but the saved run could not be written to the system database: {ex.Message}";
-                        return summary;
+                        summary.Warning = $"Analysis completed, but the workspace could not be saved automatically: {ex.Message}";
                     }
+                }
+
+                if (!summary.SavedRunId.HasValue)
+                {
+                    if (summary.Success && request.ClientId > 0 && !string.IsNullOrWhiteSpace(userEmail))
+                        _pendingValidationCache.StorePending(15, request.ClientId, userEmail!, request, CloneSummary(summary), userName);
+
+                    summary.Warning = string.IsNullOrWhiteSpace(summary.Warning)
+                        ? "Rule 15 validation completed. Click Save Workspace to write this validated result to the system database."
+                        : summary.Warning;
+                }
+                else
+                {
+                    summary.Warning = "The current Rule 15 run has been written to the system database. Click Save Workspace to finalize it for signoff.";
                 }
 
                 ApplyBrowserPreview(summary);
@@ -169,6 +191,22 @@ namespace HemisAudit.Services
             await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.BridgeTable, request.CrseTable);
             return await AnalyseAsync(request, includeAllReviewRows: true);
         }
+
+        public Task<Rule15ValidationSummary?> GetPendingValidationPreviewAsync(int clientId, string reviewerEmail)
+        {
+            var pending = _pendingValidationCache.GetPending<Rule15ValidationRequest, Rule15ValidationSummary>(15, clientId, reviewerEmail);
+            if (pending == null)
+                return Task.FromResult<Rule15ValidationSummary?>(null);
+
+            var preview = CloneSummary(pending.Summary);
+            preview.SavedRunId = null;
+            preview.Warning = "This Rule 15 validation is still pending. Click Save Workspace to write it to the system database.";
+            ApplyBrowserPreview(preview);
+            return Task.FromResult<Rule15ValidationSummary?>(preview);
+        }
+
+        public Task<bool> HasPendingValidationAsync(int clientId, string reviewerEmail)
+            => Task.FromResult(_pendingValidationCache.HasPending(15, clientId, reviewerEmail));
 
         public async Task<int?> GetClientIdForRunAsync(int runId)
         {
@@ -238,11 +276,13 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
 
             var signoffs = await GetRunSignoffsAsync(connection, workspace.RunId!.Value, currentUserId);
             workspace.HasDataAnalystSignoff = signoffs.Any(s => string.Equals(s.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
-            var currentUserSignoff = signoffs.FirstOrDefault(s => s.IsCurrentUser);
-            workspace.CurrentUserHasSignedOff = currentUserSignoff != null;
-            workspace.CurrentUserSignoffComment = currentUserSignoff?.Comment ?? "";
+            var currentRoleSignoff = signoffs.FirstOrDefault(s =>
+                HemisAudit.Helpers.ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, workspace.CurrentUserEngagementRole));
+            workspace.CurrentUserHasSignedOff = currentRoleSignoff != null;
+            workspace.CurrentUserSignoffComment = currentRoleSignoff?.Comment ?? "";
+            workspace.IsWorkspaceSaved = await IsWorkspaceSavedAsync(connection, workspace.RunId!.Value);
 
-            if (workspace.Summary != null && workspace.Summary.SavedRunId.GetValueOrDefault() <= 0)
+            if (workspace.Summary != null)
                 workspace.Summary.SavedRunId = workspace.RunId;
 
             return workspace;
@@ -316,67 +356,94 @@ WHERE vr.RunID = @RunID
             {
                 ValidateRequest(request);
 
-                if (request.RunId is null || request.RunId <= 0)
+                if (request.RunId.HasValue && request.RunId.Value > 0)
                 {
-                    return new Rule15WorkspaceSaveResult
+                    await using var connection = await OpenSystemConnectionAsync();
+                    var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
+                    if (!clientId.HasValue || clientId.Value != request.ClientId)
                     {
-                        Success = false,
-                        Error = "Run the validation first so the workspace can be saved."
-                    };
-                }
+                        return new Rule15WorkspaceSaveResult
+                        {
+                            Success = false,
+                            Error = "The saved workspace could not be found for this engagement."
+                        };
+                    }
 
-                await using var connection = await OpenSystemConnectionAsync();
-                var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
-                if (!clientId.HasValue || clientId.Value != request.ClientId)
-                {
-                    return new Rule15WorkspaceSaveResult
-                    {
-                        Success = false,
-                        Error = "The saved workspace could not be found for this engagement."
-                    };
-                }
+                    await EnsureClientNotArchivedAsync(connection, request.ClientId);
 
-                await EnsureClientNotArchivedAsync(connection, request.ClientId);
+                    var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
+                    var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
 
-                var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
-                var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
-                await using var command = connection.CreateConfiguredCommand();
-                command.CommandText = @"
+                    await using var command = connection.CreateConfiguredCommand();
+                    command.CommandText = @"
 UPDATE dbo.ValidationRuns
-SET HemisServer = @HemisServer,
-    AuditDatabase = @AuditDatabase,
-    StudTable = @StudTable,
-    DeceasedTable = @BridgeTable,
-    StudColumn = @CrseTable,
-    LastEditedByUserName = @LastEditedByUserName,
+SET LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = GETDATE(),
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
 WHERE RunID = @RunID
-  AND ClientID = @ClientID
-  AND RuleNumber = 15;";
-                command.Parameters.AddWithValue("@RunID", request.RunId.Value);
-                command.Parameters.AddWithValue("@ClientID", request.ClientId);
-                command.Parameters.AddWithValue("@HemisServer", request.Server);
-                command.Parameters.AddWithValue("@AuditDatabase", request.Database);
-                command.Parameters.AddWithValue("@StudTable", request.StudTable);
-                command.Parameters.AddWithValue("@BridgeTable", request.BridgeTable);
-                command.Parameters.AddWithValue("@CrseTable", request.CrseTable);
-                command.Parameters.AddWithValue("@LastEditedByUserName", (object?)(reviewerName ?? reviewerEmail) ?? DBNull.Value);
-                command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
-                command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule15|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.StudTable}|{request.BridgeTable}|{request.CrseTable}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
-                await command.ExecuteNonQueryAsync();
+  AND ClientID = @ClientID;";
+                    command.Parameters.AddWithValue("@RunID", request.RunId.Value);
+                    command.Parameters.AddWithValue("@ClientID", request.ClientId);
+                    command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule15|{request.RunId.Value}|{request.ClientId}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
+                    await command.ExecuteNonQueryAsync();
+
+                    if (!string.IsNullOrWhiteSpace(reviewerEmail))
+                        _pendingValidationCache.ClearPending(15, request.ClientId, reviewerEmail);
+
+                    var currentWorkspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
+                    return new Rule15WorkspaceSaveResult
+                    {
+                        Success = true,
+                        Message = clearedSignoffs > 0
+                            ? "Workspace saved. Existing signoffs were removed and the run must be reviewed again."
+                            : "Workspace saved and marked for review again.",
+                        SignoffsCleared = clearedSignoffs > 0,
+                        ClearedSignoffCount = clearedSignoffs,
+                        Workspace = currentWorkspace
+                    };
+                }
+
+                var pending = _pendingValidationCache.GetPending<Rule15ValidationRequest, Rule15ValidationSummary>(15, request.ClientId, reviewerEmail);
+                if (pending == null)
+                {
+                    return new Rule15WorkspaceSaveResult
+                    {
+                        Success = false,
+                        Error = "Run Rule 15 first so the current workspace is written to the system database."
+                    };
+                }
+
+                if (!RequestsMatchForPendingSave(request, pending.Request))
+                {
+                    return new Rule15WorkspaceSaveResult
+                    {
+                        Success = false,
+                        Error = "Workspace settings changed after validation. Run Rule 15 again before saving."
+                    };
+                }
+
+                var summaryToSave = CloneSummary(pending.Summary);
+                if (summaryToSave.IsPreviewOnly || summaryToSave.ReviewRows.Count < summaryToSave.TotalValidated)
+                {
+                    summaryToSave = await AnalyseAsync(pending.Request, includeAllReviewRows: true);
+                }
+
+                summaryToSave.SavedRunId = null;
+                var savedRunId = await SaveValidationRunAsync(pending.Request, summaryToSave, reviewerEmail, reviewerName ?? pending.ReviewerName, markWorkspaceSaved: true);
+                _pendingValidationCache.ClearPending(15, request.ClientId, reviewerEmail);
 
                 var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
                 return new Rule15WorkspaceSaveResult
                 {
                     Success = true,
-                    Message = clearedSignoffs > 0
-                        ? "Workspace saved. Existing signoffs were removed and the run must be reviewed again."
-                        : "Workspace saved and marked for review again.",
-                    SignoffsCleared = clearedSignoffs > 0,
-                    ClearedSignoffCount = clearedSignoffs,
+                    Message = $"Workspace saved as Run #{savedRunId}. Sign off this saved workspace when you are ready.",
+                    SignoffsCleared = false,
+                    ClearedSignoffCount = 0,
                     Workspace = workspace
                 };
             }
@@ -409,20 +476,24 @@ WHERE RunID = @RunID
                 var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, runId);
                 var previousHash = await GetValidationRecordHashAsync(connection, runId);
 
-                await using var command = connection.CreateConfiguredCommand();
-                command.CommandText = @"
+                await using var markEdit = connection.CreateConfiguredCommand();
+                markEdit.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = NULL,
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
 WHERE RunID = @RunID;";
-                command.Parameters.AddWithValue("@RunID", runId);
-                command.Parameters.AddWithValue("@LastEditedByUserName", (object?)(reviewerName ?? reviewerEmail) ?? DBNull.Value);
-                command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
-                command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"BeginWorkspaceEdit|Rule15|{runId}|{reviewerEmail}|{DateTime.UtcNow:o}|{previousHash}"));
-                await command.ExecuteNonQueryAsync();
+                markEdit.Parameters.AddWithValue("@RunID", runId);
+                markEdit.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
+                markEdit.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+                markEdit.Parameters.AddWithValue("@RecordHash", ComputeHash($@"BeginWorkspaceEdit|Rule15|{runId}|{reviewerEmail}|{DateTime.UtcNow:o}|{previousHash}"));
+                await markEdit.ExecuteNonQueryAsync();
+
+                if (!string.IsNullOrWhiteSpace(reviewerEmail))
+                    _pendingValidationCache.ClearPending(15, clientId.Value, reviewerEmail);
 
                 var workspace = await GetCurrentWorkspaceStateAsync(clientId.Value, reviewerEmail, includeSummary: false);
                 return new Rule15WorkspaceSaveResult
@@ -458,6 +529,9 @@ WHERE RunID = @RunID;";
                 throw new InvalidOperationException("The selected Rule 15 run could not be found.");
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
+
+            if (!await IsWorkspaceSavedAsync(connection, runId))
+                throw new InvalidOperationException("The data analyst must save the workspace before signoff is available.");
 
             var signoffRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
             if (!CanSignOffAsRole(signoffRole))
@@ -514,7 +588,11 @@ END";
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
 
-            var removal = await ReviewSignoffSqlHelper.RemoveReviewerSignoffWithVersioningAsync(connection, runId, reviewerId.Value);
+            var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
+            if (!HemisAudit.Helpers.ValidationRunAccessPolicy.CanAssignedUserRemoveSignoff(engagementRole))
+                throw new InvalidOperationException("Only the assigned data analyst, manager, or director can remove signoff from this run.");
+
+            var removal = await ReviewSignoffSqlHelper.RemoveRoleSignoffWithVersioningAsync(connection, runId, engagementRole!, reviewerEmail);
             if (removal.RemovedCount <= 0)
                 return;
         }
@@ -532,55 +610,25 @@ END";
 -- Rule: test 100% of credential rows where QUAL._004 = 'A'
 -- PASS when a matching registration exists on CREG._001 = CRED._001 AND CREG._030 = CRED._030
 
-WITH ApprovedCredentialRows AS
-(
-    SELECT DISTINCT
-        CAST(QUAL.[_001] AS nvarchar(255)) AS QUAL__001,
-        CAST(QUAL.[_004] AS nvarchar(255)) AS QUAL__004,
-        CAST(CRED.[_001] AS nvarchar(255)) AS CRED__001,
-        CAST(CRED.[_030] AS nvarchar(255)) AS CRED__030
-    FROM [{qualTable}] QUAL
-    INNER JOIN [{credTable}] CRED
-        ON QUAL.[_001] = CRED.[_001]
-    WHERE ISNULL(CAST(QUAL.[_004] AS nvarchar(255)), '') = 'A'
-      AND CRED.[_001] IS NOT NULL
-      AND CRED.[_030] IS NOT NULL
-)
+{BuildRule15SourceCtes(qualTable, credTable, cregTable)}
 SELECT
     'Control_1' AS Control_Type,
     'CONTROL 1: QUAL._004 = ''A'' and CREG registration exists for the credential course' AS Control_Label,
-    Approved.QUAL__001,
-    Approved.QUAL__004,
-    Approved.CRED__001,
-    Approved.CRED__030,
+    ResultRows.QUAL__001,
+    ResultRows.QUAL__004,
+    ResultRows.CRED__001,
+    ResultRows.CRED__030,
     CASE
-        WHEN EXISTS
-        (
-            SELECT 1
-            FROM [{cregTable}] CREG
-            WHERE CAST(CREG.[_001] AS nvarchar(255)) = Approved.CRED__001
-              AND CAST(CREG.[_030] AS nvarchar(255)) = Approved.CRED__030
-        )
-        THEN 'PASS'
-        ELSE 'FAIL'
+        WHEN ResultRows.CREG__001 IS NOT NULL THEN 'PASS' ELSE 'FAIL'
     END AS Validation_Result
-FROM ApprovedCredentialRows Approved
-ORDER BY Approved.CRED__001, Approved.CRED__030;
+FROM ApprovedCredentialResults ResultRows
+ORDER BY ResultRows.CRED__001, ResultRows.CRED__030;
 
 SELECT
-    (SELECT COUNT(DISTINCT CAST(QUAL.[_001] AS nvarchar(255)))
-     FROM [{qualTable}] QUAL
-     WHERE ISNULL(CAST(QUAL.[_004] AS nvarchar(255)), '') = 'A') AS Approved_Qualifications,
-    (SELECT COUNT(*) FROM ApprovedCredentialRows) AS Approved_Credentials,
-    (SELECT COUNT(*)
-     FROM ApprovedCredentialRows Approved
-     WHERE EXISTS
-     (
-         SELECT 1
-         FROM [{cregTable}] CREG
-         WHERE CAST(CREG.[_001] AS nvarchar(255)) = Approved.CRED__001
-           AND CAST(CREG.[_030] AS nvarchar(255)) = Approved.CRED__030
-     )) AS Registered_Credentials;";
+    (SELECT COUNT(*) FROM ApprovedQualifications) AS Approved_Qualifications,
+    COUNT(1) AS Approved_Credentials,
+    SUM(CASE WHEN CREG__001 IS NOT NULL THEN 1 ELSE 0 END) AS Registered_Credentials
+FROM ApprovedCredentialResults;";
 
             return Task.FromResult(sql.Trim());
         }
@@ -659,7 +707,7 @@ SELECT
             };
         }
 
-        private async Task<int> SaveValidationRunAsync(Rule15ValidationRequest request, Rule15ValidationSummary summary, string? userEmail, string? userName)
+        private async Task<int> SaveValidationRunAsync(Rule15ValidationRequest request, Rule15ValidationSummary summary, string? userEmail, string? userName, bool markWorkspaceSaved)
         {
             await using var connection = await OpenSystemConnectionAsync();
             await EnsureClientNotArchivedAsync(connection, request.ClientId);
@@ -678,13 +726,13 @@ INSERT INTO dbo.ValidationRuns
 (
     ClientID, UserID, RuleNumber, RuleName, Status, TotalRecords, PassCount, FailCount, ExceptionRate, RunTimestamp,
     HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
-    ExceptionsJSON, ResultsJSON, RunByUserName, LastEditedByUserName, LastEditedAt, PreviousHash, RecordHash, IsCurrent
+    ExceptionsJSON, ResultsJSON, RunByUserName, LastEditedByUserName, LastEditedAt, PreviousHash, RecordHash, WorkspaceSavedAt, IsCurrent
 )
 VALUES
 (
     @ClientID, @UserID, 15, @RuleName, @Status, @TotalRecords, @PassCount, @FailCount, @ExceptionRate, GETDATE(),
     @HemisServer, @AuditDatabase, @StudTable, @BridgeTable, @CrseTable, NULL,
-    @ExceptionsJSON, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, 1
+    @ExceptionsJSON, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, @WorkspaceSavedAt, 1
 );
 SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@ClientID", request.ClientId);
@@ -706,6 +754,7 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary)));
             command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+            command.Parameters.AddWithValue("@WorkspaceSavedAt", markWorkspaceSaved ? DateTime.UtcNow : (object)DBNull.Value);
 
             var runId = Convert.ToInt32(await command.ExecuteScalarAsync());
             summary.SavedRunId = runId;
@@ -726,8 +775,9 @@ WHERE RunID = @RunID;";
 {BuildRule15SourceCtes(qualTable, credTable, cregTable)}
 SELECT
     (SELECT COUNT(*) FROM ApprovedQualifications) AS ApprovedQualificationCount,
-    (SELECT COUNT(*) FROM ApprovedCredentialRows) AS ApprovedCredentialCount,
-    (SELECT COUNT(*) FROM RegisteredCredentialRows) AS RegisteredCredentialCount;";
+    COUNT(1) AS ApprovedCredentialCount,
+    SUM(CASE WHEN CREG__001 IS NOT NULL THEN 1 ELSE 0 END) AS RegisteredCredentialCount
+FROM ApprovedCredentialResults;";
 
         private async Task<List<Rule15ValidationRowRecord>> LoadControlRowsAsync(SqlConnection connection, string studTable, string bridgeTable, string crseTable, int? maxRows)
         {
@@ -767,86 +817,74 @@ SELECT
             var topClause = maxRows.HasValue && maxRows.Value > 0 ? $"TOP {maxRows.Value}" : string.Empty;
 
             return $@"
-WITH ApprovedCredentialRows AS
-(
-    SELECT DISTINCT
-        CAST(QUAL.[_001] AS nvarchar(255)) AS QUAL__001,
-        CAST(QUAL.[_004] AS nvarchar(255)) AS QUAL__004,
-        CAST(CRED.[_001] AS nvarchar(255)) AS CRED__001,
-        CAST(CRED.[_030] AS nvarchar(255)) AS CRED__030
-    FROM [{qualTable}] QUAL
-    INNER JOIN [{credTable}] CRED
-        ON QUAL.[_001] = CRED.[_001]
-    WHERE ISNULL(CAST(QUAL.[_004] AS nvarchar(255)), '') = 'A'
-      AND CRED.[_001] IS NOT NULL
-      AND CRED.[_030] IS NOT NULL
-)
+{BuildRule15SourceCtes(qualTable, credTable, cregTable)}
 SELECT {topClause}
     1 AS Control_Sort,
     'Control_1' AS Control_Type,
     'CONTROL 1: QUAL._004 = ''A'' and a matching registration exists on dbo_CREG' AS Control_Label,
     CASE
-        WHEN Reg.CREG__001 IS NOT NULL THEN 'PASS' ELSE 'FAIL'
+        WHEN ResultRows.CREG__001 IS NOT NULL THEN 'PASS' ELSE 'FAIL'
     END AS Validation_Result,
     CASE
-        WHEN Reg.CREG__001 IS NOT NULL
+        WHEN ResultRows.CREG__001 IS NOT NULL
             THEN 'Matched approved credential row to at least one student registration.'
         ELSE 'Approved credential row has no matching student registration.'
     END AS Validation_Explanation,
-    Approved.QUAL__001,
-    Approved.QUAL__004,
-    Approved.CRED__001,
-    Approved.CRED__030,
-    Reg.CREG__001,
-    Reg.CREG__030
-FROM ApprovedCredentialRows Approved
-OUTER APPLY
-(
-    SELECT TOP 1
-        CAST(CREG.[_001] AS nvarchar(255)) AS CREG__001,
-        CAST(CREG.[_030] AS nvarchar(255)) AS CREG__030
-    FROM [{cregTable}] CREG
-    WHERE CAST(CREG.[_001] AS nvarchar(255)) = Approved.CRED__001
-      AND CAST(CREG.[_030] AS nvarchar(255)) = Approved.CRED__030
-) Reg
-ORDER BY Approved.CRED__001, Approved.CRED__030;";
+    ResultRows.QUAL__001,
+    ResultRows.QUAL__004,
+    ResultRows.CRED__001,
+    ResultRows.CRED__030,
+    ResultRows.CREG__001,
+    ResultRows.CREG__030
+FROM ApprovedCredentialResults ResultRows
+ORDER BY ResultRows.CRED__001, ResultRows.CRED__030;";
         }
 
         private static string BuildRule15SourceCtes(string qualTable, string credTable, string cregTable) => $@"
 WITH ApprovedQualifications AS
 (
     SELECT DISTINCT
-        CAST(QUAL.[_001] AS nvarchar(255)) AS Qual_001,
-        CAST(QUAL.[_004] AS nvarchar(255)) AS Qual_004
+        CONVERT(nvarchar(255), QUAL.[_001]) AS Qual_001,
+        CONVERT(nvarchar(255), QUAL.[_004]) AS Qual_004
     FROM [{qualTable}] QUAL
-    WHERE ISNULL(CAST(QUAL.[_004] AS nvarchar(255)), '') = 'A'
+    WHERE ISNULL(CONVERT(nvarchar(255), QUAL.[_004]), '') = 'A'
 ),
 ApprovedCredentialRows AS
 (
     SELECT DISTINCT
-        CAST(QUAL.[_001] AS nvarchar(255)) AS Qual_001,
-        CAST(QUAL.[_004] AS nvarchar(255)) AS Qual_004,
-        CAST(CRED.[_001] AS nvarchar(255)) AS Cred_001,
-        CAST(CRED.[_030] AS nvarchar(255)) AS Cred_030
+        CONVERT(nvarchar(255), QUAL.[_001]) AS QUAL__001,
+        CONVERT(nvarchar(255), QUAL.[_004]) AS QUAL__004,
+        CONVERT(nvarchar(255), CRED.[_001]) AS CRED__001,
+        CONVERT(nvarchar(255), CRED.[_030]) AS CRED__030
     FROM [{qualTable}] QUAL
     INNER JOIN [{credTable}] CRED
         ON QUAL.[_001] = CRED.[_001]
-    WHERE ISNULL(CAST(QUAL.[_004] AS nvarchar(255)), '') = 'A'
+    WHERE ISNULL(CONVERT(nvarchar(255), QUAL.[_004]), '') = 'A'
       AND CRED.[_001] IS NOT NULL
       AND CRED.[_030] IS NOT NULL
 ),
-RegisteredCredentialRows AS
+RegisteredCredentials AS
+(
+    SELECT DISTINCT
+        CONVERT(nvarchar(255), CREG.[_001]) AS CREG__001,
+        CONVERT(nvarchar(255), CREG.[_030]) AS CREG__030
+    FROM [{cregTable}] CREG
+    WHERE CREG.[_001] IS NOT NULL
+      AND CREG.[_030] IS NOT NULL
+),
+ApprovedCredentialResults AS
 (
     SELECT
-        Approved.*
+        Approved.QUAL__001,
+        Approved.QUAL__004,
+        Approved.CRED__001,
+        Approved.CRED__030,
+        Registered.CREG__001,
+        Registered.CREG__030
     FROM ApprovedCredentialRows Approved
-    WHERE EXISTS
-    (
-        SELECT 1
-        FROM [{cregTable}] CREG
-        WHERE CAST(CREG.[_001] AS nvarchar(255)) = Approved.Cred_001
-          AND CAST(CREG.[_030] AS nvarchar(255)) = Approved.Cred_030
-    )
+    LEFT JOIN RegisteredCredentials Registered
+        ON Registered.CREG__001 = Approved.CRED__001
+       AND Registered.CREG__030 = Approved.CRED__030
 )";
 
         private static List<Rule15ControlSummaryItemViewModel> BuildControlSummaries(
@@ -1349,7 +1387,30 @@ WHERE ClientID = @ClientID
             var value = await command.ExecuteScalarAsync();
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
-
+        private static async Task<bool> IsWorkspaceSavedAsync(SqlConnection connection, int runId)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT CASE
+    WHEN EXISTS (
+        SELECT 1
+        FROM dbo.ValidationRuns
+        WHERE RunID = @RunID
+          AND (
+                WorkspaceSavedAt IS NOT NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM dbo.ReviewSignoffs rs
+                    WHERE rs.RunID = ValidationRuns.RunID
+                      AND rs.SignoffRole = 'DataAnalyst'
+                )
+          )
+    ) THEN 1
+    ELSE 0
+END;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        }
         private async Task<bool> HasSignoffRoleAsync(SqlConnection connection, int runId, string signoffRole)
         {
             await using var command = connection.CreateConfiguredCommand();
@@ -1508,6 +1569,17 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
         private static string FormatRule15ColumnValue(string? value) =>
             string.IsNullOrWhiteSpace(value) ? "[blank]" : value.Trim();
 
+        private static bool RequestsMatchForPendingSave(Rule15ValidationRequest current, Rule15ValidationRequest pending)
+        {
+            return current.ClientId == pending.ClientId &&
+                   string.Equals(current.Server?.Trim(), pending.Server?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.Database?.Trim(), pending.Database?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.Driver?.Trim(), pending.Driver?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.StudTable?.Trim(), pending.StudTable?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.BridgeTable?.Trim(), pending.BridgeTable?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(current.CrseTable?.Trim(), pending.CrseTable?.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
         private static int GetInt(SqlDataReader reader, int ordinal) =>
             reader.IsDBNull(ordinal) ? 0 : Convert.ToInt32(reader.GetValue(ordinal));
 
@@ -1515,6 +1587,8 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             values.TryGetValue(key, out var value) ? value ?? "" : "";
     }
 }
+
+
 
 
 

@@ -108,6 +108,8 @@ BEGIN
       AuditDatabase NVARCHAR(255) NOT NULL,
       StudTable     NVARCHAR(255) NULL,
       DeceasedTable NVARCHAR(255) NULL,
+      BridgeTable   NVARCHAR(255) NULL,
+      CrseTable     NVARCHAR(255) NULL,
       StudColumn    NVARCHAR(255) NULL,
       DeceasedColumn NVARCHAR(255) NULL,
       RuleNumber    INT NULL,
@@ -127,6 +129,12 @@ BEGIN
       RecordHash    NVARCHAR(128) NULL,
       IsCurrent     BIT NOT NULL DEFAULT 1
     );
+END",
+                @"
+IF COL_LENGTH('dbo.ValidationRuns', 'WorkspaceSavedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.ValidationRuns
+    ADD WorkspaceSavedAt DATETIME NULL;
 END",
                 @"
 IF OBJECT_ID(N'dbo.AuditLog', N'U') IS NULL
@@ -313,6 +321,8 @@ END"
             await EnsureColumnAsync(connection, "ValidationRuns", "RunTimestamp", "DATETIME NOT NULL CONSTRAINT DF_ValidationRuns_RunTimestamp DEFAULT GETDATE()");
             await EnsureColumnAsync(connection, "ValidationRuns", "StudTable", "NVARCHAR(255) NULL");
             await EnsureColumnAsync(connection, "ValidationRuns", "DeceasedTable", "NVARCHAR(255) NULL");
+            await EnsureColumnAsync(connection, "ValidationRuns", "BridgeTable", "NVARCHAR(255) NULL");
+            await EnsureColumnAsync(connection, "ValidationRuns", "CrseTable", "NVARCHAR(255) NULL");
             await EnsureColumnAsync(connection, "ValidationRuns", "StudColumn", "NVARCHAR(255) NULL");
             await EnsureColumnAsync(connection, "ValidationRuns", "DeceasedColumn", "NVARCHAR(255) NULL");
             await EnsureColumnAsync(connection, "ValidationRuns", "TotalRecords", "INT NULL");

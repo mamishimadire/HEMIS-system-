@@ -403,6 +403,191 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
         conic-gradient(#ef4444 var(--progress-angle), rgba(239, 68, 68, 0.16) 0deg);
 }
 
+.workspace-load-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.28);
+    backdrop-filter: blur(6px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease;
+}
+
+.workspace-load-overlay.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.workspace-load-card {
+    --progress-angle: 0deg;
+    width: min(580px, calc(100vw - 32px));
+    padding: 24px 26px 22px;
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.98);
+    color: #0f172a;
+    border: 1px solid rgba(34, 197, 94, 0.18);
+    box-shadow: 0 28px 72px rgba(0, 0, 0, 0.32);
+    transform: translateY(8px) scale(.985);
+    transition: transform .18s ease, opacity .18s ease, border-color .18s ease;
+}
+
+.workspace-load-overlay.is-visible .workspace-load-card {
+    transform: translateY(0) scale(1);
+}
+
+.workspace-load-card__body {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+}
+
+.workspace-load-card__gauge {
+    position: relative;
+    width: 146px;
+    height: 146px;
+    flex: 0 0 146px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at center, rgba(255,255,255,.18) 0, rgba(255,255,255,0) 64%),
+        conic-gradient(#22c55e var(--progress-angle), rgba(148, 163, 184, 0.22) 0deg);
+    display: grid;
+    place-items: center;
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.10);
+}
+
+.workspace-load-card__gauge-core {
+    width: 116px;
+    height: 116px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.22);
+    display: grid;
+    place-items: center;
+}
+
+.workspace-load-card__percent {
+    font-size: 56px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -.04em;
+    color: #2e7d32;
+}
+
+.workspace-load-card__details {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.workspace-load-card__title {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: #0f172a;
+}
+
+.workspace-load-card__file {
+    margin-top: 10px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.workspace-load-card__meta {
+    margin-top: 8px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: #475569;
+}
+
+.workspace-load-card__bar {
+    margin-top: 18px;
+    height: 12px;
+    border-radius: 999px;
+    background: rgba(34, 197, 94, 0.16);
+    overflow: hidden;
+}
+
+.workspace-load-card__bar-fill {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #2e7d32 0%, #4ade80 100%);
+    transition: width .18s ease;
+}
+
+.workspace-load-card.is-info {
+    border-color: rgba(2, 119, 189, 0.18);
+}
+
+.workspace-load-card.is-info .workspace-load-card__gauge {
+    background:
+        radial-gradient(circle at center, rgba(255,255,255,.18) 0, rgba(255,255,255,0) 64%),
+        conic-gradient(#0277bd var(--progress-angle), rgba(2, 119, 189, 0.16) 0deg);
+}
+
+.workspace-load-card.is-info .workspace-load-card__percent {
+    color: #0277bd;
+}
+
+.workspace-load-card.is-info .workspace-load-card__bar {
+    background: rgba(2, 119, 189, 0.14);
+}
+
+.workspace-load-card.is-info .workspace-load-card__bar-fill {
+    background: linear-gradient(90deg, #0277bd 0%, #29b6f6 100%);
+}
+
+.workspace-load-card.is-warning {
+    border-color: rgba(245, 158, 11, 0.22);
+}
+
+.workspace-load-card.is-warning .workspace-load-card__gauge {
+    background:
+        radial-gradient(circle at center, rgba(255,255,255,.18) 0, rgba(255,255,255,0) 64%),
+        conic-gradient(#f59e0b var(--progress-angle), rgba(245, 158, 11, 0.16) 0deg);
+}
+
+.workspace-load-card.is-warning .workspace-load-card__percent {
+    color: #d97706;
+}
+
+.workspace-load-card.is-warning .workspace-load-card__bar {
+    background: rgba(245, 158, 11, 0.14);
+}
+
+.workspace-load-card.is-warning .workspace-load-card__bar-fill {
+    background: linear-gradient(90deg, #d97706 0%, #fbbf24 100%);
+}
+
+.workspace-load-card.is-error {
+    border-color: rgba(198, 40, 40, 0.24);
+}
+
+.workspace-load-card.is-error .workspace-load-card__gauge {
+    background:
+        radial-gradient(circle at center, rgba(255,255,255,.18) 0, rgba(255,255,255,0) 64%),
+        conic-gradient(#c62828 var(--progress-angle), rgba(198, 40, 40, 0.16) 0deg);
+}
+
+.workspace-load-card.is-error .workspace-load-card__percent {
+    color: #c62828;
+}
+
+.workspace-load-card.is-error .workspace-load-card__bar {
+    background: rgba(198, 40, 40, 0.14);
+}
+
+.workspace-load-card.is-error .workspace-load-card__bar-fill {
+    background: linear-gradient(90deg, #c62828 0%, #ef5350 100%);
+}
+
 @media (max-width: 640px) {
     .app-download-region {
         padding: 16px;
@@ -426,6 +611,43 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
     .app-download-card__percent {
         font-size: 26px;
     }
+
+    .workspace-load-overlay {
+        padding: 16px;
+    }
+
+    .workspace-load-card {
+        padding: 20px 18px 18px;
+        border-radius: 22px;
+    }
+
+    .workspace-load-card__body {
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .workspace-load-card__gauge {
+        width: 104px;
+        height: 104px;
+        flex-basis: 104px;
+    }
+
+    .workspace-load-card__gauge-core {
+        width: 76px;
+        height: 76px;
+    }
+
+    .workspace-load-card__percent {
+        font-size: 34px;
+    }
+
+    .workspace-load-card__file {
+        font-size: 16px;
+    }
+
+    .workspace-load-card__meta {
+        font-size: 14px;
+    }
 }
 
 .app-toast {
@@ -437,7 +659,7 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
     border-radius: 10px;
     border-left: 4px solid transparent;
     background: rgba(255, 255, 255, 0.98);
-    color: var(--text);
+    color: #0f172a;
     box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
     transform: translateY(-8px);
     opacity: 0;
@@ -470,17 +692,19 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
     text-transform: uppercase;
     letter-spacing: .5px;
     margin-bottom: 4px;
+    color: #0f172a;
 }
 
 .app-toast__message {
     font-size: 13px;
     line-height: 1.45;
+    color: #334155;
 }
 
 .app-toast__close {
     border: 0;
     background: transparent;
-    color: var(--text-muted);
+    color: #64748b;
     cursor: pointer;
     font-size: 14px;
     line-height: 1;
@@ -488,7 +712,7 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
 }
 
 .app-toast__close:hover {
-    color: var(--text);
+    color: #0f172a;
 }
 
 @media (max-width: 640px) {
@@ -1504,6 +1728,8 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
     display: inline-block;
     white-space: nowrap;
     max-width: 100%;
+    background: rgba(191,219,254,.10);
+    border-color: rgba(191,219,254,.18);
 }
 
 .module-card__actions {
@@ -1613,6 +1839,17 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
 .dashboard-insight-chart canvas {
     width: 100% !important;
     height: 260px !important;
+}
+
+.dashboard-insight-chart--rule-outcome .dashboard-insight-chart__scroll {
+    max-height: 720px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.dashboard-insight-chart--rule-outcome canvas {
+    height: auto !important;
+    min-height: 420px !important;
 }
 
 .dashboard-insight-feed {
@@ -1816,9 +2053,11 @@ input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focu
 
 code {
     font-family: var(--mono);
-    background: #F5F5F5;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    color: var(--text);
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: 8px;
     font-size: 12px;
 }
 
@@ -1944,6 +2183,9 @@ code {
     --rule15-pass: #4ade80;
     --rule15-fail: #f87171;
     --rule15-summary-head: #1d4ed8;
+    --light-surface-text: #0f172a;
+    --light-surface-muted: #475569;
+    --light-surface-soft: #64748b;
     --shadow: 0 10px 32px rgba(0,0,0,.25);
     --shadow-lg: 0 18px 52px rgba(0,0,0,.38);
     --radius: 14px;
@@ -1977,6 +2219,9 @@ html.light {
     --rule15-pass: #166534;
     --rule15-fail: #b91c1c;
     --rule15-summary-head: #8b0000;
+    --light-surface-text: #0f172a;
+    --light-surface-muted: #475569;
+    --light-surface-soft: #64748b;
     --shadow: 0 10px 26px rgba(15,23,42,.08);
     --shadow-lg: 0 18px 44px rgba(15,23,42,.12);
 }
@@ -2633,9 +2878,29 @@ html.light .login-card {
 .login-card input[type="email"],
 .login-card input[type="password"],
 .login-card input[type="text"] {
+    background: rgba(15,23,42,.34);
+    border: 1px solid rgba(191,219,254,.24);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+.login-card input[type="email"]::placeholder,
+.login-card input[type="password"]::placeholder,
+.login-card input[type="text"]::placeholder {
+    color: rgba(226,232,240,.62);
+}
+
+html.light .login-card input[type="email"],
+html.light .login-card input[type="password"],
+html.light .login-card input[type="text"] {
     background: rgba(255,255,255,.86);
-    border: 1px solid rgba(255,255,255,.42);
+    border: 1px solid rgba(88,130,193,.24);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.65);
+}
+
+html.light .login-card input[type="email"]::placeholder,
+html.light .login-card input[type="password"]::placeholder,
+html.light .login-card input[type="text"]::placeholder {
+    color: rgba(71,85,105,.72);
 }
 
 .login-card .btn-primary {
@@ -4972,6 +5237,78 @@ body.messages-modal-open {
     transform: none !important;
     cursor: not-allowed;
     pointer-events: none;
+}
+
+html:not(.light) input[type="text"],
+html:not(.light) input[type="email"],
+html:not(.light) input[type="password"],
+html:not(.light) input[type="number"],
+html:not(.light) input[type="search"],
+html:not(.light) input[type="date"],
+html:not(.light) input[type="datetime-local"],
+html:not(.light) input[type="time"],
+html:not(.light) input[type="url"],
+html:not(.light) input[type="tel"],
+html:not(.light) select,
+html:not(.light) textarea {
+    color: var(--light-surface-text);
+    background: #ffffff;
+}
+
+html:not(.light) input[type="text"]::placeholder,
+html:not(.light) input[type="email"]::placeholder,
+html:not(.light) input[type="password"]::placeholder,
+html:not(.light) input[type="number"]::placeholder,
+html:not(.light) input[type="search"]::placeholder,
+html:not(.light) input[type="date"]::placeholder,
+html:not(.light) input[type="datetime-local"]::placeholder,
+html:not(.light) input[type="time"]::placeholder,
+html:not(.light) input[type="url"]::placeholder,
+html:not(.light) input[type="tel"]::placeholder,
+html:not(.light) textarea::placeholder {
+    color: var(--light-surface-soft);
+}
+
+html:not(.light) .info-box,
+html:not(.light) .preview-inner,
+html:not(.light) .alert,
+html:not(.light) .stat-card,
+html:not(.light) .chart-card,
+html:not(.light) .results-table-shell,
+html:not(.light) .rule20-grid-wrap,
+html:not(.light) .row-even,
+html:not(.light) .row-odd,
+html:not(.light) .table-footer {
+    color: var(--light-surface-text);
+}
+
+html:not(.light) .info-box strong,
+html:not(.light) .preview-inner strong,
+html:not(.light) .stat-card__value,
+html:not(.light) .chart-metric,
+html:not(.light) .big-status,
+html:not(.light) .results-table-shell .data-table td,
+html:not(.light) .rule20-grid-table tbody td {
+    color: var(--light-surface-text);
+}
+
+html:not(.light) .stat-card__label,
+html:not(.light) .preview-note,
+html:not(.light) .chart-kicker,
+html:not(.light) .chart-subtle,
+html:not(.light) .table-footer {
+    color: var(--light-surface-muted);
+}
+
+html:not(.light) .rule-page-shell .viz-card,
+html:not(.light) .rule-page-shell [class$="-preview-wrap"],
+html:not(.light) .rule-page-shell [class$="-table-wrap"],
+html:not(.light) .rule-page-shell [class*="control-card"],
+html:not(.light) .rule-page-shell [class*="group-final"],
+html:not(.light) .rule-page-shell [class*="criteria-head"],
+html:not(.light) .rule-page-shell [class*="criteria-cell"],
+html:not(.light) .rule-page-shell [class*="mid-pass-cell"] {
+    color: var(--light-surface-text);
 }
 
 .rule20-comparison-card__header {

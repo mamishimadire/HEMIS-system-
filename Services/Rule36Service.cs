@@ -9,10 +9,12 @@ namespace HemisAudit.Services
     {
         private const int BrowserPreviewRowLimit = 10;
         private readonly IConfiguration _configuration;
+        private readonly IPendingValidationCacheService _pendingValidationCache;
 
-        public Rule36Service(IConfiguration configuration)
+        public Rule36Service(IConfiguration configuration, IPendingValidationCacheService pendingValidationCache)
         {
             _configuration = configuration;
+            _pendingValidationCache = pendingValidationCache;
         }
 
         private static string BuildConnectionString(string server, string database, string driver) =>
@@ -159,11 +161,25 @@ namespace HemisAudit.Services
                 var dt = Sanitise(request.DeceasedTable);
                 var sc = Sanitise(request.StudColumn);
                 var dc = Sanitise(request.DeceasedColumn);
-                var sql = $@"SELECT
+                var sql = $@"
+WITH DeceasedKeys AS
+(
+    SELECT DISTINCT CONVERT(nvarchar(255), d.[{dc}]) AS DeceasedKey
+    FROM [{dt}] d
+    WHERE d.[{dc}] IS NOT NULL
+),
+StudentKeys AS
+(
+    SELECT CONVERT(nvarchar(255), s.[{sc}]) AS StudentKey
+    FROM [{st}] s
+)
+SELECT
                     (SELECT COUNT(*) FROM [{st}]) AS STUD_Total,
                     (SELECT COUNT(*) FROM [{dt}]) AS Deceased_Total,
-                    (SELECT COUNT(*) FROM [{st}] s WHERE EXISTS
-                        (SELECT 1 FROM [{dt}] d WHERE s.[{sc}]=d.[{dc}])) AS Matching_Records";
+                    (SELECT COUNT(*)
+                     FROM StudentKeys s
+                     INNER JOIN DeceasedKeys d
+                        ON d.DeceasedKey = s.StudentKey) AS Matching_Records";
                 using var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout();
                 using var reader = await cmd.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
@@ -201,13 +217,22 @@ namespace HemisAudit.Services
                 var sc = Sanitise(request.StudColumn);
                 var dc = Sanitise(request.DeceasedColumn);
 
-                var sql = $@"SELECT
-                        ROW_NUMBER() OVER (ORDER BY s.[{sc}]) AS Validation_Number,
-                        CASE WHEN EXISTS(SELECT 1 FROM [{dt}] d WHERE s.[{sc}] = d.[{dc}]) THEN 'FAIL' ELSE 'PASS' END AS Validation_Result,
-                        CASE WHEN EXISTS(SELECT 1 FROM [{dt}] d WHERE s.[{sc}] = d.[{dc}]) THEN 'Student marked as deceased' ELSE NULL END AS Exception_Reason,
-                        s.[{sc}] AS STUD_Column_Value
-                    FROM [{st}] s
-                    ORDER BY s.[{sc}]";
+                var sql = $@"
+WITH DeceasedKeys AS
+(
+    SELECT DISTINCT CONVERT(nvarchar(255), d.[{dc}]) AS DeceasedKey
+    FROM [{dt}] d
+    WHERE d.[{dc}] IS NOT NULL
+)
+SELECT
+    ROW_NUMBER() OVER (ORDER BY s.[{sc}]) AS Validation_Number,
+    CASE WHEN d.DeceasedKey IS NOT NULL THEN 'FAIL' ELSE 'PASS' END AS Validation_Result,
+    CASE WHEN d.DeceasedKey IS NOT NULL THEN 'Student marked as deceased' ELSE NULL END AS Exception_Reason,
+    CONVERT(nvarchar(255), s.[{sc}]) AS STUD_Column_Value
+FROM [{st}] s
+LEFT JOIN DeceasedKeys d
+    ON d.DeceasedKey = CONVERT(nvarchar(255), s.[{sc}])
+ORDER BY s.[{sc}]";
 
                 using var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout();
                 using var reader = await cmd.ExecuteReaderAsync();
@@ -349,6 +374,7 @@ SET HemisServer = @HemisServer,
     DeceasedColumn = @DeceasedColumn,
     LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = GETDATE(),
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
@@ -424,6 +450,7 @@ WHERE RunID = @RunID
 UPDATE dbo.ValidationRuns
 SET LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = NULL,
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
@@ -537,11 +564,13 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
             workspace.HasDataAnalystSignoff = signoffs.Any(s =>
                 string.Equals(s.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
 
-            var currentUserSignoff = signoffs.FirstOrDefault(s => s.IsCurrentUser);
-            workspace.CurrentUserHasSignedOff = currentUserSignoff != null;
-            workspace.CurrentUserSignoffComment = currentUserSignoff?.Comment ?? "";
+            var currentRoleSignoff = signoffs.FirstOrDefault(s =>
+                HemisAudit.Helpers.ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, workspace.CurrentUserEngagementRole));
+            workspace.CurrentUserHasSignedOff = currentRoleSignoff != null;
+            workspace.CurrentUserSignoffComment = currentRoleSignoff?.Comment ?? "";
+            workspace.IsWorkspaceSaved = await IsWorkspaceSavedAsync(connection, workspace.RunId!.Value);
 
-            if (workspace.Summary != null && workspace.Summary.SavedRunId.GetValueOrDefault() <= 0)
+            if (workspace.Summary != null)
                 workspace.Summary.SavedRunId = workspace.RunId;
 
             if (string.IsNullOrWhiteSpace(workspace.CurrentStatus))
@@ -612,6 +641,9 @@ WHERE vr.RunID = @RunID;";
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
 
+            if (!await IsWorkspaceSavedAsync(connection, runId))
+                throw new InvalidOperationException("The data analyst must save the workspace before signoff is available.");
+
             var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
             if (!CanSignOffAsRole(engagementRole))
                 throw new InvalidOperationException("Only assigned data analysts, managers, and directors can sign off a validation run.");
@@ -667,7 +699,11 @@ END";
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
 
-            var removal = await ReviewSignoffSqlHelper.RemoveReviewerSignoffWithVersioningAsync(connection, runId, reviewerId.Value);
+            var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
+            if (!HemisAudit.Helpers.ValidationRunAccessPolicy.CanAssignedUserRemoveSignoff(engagementRole))
+                throw new InvalidOperationException("Only the assigned data analyst, manager, or director can remove signoff from this run.");
+
+            var removal = await ReviewSignoffSqlHelper.RemoveRoleSignoffWithVersioningAsync(connection, runId, engagementRole!, reviewerEmail);
             if (removal.RemovedCount <= 0)
                 return;
         }
@@ -689,20 +725,22 @@ END";
 
 IF OBJECT_ID('tempdb..#ValidationResults') IS NOT NULL DROP TABLE #ValidationResults;
 
+WITH DeceasedKeys AS
+(
+    SELECT DISTINCT CONVERT(nvarchar(255), d.[{dc}]) AS DeceasedKey
+    FROM [{dt}] d
+    WHERE d.[{dc}] IS NOT NULL
+)
 SELECT
     ROW_NUMBER() OVER (ORDER BY s.[{sc}]) AS Validation_Number,
-    CASE
-        WHEN EXISTS (SELECT 1 FROM [{dt}] d WHERE s.[{sc}] = d.[{dc}]) THEN 'FAIL'
-        ELSE 'PASS'
-    END AS Validation_Result,
-    CASE
-        WHEN EXISTS (SELECT 1 FROM [{dt}] d WHERE s.[{sc}] = d.[{dc}]) THEN 'Student marked as deceased'
-        ELSE NULL
-    END AS Exception_Reason,
-    s.[{sc}] AS STUD_Column_Value,
+    CASE WHEN d.DeceasedKey IS NOT NULL THEN 'FAIL' ELSE 'PASS' END AS Validation_Result,
+    CASE WHEN d.DeceasedKey IS NOT NULL THEN 'Student marked as deceased' ELSE NULL END AS Exception_Reason,
+    CONVERT(nvarchar(255), s.[{sc}]) AS STUD_Column_Value,
     s.*
 INTO #ValidationResults
 FROM [{st}] s
+LEFT JOIN DeceasedKeys d
+    ON d.DeceasedKey = CONVERT(nvarchar(255), s.[{sc}])
 ORDER BY s.[{sc}];
 
 SELECT
@@ -970,7 +1008,30 @@ WHERE ClientID = @ClientID
             var value = await command.ExecuteScalarAsync();
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
-
+        private static async Task<bool> IsWorkspaceSavedAsync(SqlConnection connection, int runId)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT CASE
+    WHEN EXISTS (
+        SELECT 1
+        FROM dbo.ValidationRuns
+        WHERE RunID = @RunID
+          AND (
+                WorkspaceSavedAt IS NOT NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM dbo.ReviewSignoffs rs
+                    WHERE rs.RunID = ValidationRuns.RunID
+                      AND rs.SignoffRole = 'DataAnalyst'
+                )
+          )
+    ) THEN 1
+    ELSE 0
+END;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        }
         private async Task<bool> HasSignoffRoleAsync(SqlConnection connection, int runId, string signoffRole)
         {
             await using var command = connection.CreateConfiguredCommand();
@@ -1088,3 +1149,5 @@ WHERE ClientID = @ClientID;";
             name.Replace("]", "").Replace("[", "").Replace("'", "").Replace(";", "").Trim();
     }
 }
+
+

@@ -44,7 +44,7 @@
         <thead>
             <tr>
                 <th>Name</th><th>Email</th><th>Code</th><th>Role</th>
-                <th>Engagements</th><th>Status</th><th>Last Login</th><th>Actions</th>
+                <th>Password Age</th><th>Engagements</th><th>Status</th><th>Last Login</th><th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -63,6 +63,24 @@
                         @foreach (var r in u.Roles)
                         {
                             <span class="badge badge--role">@r</span>
+                        }
+                    </td>
+                    <td>
+                        <div>@u.PasswordStatus.AgeDays day(s)</div>
+                        <div style="font-size:12px;color:var(--text-muted)">
+                            Since @(u.PasswordStatus.ReferenceDateUtc?.ToString("dd MMM yyyy") ?? "N/A")
+                        </div>
+                        @if (u.PasswordStatus.IsExpired)
+                        {
+                            <span class="badge badge--fail">Expired</span>
+                        }
+                        else if (u.PasswordStatus.IsExpiringSoon)
+                        {
+                            <span class="badge badge--warning">@u.PasswordStatus.DaysRemaining day(s) left</span>
+                        }
+                        else
+                        {
+                            <span class="badge badge--pass">@u.PasswordStatus.DaysRemaining day(s) left</span>
                         }
                     </td>
                     <td>@u.AssignedClientsCount</td>

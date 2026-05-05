@@ -29,6 +29,8 @@ namespace HemisAudit.ViewModels
 
         [Required, Compare(nameof(NewPassword)), DataType(DataType.Password)]
         public string ConfirmPassword { get; set; } = "";
+
+        public PasswordStatusViewModel PasswordStatus { get; set; } = new();
     }
 
     public class ForgotPasswordViewModel
@@ -75,6 +77,7 @@ namespace HemisAudit.ViewModels
         public DateTime? LastLoginAt { get; set; }
         public List<string> Roles { get; set; } = new();
         public int AssignedClientsCount { get; set; }
+        public PasswordStatusViewModel PasswordStatus { get; set; } = new();
     }
 
     public class CreateUserViewModel
@@ -180,11 +183,23 @@ namespace HemisAudit.ViewModels
         public string ConfirmPassword { get; set; } = "";
     }
 
+    public class PasswordStatusViewModel
+    {
+        public DateTime? ReferenceDateUtc { get; set; }
+        public int AgeDays { get; set; }
+        public int DaysRemaining { get; set; }
+        public int MaxAgeDays { get; set; }
+        public int WarningWindowDays { get; set; }
+        public bool IsExpired { get; set; }
+        public bool IsExpiringSoon { get; set; }
+    }
+
     public class ProfilePageViewModel
     {
         public string UserId { get; set; } = "";
         public ProfileEditViewModel Edit { get; set; } = new();
         public ProfilePasswordChangeViewModel PasswordChange { get; set; } = new();
+        public PasswordStatusViewModel PasswordStatus { get; set; } = new();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -318,6 +333,7 @@ namespace HemisAudit.ViewModels
         public string RunByUserName { get; set; } = "";
         public string? LastEditedByUserName { get; set; }
         public DateTime? LastEditedAt { get; set; }
+        public bool IsWorkspaceSaved { get; set; }
         public bool IsCurrent { get; set; }
         public int SignoffCount { get; set; }
         public bool HasDataAnalystSignoff { get; set; }
@@ -377,10 +393,7 @@ namespace HemisAudit.ViewModels
         public string CurrentUserEngagementRole { get; set; } = "";
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff =>
-            !string.IsNullOrWhiteSpace(CurrentUserEngagementRole) &&
-            Signoffs.Any(s =>
-                s.IsCurrentUser &&
-                string.Equals(s.SignoffRole, CurrentUserEngagementRole, StringComparison.OrdinalIgnoreCase));
+            Signoffs.Any(s => ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, CurrentUserEngagementRole));
         public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
         public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
         public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
@@ -405,6 +418,7 @@ namespace HemisAudit.ViewModels
         public string CurrentStatus { get; set; } = "";
         public string? LastEditedByUserName { get; set; }
         public DateTime? LastEditedAt { get; set; }
+        public bool IsWorkspaceSaved { get; set; }
         public ValidationSummary? Summary { get; set; }
     }
 
@@ -444,6 +458,7 @@ namespace HemisAudit.ViewModels
         public int DisplayedClientCount { get; set; }
         public int ReviewedAndCompletedRuns { get; set; }
         public int NeedsReviewRuns { get; set; }
+        public int AwaitingReviewRuns { get; set; }
         public int PassedRuleRuns { get; set; }
         public int FailedRuleRuns { get; set; }
         public int PassedRuleRecords { get; set; }
@@ -454,6 +469,7 @@ namespace HemisAudit.ViewModels
         public int UnsignedAnalystRuns { get; set; }
         public int ManagerSignedRuns { get; set; }
         public int DirectorSignedRuns { get; set; }
+        public int ArchiveReadyEngagements { get; set; }
         public int HistorySignedRuns { get; set; }
         public string CurrentScope { get; set; } = "active";
         public string? CurrentSearch { get; set; }
@@ -462,6 +478,7 @@ namespace HemisAudit.ViewModels
         public List<ClientListViewModel> PendingApprovalQueue { get; set; } = new();
         public List<DashboardIndustryMetric> IndustryBreakdown { get; set; } = new();
         public List<DashboardRuleOutcomeMetric> RuleOutcomeBreakdown { get; set; } = new();
+        public List<DashboardEngagementInsightViewModel> EngagementInsights { get; set; } = new();
         public List<DashboardRuleOutcomeMetric> HistoryRuleOutcomeBreakdown { get; set; } = new();
         public List<ValidationRunRow> CurrentRuns { get; set; } = new();
         public List<ValidationRunRow> HistoryRuns { get; set; } = new();
@@ -491,6 +508,29 @@ namespace HemisAudit.ViewModels
         public string RuleLabel { get; set; } = "";
         public int PassedCount { get; set; }
         public int FailedCount { get; set; }
+    }
+
+    public class DashboardEngagementInsightViewModel
+    {
+        public int ClientId { get; set; }
+        public string EngagementName { get; set; } = "";
+        public string MaconomyNumber { get; set; } = "";
+        public string Industry { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string CurrentUserEngagementRole { get; set; } = "";
+        public int ReviewedAndCompletedRuns { get; set; }
+        public int NeedsReviewRuns { get; set; }
+        public int PassedRuleRuns { get; set; }
+        public int FailedRuleRuns { get; set; }
+        public int PassedRuleRecords { get; set; }
+        public int FailedRuleRecords { get; set; }
+        public decimal PassedRuleRecordRate { get; set; }
+        public decimal FailedRuleRecordRate { get; set; }
+        public int AnalystSignedRuns { get; set; }
+        public int ManagerSignedRuns { get; set; }
+        public int DirectorSignedRuns { get; set; }
+        public List<DashboardRuleOutcomeMetric> RuleOutcomeBreakdown { get; set; } = new();
+        public List<ValidationRunRow> RecentRuns { get; set; } = new();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -781,3 +821,5 @@ namespace HemisAudit.ViewModels
         public string? Error { get; set; }
     }
 }
+
+

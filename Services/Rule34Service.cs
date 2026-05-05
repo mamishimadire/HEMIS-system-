@@ -19,12 +19,14 @@ namespace HemisAudit.Services
         };
 
         private readonly IConfiguration _configuration;
+        private readonly IPendingValidationCacheService _pendingValidationCache;
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public Rule34Service(IConfiguration configuration, IHttpClientFactory httpClientFactory)
+        public Rule34Service(IConfiguration configuration, IHttpClientFactory httpClientFactory, IPendingValidationCacheService pendingValidationCache)
         {
             _configuration = configuration;
             _httpClientFactory = httpClientFactory;
+            _pendingValidationCache = pendingValidationCache;
         }
 
         public async Task<DatabaseListResult> GetDatabasesAsync(string server, string driver)
@@ -477,11 +479,13 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
             workspace.HasDataAnalystSignoff = signoffs.Any(s =>
                 string.Equals(s.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
 
-            var currentUserSignoff = signoffs.FirstOrDefault(s => s.IsCurrentUser);
-            workspace.CurrentUserHasSignedOff = currentUserSignoff != null;
-            workspace.CurrentUserSignoffComment = currentUserSignoff?.Comment ?? "";
+            var currentRoleSignoff = signoffs.FirstOrDefault(s =>
+                HemisAudit.Helpers.ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, workspace.CurrentUserEngagementRole));
+            workspace.CurrentUserHasSignedOff = currentRoleSignoff != null;
+            workspace.CurrentUserSignoffComment = currentRoleSignoff?.Comment ?? "";
+            workspace.IsWorkspaceSaved = await IsWorkspaceSavedAsync(connection, workspace.RunId!.Value);
 
-            if (workspace.Summary != null && workspace.Summary.SavedRunId.GetValueOrDefault() <= 0)
+            if (workspace.Summary != null)
                 workspace.Summary.SavedRunId = workspace.RunId;
 
             if (string.IsNullOrWhiteSpace(workspace.CurrentStatus))
@@ -588,6 +592,7 @@ SET HemisServer = @HemisServer,
     DeceasedColumn = @DeceasedColumn,
     LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = GETDATE(),
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
@@ -663,6 +668,7 @@ WHERE RunID = @RunID
 UPDATE dbo.ValidationRuns
 SET LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
+    WorkspaceSavedAt = NULL,
     PreviousHash = @PreviousHash,
     RecordHash = @RecordHash,
     Status = 'Needs Review'
@@ -708,6 +714,9 @@ WHERE RunID = @RunID;";
                 throw new InvalidOperationException("Validation run was not found.");
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
+
+            if (!await IsWorkspaceSavedAsync(connection, runId))
+                throw new InvalidOperationException("The data analyst must save the workspace before signoff is available.");
 
             var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
             if (!CanSignOffAsRole(engagementRole))
@@ -764,7 +773,11 @@ END";
 
             await EnsureClientNotArchivedAsync(connection, clientId.Value);
 
-            var removal = await ReviewSignoffSqlHelper.RemoveReviewerSignoffWithVersioningAsync(connection, runId, reviewerId.Value);
+            var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
+            if (!HemisAudit.Helpers.ValidationRunAccessPolicy.CanAssignedUserRemoveSignoff(engagementRole))
+                throw new InvalidOperationException("Only the assigned data analyst, manager, or director can remove signoff from this run.");
+
+            var removal = await ReviewSignoffSqlHelper.RemoveRoleSignoffWithVersioningAsync(connection, runId, engagementRole!, reviewerEmail);
             if (removal.RemovedCount <= 0)
                 return;
         }
@@ -1643,7 +1656,30 @@ WHERE ClientID = @ClientID
             var value = await command.ExecuteScalarAsync();
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
-
+        private static async Task<bool> IsWorkspaceSavedAsync(SqlConnection connection, int runId)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT CASE
+    WHEN EXISTS (
+        SELECT 1
+        FROM dbo.ValidationRuns
+        WHERE RunID = @RunID
+          AND (
+                WorkspaceSavedAt IS NOT NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM dbo.ReviewSignoffs rs
+                    WHERE rs.RunID = ValidationRuns.RunID
+                      AND rs.SignoffRole = 'DataAnalyst'
+                )
+          )
+    ) THEN 1
+    ELSE 0
+END;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        }
         private async Task<bool> HasSignoffRoleAsync(SqlConnection connection, int runId, string signoffRole)
         {
             await using var command = connection.CreateConfiguredCommand();
@@ -1790,3 +1826,5 @@ WHERE ClientID = @ClientID;";
         }
     }
 }
+
+

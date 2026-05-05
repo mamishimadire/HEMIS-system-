@@ -184,7 +184,7 @@
         <div class="workspace-signoff-actions">
             <button class="btn btn-success" id="saveWorkspaceBtn" onclick="saveWorkspace()">Save Workspace</button>
             <button class="btn btn-primary" id="signOffBtn" onclick="signOffWorkspace()">Sign Off</button>
-            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove My Signoff</button>
+            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove Signoff</button>
         </div>
     </div>
 
@@ -249,6 +249,7 @@ const state = {
     currentUserEngagementRole: '',
     currentStatus: '',
     currentUserHasSignedOff: false,
+    isWorkspaceSaved: false,
     hasDataAnalystSignoff: false,
     resultsVisible: false,
     editWarningAccepted: false,
@@ -367,6 +368,7 @@ function resetWorkspaceState(clearClient) {
     state.currentUserEngagementRole = '';
     state.currentStatus = '';
     state.currentUserHasSignedOff = false;
+    state.isWorkspaceSaved = false;
     state.hasDataAnalystSignoff = false;
     state.resultsVisible = false;
     state.editWarningAccepted = false;
@@ -407,16 +409,20 @@ function renderWorkspaceState() {
         currentSystemRole === 'DataAnalyst' ||
         ((currentRole === 'Manager' || currentRole === 'Director') && state.resultsVisible)
     );
+    const canActivateSignoff = !!canSign && !!state.isWorkspaceSaved;
     const signedOffLock = !!state.currentUserHasSignedOff;
     window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signedOffLock);
     window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signedOffLock);
+    const signoffButtonText = state.currentUserHasSignedOff
+        ? `Signed Off as ${currentRole || currentSystemRole || 'Reviewer'}`
+        : `Sign Off as ${currentRole || currentSystemRole || 'Reviewer'}`;
     window.ruleWorkspaceUi.applyStates([
         { target: 'saveWorkspaceBtn', show: canEdit, disabled: !canEdit || !state.currentRunId || signedOffLock },
-        { target: 'signOffBtn', show: canSign, disabled: !canSign || signedOffLock },
+        { target: 'signOffBtn', show: canSign, disabled: !canActivateSignoff || signedOffLock, text: signoffButtonText },
         { target: 'removeWorkspaceSignoffBtn', show: canSign && state.currentUserHasSignedOff, disabled: !canSign || !state.currentUserHasSignedOff },
         { target: 'runValidationBtn', disabled: !canEdit || signedOffLock },
         { target: 'generateSqlBtn', disabled: !canEdit || signedOffLock },
-        { target: 'signoffComment', disabled: !canSign || signedOffLock }
+        { target: 'signoffComment', disabled: !canActivateSignoff || signedOffLock }
     ]);
     window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
         allow: ['#downloadAllBtn', '#removeWorkspaceSignoffBtn']
@@ -462,6 +468,7 @@ async function markWorkspaceDirty() {
             }
 
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
             if (result.workspace) applyWorkspaceReviewState(result.workspace);
             setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
@@ -505,6 +512,7 @@ function applyWorkspace(workspace, preserveMessage) {
     state.endYear = workspace.endYear || state.endYear;
     state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
     state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+    state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
     state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
     state.currentStatus = workspace.currentStatus || '';
     state.resultsVisible = !!workspace.resultsVisible;
@@ -539,7 +547,7 @@ function applyWorkspace(workspace, preserveMessage) {
     }
 
     if (workspace.summary) {
-        applyValidationResult(workspace.summary, false);
+        applyValidationResult(workspace.summary, false, { fromWorkspace: true });
     }
 
     state.isHydrating = false;
@@ -567,6 +575,7 @@ function applyWorkspaceReviewState(workspace) {
     state.endYear = workspace.endYear || state.endYear;
     state.currentUserEngagementRole = workspace.currentUserEngagementRole || state.currentUserEngagementRole;
     state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+    state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
     state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
     state.currentStatus = workspace.currentStatus || state.currentStatus;
     state.resultsVisible = !!workspace.resultsVisible;
@@ -598,7 +607,7 @@ function applyWorkspaceReviewState(workspace) {
     document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
 
     if (workspace.summary) {
-        applyValidationResult(workspace.summary, false);
+        applyValidationResult(workspace.summary, false, { fromWorkspace: true });
     } else {
         renderWorkspaceState();
     }
@@ -908,9 +917,9 @@ async function runValidation() {
     }
 }
 
-function applyValidationResult(result, switchToValidationTab) {
+function applyValidationResult(result, switchToValidationTab, options = {}) {
     state.validationResult = result;
-    if (result.savedRunId) state.currentRunId = result.savedRunId;
+    if (!options.fromWorkspace && result.savedRunId) state.currentRunId = result.savedRunId;
     if (result.status) state.currentStatus = result.status;
     updateHeaderBadge(result.status);
     document.getElementById('downloadAllBtn').disabled = false;
@@ -1140,7 +1149,10 @@ async function saveWorkspace() {
 
         state.editWarningAccepted = true;
         state.isDirty = false;
-        if (result.workspace) applyWorkspace(result.workspace, true);
+        const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+            ? !!result.resultsVisible
+            : !!result.workspace?.resultsVisible;
+        if (result.workspace) applyWorkspace(result.workspace, workspaceResultsVisible);
         setWorkspaceInfo(result.message || 'Workspace saved.', result.signoffsCleared ? 'warning' : 'success');
     } finally {
         hideSpinner();
@@ -1154,6 +1166,10 @@ async function signOffWorkspace() {
 
     if (!canSign) {
         setWorkspaceInfo('This workspace can only be signed off by the assigned analyst, manager, or director after the analyst review is available.', 'error');
+        return;
+    }
+    if (!state.isWorkspaceSaved) {
+        setWorkspaceInfo('Save the workspace first before signing off.', 'warning');
         return;
     }
     if (state.isDirty) {
@@ -1174,7 +1190,10 @@ async function signOffWorkspace() {
             return;
         }
 
-        if (result.workspace) applyWorkspace(result.workspace, true);
+        const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+            ? !!result.resultsVisible
+            : !!result.workspace?.resultsVisible;
+        if (result.workspace) applyWorkspace(result.workspace, workspaceResultsVisible);
         state.isDirty = false;
         setWorkspaceInfo('Workspace signoff saved. Other assigned users can now review this signed run.', 'success');
         switchTab('downloads');
@@ -1185,7 +1204,7 @@ async function signOffWorkspace() {
 
 async function removeWorkspaceSignoff() {
     if (!state.currentRunId || !state.currentUserHasSignedOff) {
-        setWorkspaceInfo('You can only remove your own signoff.', 'error');
+        setWorkspaceInfo('There is no signoff for your assigned engagement role to remove.', 'error');
         return;
     }
 
@@ -1203,7 +1222,7 @@ async function removeWorkspaceSignoff() {
         }
 
         if (result.workspace) applyWorkspace(result.workspace, true);
-        setWorkspaceInfo('Your signoff was removed.', 'warning');
+        setWorkspaceInfo('Signoff removed.', 'warning');
     } finally {
         hideSpinner();
     }
@@ -1320,3 +1339,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (state.clientId > 0) await loadWorkspaceState();
 });
 </script>
+

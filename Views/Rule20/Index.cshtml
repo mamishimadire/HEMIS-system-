@@ -169,7 +169,7 @@
                 <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
             }
             <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
-            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
         </div>
     </div>
 
@@ -246,6 +246,7 @@ window.toggleAccordion = function (section) {
         currentStatus: '',
         currentUserEngagementRole: '',
         currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
         hasDataAnalystSignoff: false,
         resultsVisible: false,
         chartInstances: {}
@@ -337,7 +338,7 @@ window.toggleAccordion = function (section) {
     }
 
     function normalizeRole(value) {
-        return String(value || '').trim().toLowerCase();
+        return String(value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
     }
 
     function updateWorkspaceButtons() {
@@ -347,6 +348,7 @@ window.toggleAccordion = function (section) {
         const canEdit = !isResultsOnlyRole &&
             (normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst');
         const canSign = !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
             (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
         const signoffLocked = !!state.currentUserHasSignedOff;
         window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signoffLocked);
@@ -781,9 +783,11 @@ window.toggleAccordion = function (section) {
         });
     }
 
-    function applySummary(summary) {
+    function applySummary(summary, options = {}) {
         state.summary = normalizeBrowserSummary(summary);
-        state.currentRunId = summary?.savedRunId || state.currentRunId;
+        if (!options.fromWorkspace) {
+            state.currentRunId = summary?.savedRunId || state.currentRunId;
+        }
         state.currentStatus = summary?.status || state.currentStatus;
         state.resultsVisible = !!summary || state.resultsVisible;
         if (summary) {
@@ -812,6 +816,7 @@ window.toggleAccordion = function (section) {
             state.currentStatus = '';
             state.currentUserEngagementRole = '';
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
             state.resultsVisible = false;
             setWorkspaceState('No saved Rule 20 workspace exists for this engagement yet.', 'info');
@@ -829,6 +834,7 @@ window.toggleAccordion = function (section) {
         state.currentStatus = workspace.currentStatus || state.currentStatus;
         state.currentUserEngagementRole = workspace.currentUserEngagementRole || currentSystemRole || '';
         state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
         state.resultsVisible = !!resultsVisible;
         if (els.server) els.server.value = workspace.server || '';
@@ -861,7 +867,7 @@ window.toggleAccordion = function (section) {
             : 'Rule 20 workspace loaded. Run the validation to generate results.',
             'success');
         if (workspace.summary) {
-            applySummary(workspace.summary);
+            applySummary(workspace.summary, { fromWorkspace: true });
         } else if (!preserveExistingSummary) {
             applySummary(null);
         } else {
@@ -940,6 +946,7 @@ window.toggleAccordion = function (section) {
             const data = await postJson(`${apiBasePath}/RunValidation`, request);
             if (!data.success) throw new Error(data.error || 'Rule 20 failed.');
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
             state.resultsVisible = true;
             state.currentUserEngagementRole = state.currentUserEngagementRole || currentSystemRole || 'DataAnalyst';
@@ -968,7 +975,10 @@ window.toggleAccordion = function (section) {
         try {
             const data = await postJson(`${apiBasePath}/SaveWorkspace`, getRequest());
             if (!data.success) throw new Error(data.error || 'Workspace save failed.');
-            applyWorkspace(data.workspace, true, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
             setWorkspaceState(data.message || 'Workspace saved.', data.signoffsCleared ? 'warning' : 'success');
         } finally {
             hideSpinner();
@@ -980,7 +990,10 @@ window.toggleAccordion = function (section) {
         try {
             const data = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, getRequest());
             if (!data.success) throw new Error(data.error || 'Workspace edit could not start.');
-            applyWorkspace(data.workspace, true, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
             setWorkspaceState(data.message || 'Workspace ready for editing.', 'warning');
         } finally {
             hideSpinner();
@@ -997,7 +1010,10 @@ window.toggleAccordion = function (section) {
             });
             if (!data.success) throw new Error(data.error || 'Signoff failed.');
             state.currentUserHasSignedOff = true;
-            applyWorkspace(data.workspace, true, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
             setWorkspaceState(data.message || 'Signoff saved.', 'success');
         } finally {
             hideSpinner();
@@ -1007,6 +1023,7 @@ window.toggleAccordion = function (section) {
     async function removeWorkspaceSignoff() {
         showSpinner('Removing signoff...');
         try {
+            const previousRunId = state.currentRunId;
             const data = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
                 clientId: Number(els.clientId.value || 0),
                 runId: state.currentRunId,
@@ -1014,7 +1031,12 @@ window.toggleAccordion = function (section) {
             });
             if (!data.success) throw new Error(data.error || 'Signoff removal failed.');
             state.currentUserHasSignedOff = false;
-            applyWorkspace(data.workspace, true, true);
+            state.isWorkspaceSaved = false;
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            const preserveExistingSummary = !!(data.workspace && previousRunId && data.workspace.runId === previousRunId);
+            applyWorkspace(data.workspace, workspaceResultsVisible, preserveExistingSummary);
             setWorkspaceState(data.message || 'Signoff removed.', 'warning');
         } finally {
             hideSpinner();
@@ -1082,3 +1104,5 @@ window.toggleAccordion = function (section) {
     }
 })();
 </script>
+
+

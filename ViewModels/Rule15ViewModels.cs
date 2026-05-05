@@ -221,10 +221,7 @@ namespace HemisAudit.ViewModels
         public string CurrentUserEngagementRole { get; set; } = "";
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff =>
-            !string.IsNullOrWhiteSpace(CurrentUserEngagementRole) &&
-            Signoffs.Any(s =>
-                s.IsCurrentUser &&
-                string.Equals(s.SignoffRole, CurrentUserEngagementRole, StringComparison.OrdinalIgnoreCase));
+            Signoffs.Any(s => ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, CurrentUserEngagementRole));
         public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
         public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
         public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
@@ -263,6 +260,7 @@ namespace HemisAudit.ViewModels
         public string CurrentStatus { get; set; } = "";
         public string? LastEditedByUserName { get; set; }
         public DateTime? LastEditedAt { get; set; }
+        public bool IsWorkspaceSaved { get; set; }
         public Rule15ValidationSummary? Summary { get; set; }
     }
 
@@ -296,5 +294,7 @@ namespace HemisAudit.ViewModels
         public string? Error { get; set; }
     }
 }
+
+
 
 

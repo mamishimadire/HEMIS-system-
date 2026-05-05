@@ -228,7 +228,7 @@
             <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
             <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
             <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
-            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
         </div>
     </div>
 
@@ -299,6 +299,7 @@
         currentUserEngagementRole: '',
         currentStatus: '',
         currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
         hasDataAnalystSignoff: false,
         resultsVisible: false,
         editWarningAccepted: false,
@@ -804,6 +805,7 @@
         state.currentUserEngagementRole = '';
         state.currentStatus = '';
         state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
         state.hasDataAnalystSignoff = false;
         state.resultsVisible = false;
         state.editWarningAccepted = false;
@@ -843,6 +845,7 @@
         state.currentRunId = workspace && workspace.runId ? workspace.runId : null;
         state.currentUserEngagementRole = workspace && workspace.currentUserEngagementRole ? workspace.currentUserEngagementRole : '';
         state.currentUserHasSignedOff = !!(workspace && workspace.currentUserHasSignedOff);
+        state.isWorkspaceSaved = !!(workspace && workspace.isWorkspaceSaved);
         state.hasDataAnalystSignoff = !!(workspace && workspace.hasDataAnalystSignoff);
         state.currentStatus = workspace && workspace.currentStatus ? workspace.currentStatus : '';
         state.resultsVisible = !!resultsVisible;
@@ -906,6 +909,7 @@
                 currentSystemRole === 'DataAnalyst' ||
                 (state.resultsVisible && (role === 'Manager' || role === 'Director'))
             );
+        const canActivateSignoff = !!canSignWorkspace && !!state.isWorkspaceSaved;
         const canRemoveWorkspaceSignoff = !!canSignWorkspace && state.currentUserHasSignedOff;
         window.ruleWorkspaceUi.setReadonlyShell('app', !canEditWorkspace || signedOffLock);
         window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEditWorkspace || signedOffLock);
@@ -918,13 +922,20 @@
                 disabled: !canEditWorkspace || !state.currentRunId || state.isDirty || signedOffLock
             },
             { target: 'saveWorkspaceBtn', show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
-            { target: 'signoffBtn', show: canSignWorkspace, disabled: !canSignWorkspace || state.isDirty || signedOffLock },
+            {
+                target: 'signoffBtn',
+                show: canSignWorkspace,
+                disabled: !canActivateSignoff || state.isDirty || signedOffLock,
+                text: state.currentUserHasSignedOff
+                    ? `Signed Off as ${role || currentSystemRole || 'Reviewer'}`
+                    : 'Save Signoff'
+            },
             { target: 'removeSignoffBtn', show: canRemoveWorkspaceSignoff, disabled: !canRemoveWorkspaceSignoff },
             { target: 'connectBtn', disabled: !canEditWorkspace || signedOffLock },
             { target: 'verifyBtn', disabled: !canEditWorkspace || signedOffLock },
             { target: 'verifyBtnBar', disabled: !canEditWorkspace || signedOffLock },
             { target: 'refreshFilterBtn', disabled: !canEditWorkspace || signedOffLock },
-            { target: els.workspaceSignoffComment, disabled: archived || !canSignWorkspace || signedOffLock }
+            { target: els.workspaceSignoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
         ]);
         window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
             allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadRemainingBtn', '#downloadSqlBtn', '#removeSignoffBtn']
@@ -967,9 +978,13 @@
                 }
 
                 state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
                 state.hasDataAnalystSignoff = false;
+                const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+                    ? !!result.resultsVisible
+                    : !!result.workspace?.resultsVisible;
                 if (result.workspace) {
-                    applyWorkspace(result.workspace, true);
+                    applyWorkspace(result.workspace, workspaceResultsVisible);
                 }
                 setInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'info');
             } finally {
@@ -1227,6 +1242,7 @@
             state.currentStatus = result.status || '';
             state.resultsVisible = true;
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
             state.isDirty = false;
             state.editWarningAccepted = false;
@@ -1291,7 +1307,10 @@
                 return;
             }
 
-            applyWorkspace(result.workspace, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+                ? !!result.resultsVisible
+                : !!result.workspace?.resultsVisible;
+            applyWorkspace(result.workspace, workspaceResultsVisible);
             setInfo(result.message || 'Workspace saved.', 'success');
         } catch (error) {
             setInfo(toFriendlyRequestError(error, 'Unable to save workspace.'), 'error');
@@ -1309,7 +1328,10 @@
                 return;
             }
 
-            applyWorkspace(result.workspace, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+                ? !!result.resultsVisible
+                : !!result.workspace?.resultsVisible;
+            applyWorkspace(result.workspace, workspaceResultsVisible);
             state.editWarningAccepted = true;
             state.isDirty = true;
             renderWorkspaceState();
@@ -1335,7 +1357,10 @@
             }
 
             state.currentUserHasSignedOff = true;
-            applyWorkspace(result.workspace, true);
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+                ? !!result.resultsVisible
+                : !!result.workspace?.resultsVisible;
+            applyWorkspace(result.workspace, workspaceResultsVisible);
             renderWorkspaceState();
             setInfo(result.message || 'Signoff saved.', 'success');
             switchTab('downloads');
@@ -1360,7 +1385,11 @@
             }
 
             state.currentUserHasSignedOff = false;
-            applyWorkspace(result.workspace, true);
+            state.isWorkspaceSaved = false;
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
+                ? !!result.resultsVisible
+                : !!result.workspace?.resultsVisible;
+            applyWorkspace(result.workspace, workspaceResultsVisible);
             renderWorkspaceState();
             setInfo(result.message || 'Signoff removed.', 'success');
         } catch (error) {
@@ -1492,3 +1521,4 @@
     }
 })();
 </script>
+

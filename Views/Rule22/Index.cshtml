@@ -182,7 +182,7 @@
             <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
             <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
             <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
-            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove My Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
         </div>
     </div>
 
@@ -244,6 +244,7 @@
         currentUserEngagementRole: '',
         currentStatus: '',
         currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
         hasDataAnalystSignoff: false,
         workspaceIsHistorical: false,
         resultsVisible: true
@@ -290,7 +291,7 @@
     }
 
     function normalizeRole(value) {
-        return String(value || '').trim().toLowerCase();
+        return String(value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
     }
 
     function setOutput(target, kind, message) {
@@ -752,6 +753,7 @@
                 currentStatus: result.status,
                 currentUserEngagementRole: state.currentUserEngagementRole || currentSystemRole,
                 currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
                 currentUserSignoffComment: '',
                 hasDataAnalystSignoff: false,
                 lastEditedByUserName: 'Current analyst',
@@ -795,7 +797,9 @@
         state.currentRunId = workspace?.runId || null;
         state.currentUserEngagementRole = workspace?.currentUserEngagementRole || '';
         state.currentUserHasSignedOff = !!workspace?.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace?.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace?.hasDataAnalystSignoff;
+        state.resultsVisible = !!workspace?.resultsVisible;
         state.currentStatus = workspace?.currentStatus || workspace?.summary?.status || '';
         state.workspaceIsHistorical = false;
 
@@ -817,6 +821,7 @@
         state.sql = '';
         state.currentStatus = '';
         state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
         state.hasDataAnalystSignoff = false;
         state.workspaceIsHistorical = false;
 
@@ -842,6 +847,7 @@
         const normalizedSystemRole = normalizeRole(currentSystemRole);
         const canEdit = normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst';
         const canSign = !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
             !state.workspaceIsHistorical &&
             (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
         const signoffLocked = !!state.currentUserHasSignedOff;
@@ -883,6 +889,7 @@
             }
 
             state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
             updateWorkspaceCard(result.workspace || null);
             setWorkspaceInfo('warning', result.message || 'Editing has begun. Existing signoffs were removed.');
         } catch (error) {
@@ -945,7 +952,7 @@
 
     async function removeWorkspaceSignoff() {
         if (!state.currentRunId || !state.currentUserHasSignedOff) {
-            setWorkspaceInfo('warning', 'You can only remove your own signoff.');
+            setWorkspaceInfo('warning', 'There is no signoff for your assigned engagement role to remove.');
             return;
         }
 
@@ -1058,3 +1065,5 @@
     if (state.clientId > 0) loadWorkspace();
 })();
 </script>
+
+

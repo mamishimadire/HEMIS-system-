@@ -410,10 +410,16 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule36.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email);
+            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            if (workspace != null)
+            {
+                workspace.ResultsVisible = resultsVisible;
+            }
             return Json(new
             {
                 success = true,
                 message = "Signoff saved.",
+                resultsVisible,
                 workspace
             });
         }
@@ -438,7 +444,7 @@ namespace HemisAudit.Controllers
                 return Json(new
                 {
                     success = false,
-                    error = "Only an assigned user can remove their own signoff."
+                    error = "Only the assigned data analyst, manager, or director can remove signoff."
                 });
             }
 
@@ -467,7 +473,7 @@ namespace HemisAudit.Controllers
                 return Json(new
                 {
                     success = false,
-                    error = "You can only remove your own signoff."
+                    error = "There is no signoff for your assigned engagement role to remove."
                 });
             }
 
@@ -485,6 +491,11 @@ namespace HemisAudit.Controllers
             }
 
             var workspace = await _rule36.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email);
+            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            if (workspace != null)
+            {
+                workspace.ResultsVisible = resultsVisible;
+            }
             var reopenedRunId = workspace?.RunId;
             var preservedHistory = reopenedRunId.HasValue && reopenedRunId.Value != model.RunId.Value;
             var message = preservedHistory
@@ -501,6 +512,7 @@ namespace HemisAudit.Controllers
             {
                 success = true,
                 message,
+                resultsVisible,
                 workspace
             });
         }
@@ -610,7 +622,7 @@ namespace HemisAudit.Controllers
 
             if (!review.CurrentUserHasSignedOff)
             {
-                TempData["Error"] = "You can only remove your own signoff.";
+                TempData["Error"] = "There is no signoff for your assigned engagement role to remove.";
                 return RedirectToAction(nameof(Run), new { id = runId });
             }
 
@@ -627,8 +639,8 @@ namespace HemisAudit.Controllers
                 user.Email);
 
             TempData["Success"] = preservedHistory
-                ? $"Your signoff was removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
-                : "Your signoff was removed.";
+                ? $"Signoff removed. Run #{runId} moved to history and Run #{redirectRunId} is now current."
+                : "Signoff removed.";
             return RedirectToAction(nameof(Run), new { id = redirectRunId });
         }
 
@@ -639,7 +651,7 @@ namespace HemisAudit.Controllers
             if (review == null)
                 return RedirectToAction(nameof(Run), new { id = runId });
 
-            var bytes = _export.ExportExcel(review.Summary);
+            var bytes = _export.ExportRule36Excel(review.Summary);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 $"Rule36_Deceased_Validation_Run_{runId}.xlsx");
@@ -652,7 +664,7 @@ namespace HemisAudit.Controllers
             if (review == null)
                 return RedirectToAction(nameof(Run), new { id = runId });
 
-            var bytes = _export.ExportCsv(review.Summary, false);
+            var bytes = _export.ExportRule36Csv(review.Summary, false);
             return File(bytes, "text/csv", $"Rule36_Validation_Results_Run_{runId}.csv");
         }
 
@@ -663,7 +675,7 @@ namespace HemisAudit.Controllers
             if (review == null)
                 return RedirectToAction(nameof(Run), new { id = runId });
 
-            var bytes = _export.ExportCsv(review.Summary, true);
+            var bytes = _export.ExportRule36Csv(review.Summary, true);
             return File(bytes, "text/csv", $"Rule36_Deceased_Exceptions_Run_{runId}.csv");
         }
 
@@ -691,7 +703,7 @@ namespace HemisAudit.Controllers
         public async Task<IActionResult> DownloadExcel([FromBody] ValidationSummary summary)
         {
             summary = await ResolveExportSummaryAsync(summary);
-            var bytes = _export.ExportExcel(summary);
+            var bytes = _export.ExportRule36Excel(summary);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 $"Rule36_Deceased_Validation_{Ts()}.xlsx");
@@ -702,7 +714,7 @@ namespace HemisAudit.Controllers
         {
             summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule36_Validation_Results_{Ts()}.csv";
-            var bytes = _export.ExportCsv(summary, false);
+            var bytes = _export.ExportRule36Csv(summary, false);
             return File(bytes, "text/csv", fileName);
         }
 
@@ -711,7 +723,7 @@ namespace HemisAudit.Controllers
         {
             summary = await ResolveExportSummaryAsync(summary);
             var fileName = $"Rule36_Deceased_Exceptions_{Ts()}.csv";
-            var bytes = _export.ExportCsv(summary, true);
+            var bytes = _export.ExportRule36Csv(summary, true);
             return File(bytes, "text/csv", fileName);
         }
 
