@@ -871,7 +871,13 @@
         if (!el) return;
         const axisText = getChartTextColor();
         const border = getChartBorderColor();
-        const chartHeight = Math.min(Math.max(labels.length * 72, 180), 260);
+        const longestLabelLength = (labels || []).reduce(function (max, label) {
+            return Math.max(max, (label || '').length);
+        }, 0);
+        const reservedLabelWidth = Math.min(Math.max(longestLabelLength * 14, 220), 320);
+        const chartHeight = labels.length <= 2
+            ? Math.max(labels.length * 58, 110)
+            : Math.min(Math.max(labels.length * 60, 150), 220);
         el.height = chartHeight;
         el.style.setProperty('height', `${chartHeight}px`, 'important');
         charts.push(new Chart(el, {
@@ -898,7 +904,7 @@
                             color: axisText,
                             precision: 0,
                             font: {
-                                size: 12,
+                                size: 13,
                                 weight: '600'
                             }
                         },
@@ -906,14 +912,16 @@
                     },
                     y: {
                         afterFit: function (scale) {
-                            scale.width = Math.max(scale.width, 110);
+                            scale.width = Math.max(scale.width, reservedLabelWidth);
                         },
                         ticks: {
                             color: axisText,
                             autoSkip: false,
+                            crossAlign: 'near',
+                            padding: 16,
                             font: {
-                                size: 12,
-                                weight: '600'
+                                size: 15,
+                                weight: '700'
                             }
                         },
                         grid: { color: border }
@@ -921,7 +929,7 @@
                 },
                 layout: {
                     padding: {
-                        left: 12,
+                        left: 36,
                         right: 8
                     }
                 },
