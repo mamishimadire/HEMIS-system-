@@ -274,7 +274,7 @@
         const registrationTableName = summary.crseTable || summary.bridgeTable || 'dbo_CRSE';
 
         const rowHtml = rows.map(row => {
-            const v = row.displayValues || {};
+            const rawV = row.displayValues || {}; const v = Object.fromEntries(Object.entries(rawV).map(([k, val]) => [k.toUpperCase(), val]));
             const resultText = row.validationResult === 'FAIL' ? 'Fail' : 'Pass';
             const crseCriteriaMessage = v.CRSE_CRITERIA_MESSAGE || `${resultText} this criteria on dbo_CRSE: ${criteriaText}`;
             const registrationMessage = v.CREG_LINK_MESSAGE || `${resultText} registration linkage check`;

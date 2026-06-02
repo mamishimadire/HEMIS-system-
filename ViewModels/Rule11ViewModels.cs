@@ -2,76 +2,13 @@ using HemisAudit.Helpers;
 
 namespace HemisAudit.ViewModels
 {
-    public class Rule11TableDiscoveryResult
-    {
-        public bool Success { get; set; }
-        public List<string> Tables { get; set; } = new();
-        public string? AutoQualTable { get; set; }
-        public string? Error { get; set; }
-
-        // Compatibility aliases used by shared UI helpers.
-        public string? AutoStudTable
-        {
-            get => AutoQualTable;
-            set => AutoQualTable = value;
-        }
-
-        public string? AutoCregTable
-        {
-            get => AutoQualTable;
-            set => AutoQualTable = value;
-        }
-
-        public string? AutoCrseTable
-        {
-            get => AutoQualTable;
-            set => AutoQualTable = value;
-        }
-    }
-
-    public class Rule11VerifyRequest
-    {
-        public string Server { get; set; } = "";
-        public string Database { get; set; } = "";
-        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
-        public string QualTable { get; set; } = "dbo_QUAL";
-        public bool ExcludeMPrefixPattern { get; set; } = true;
-        public string PostgraduateTypesCsv { get; set; } = "07,27,28,49,72,73,08,30,50,74,75";
-
-        public string StudTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string CregTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string CrseTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string BridgeTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-    }
-
-    public class Rule11VerifyResult
-    {
-        public bool Success { get; set; }
-        public int QualRecordCount { get; set; }
-        public int ApprovedQualificationCount { get; set; }
-        public int UndergraduateCount { get; set; }
-        public int PostgraduateCount { get; set; }
-        public string? Error { get; set; }
-    }
+    // ═══════════════════════════════════════════════════════════════════════════
+    // RULE 11 – QUAL vs CESM vs PQM VALIDATION
+    // Tables: dbo_QUAL (_001,_003,_004,_005,_053,_054,_084,_090) + dbo_CESM (_001,_006) + PQM
+    // Checks: QUAL._003 == PQM.Authorised_Qualification_Name  (case-insensitive, whitespace-normalised)
+    //         QUAL._005 == PQM.HEQF_Qual_Type                 (both on same PQM row → PASS)
+    // EL §5.1.2: Inspect E005 Qualification Type and agree correct type has been allocated per PQM.
+    // ═══════════════════════════════════════════════════════════════════════════
 
     public class Rule11ValidationRequest
     {
@@ -79,114 +16,219 @@ namespace HemisAudit.ViewModels
         public int? RunId { get; set; }
         public string Server { get; set; } = "";
         public string Database { get; set; } = "";
-        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
-        public string QualTable { get; set; } = "dbo_QUAL";
-        public bool ExcludeMPrefixPattern { get; set; } = true;
-        public string PostgraduateTypesCsv { get; set; } = "07,27,28,49,72,73,08,30,50,74,75";
-
-        public string StudTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string CregTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string CrseTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string BridgeTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
+        public string Driver { get; set; } = "";
+        // QUAL table
+        public string QualTable { get; set; } = "";
+        public string QualIdCol { get; set; } = "";
+        public string QualNameCol { get; set; } = "";
+        public string QualApprovalCol { get; set; } = "";
+        public string QualHeqfTypeCol { get; set; } = "";
+        public string QualApprovalFilterValue { get; set; } = "A";
+        public string QualTypeCodesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75"; // Postgraduate type codes
+        // CESM table
+        public string CesmTable { get; set; } = "";
+        public string CesmIdCol { get; set; } = "";
+        public string CesmCodeCol { get; set; } = "";
+        // PQM table
+        public string PqmTable { get; set; } = "";
+        public string PqmNameCol { get; set; } = "";
+        public string PqmHeqfTypeCol { get; set; } = "";
+        public string PqmCodeCol { get; set; } = "";
     }
 
-    public class Rule11ControlSummaryItemViewModel
-    {
-        public string ControlType { get; set; } = "";
-        public string ControlLabel { get; set; } = "";
-        public string CriteriaText { get; set; } = "";
-        public int RequestedCount { get; set; }
-        public int AvailableCount { get; set; }
-        public int AchievedCount { get; set; }
-        public int TotalCount { get; set; }
-        public int PassCount { get; set; }
-        public int FailCount { get; set; }
-        public string Status { get; set; } = "";
-    }
-
-    public class Rule11ValidationRowRecord
+    public class Rule11ValidationRow
     {
         public int ValidationNumber { get; set; }
-        public string ControlType { get; set; } = "";
-        public string ControlLabel { get; set; } = "";
+        public string QualId { get; set; } = "";          // QUAL._001
+        public string QualName { get; set; } = "";        // QUAL._003
+        public string QualApproval { get; set; } = "";    // QUAL._004
+        public string QualHeqfType { get; set; } = "";    // QUAL._005
+        public string Qual053 { get; set; } = "";         // QUAL._053
+        public string Qual054 { get; set; } = "";         // QUAL._054
+        public string Qual084 { get; set; } = "";         // QUAL._084
+        public string Qual090 { get; set; } = "";         // QUAL._090
+        public string PopulationType { get; set; } = "";  // Undergraduate / Postgraduate
+        public string? CesmCode { get; set; }             // CESM._006
+        public string? PqmName { get; set; }              // PQM.Authorised_Qualification_Name
+        public string? PqmHeqfType { get; set; }          // PQM.HEQF_Qual_Type
+        public string? PqmCode { get; set; }              // PQM.CESM_Code
+        public bool NameMatch { get; set; }
+        public bool HeqfTypeMatch { get; set; }
+        public bool CesmCodeMatch { get; set; }
         public string ValidationResult { get; set; } = "";
-        public string ValidationExplanation { get; set; } = "";
-        public Dictionary<string, string?> DisplayValues { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public string? ExceptionReason { get; set; }
+    }
+
+    public class Rule11ExceptionRecord
+    {
+        public int ValidationNumber { get; set; }
+        public string QualId { get; set; } = "";
+        public string QualName { get; set; } = "";
+        public string QualApproval { get; set; } = "";
+        public string QualHeqfType { get; set; } = "";
+        public string Qual053 { get; set; } = "";
+        public string Qual054 { get; set; } = "";
+        public string Qual084 { get; set; } = "";
+        public string Qual090 { get; set; } = "";
+        public string PopulationType { get; set; } = "";
+        public string? CesmCode { get; set; }
+        public string? PqmName { get; set; }
+        public string? PqmHeqfType { get; set; }
+        public string? PqmCode { get; set; }
+        public bool NameMatch { get; set; }
+        public bool HeqfTypeMatch { get; set; }
+        public bool CesmCodeMatch { get; set; }
+        public string ValidationResult { get; set; } = "";
+        public string ExceptionReason { get; set; } = "";
     }
 
     public class Rule11ValidationSummary
     {
         public bool Success { get; set; }
-        public int QualRecordCount { get; set; }
-        public int ApprovedQualificationCount { get; set; }
-        public int UndergraduateCount { get; set; }
-        public int PostgraduateCount { get; set; }
-        public int TotalRequested { get; set; }
         public int TotalValidated { get; set; }
-        public int DisplayedCount { get; set; }
-        public bool IsPreviewOnly { get; set; }
-        public int PreviewLimit { get; set; }
         public int PassCount { get; set; }
         public int FailCount { get; set; }
         public decimal ExceptionRate { get; set; }
         public string Status { get; set; } = "";
         public string Timestamp { get; set; } = "";
         public string Database { get; set; } = "";
-        public string QualTable { get; set; } = "dbo_QUAL";
-        public bool ExcludeMPrefixPattern { get; set; } = true;
-        public string PostgraduateTypesCsv { get; set; } = "07,27,28,49,72,73,08,30,50,74,75";
-        public string TableLinkageText { get; set; } = "";
-        public string RuleModeText { get; set; } = "";
-        public List<string> ProcedureSteps { get; set; } = new();
+        // QUAL
+        public string QualTable { get; set; } = "";
+        public string QualIdCol { get; set; } = "";
+        public string QualNameCol { get; set; } = "";
+        public string QualApprovalCol { get; set; } = "";
+        public string QualHeqfTypeCol { get; set; } = "";
+        public string QualApprovalFilterValue { get; set; } = "A";
+        public string QualTypeCodesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75"; // Postgraduate type codes
+        // CESM
+        public string CesmTable { get; set; } = "";
+        public string CesmIdCol { get; set; } = "";
+        public string CesmCodeCol { get; set; } = "";
+        // PQM
+        public string PqmTable { get; set; } = "";
+        public string PqmNameCol { get; set; } = "";
+        public string PqmHeqfTypeCol { get; set; } = "";
+        public string PqmCodeCol { get; set; } = "";
         public int ClientId { get; set; }
         public int? SavedRunId { get; set; }
-        public List<Rule11ControlSummaryItemViewModel> ControlSummaries { get; set; } = new();
-        public List<Rule11ValidationRowRecord> ReviewRows { get; set; } = new();
-        public string? Warning { get; set; }
+        public List<Rule11ValidationRow> ValidationRows { get; set; } = new();
+        public List<Rule11ExceptionRecord> Exceptions { get; set; } = new();
         public string? Error { get; set; }
+    }
 
-        public string StudTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
+    public class Rule11VerifyRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "";
+        public string QualTable { get; set; } = "";
+        public string CesmTable { get; set; } = "";
+        public string PqmTable { get; set; } = "";
+        public string QualIdCol { get; set; } = "";
+        public string CesmIdCol { get; set; } = "";
+        public string QualApprovalCol { get; set; } = "";
+        public string QualHeqfTypeCol { get; set; } = "";
+        public string QualApprovalFilterValue { get; set; } = "A";
+        public string QualTypeCodesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75"; // Postgraduate type codes
+    }
 
-        public string CregTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
+    public class Rule11VerifyResult
+    {
+        public bool Success { get; set; }
+        public int QualTotal { get; set; }
+        public int CesmTotal { get; set; }
+        public int PqmTotal { get; set; }
+        public int MergedTotal { get; set; }
+        public string? Error { get; set; }
+    }
 
-        public string CrseTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
+    public class Rule11FilterValueRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "";
+        public string QualTable { get; set; } = "";
+        public string ApprovalColumn { get; set; } = "";
+    }
 
-        public string BridgeTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
+    public class Rule11FilterValueOption
+    {
+        public string Value { get; set; } = "";
+        public int Count { get; set; }
+        public string Label { get; set; } = "";
+    }
+
+    public class Rule11FilterValueResult
+    {
+        public bool Success { get; set; }
+        public List<Rule11FilterValueOption> Options { get; set; } = new();
+        public string? DefaultValue { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule11TableListResult
+    {
+        public bool Success { get; set; }
+        public List<string> Tables { get; set; } = new();
+        public string? AutoQualTable { get; set; }
+        public string? AutoCesmTable { get; set; }
+        public string? AutoPqmTable { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule11GetColumnsRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "";
+        public string TableName { get; set; } = "";
+        public string TableRole { get; set; } = "";
+    }
+
+    public class Rule11WorkspaceStateViewModel
+    {
+        public int ClientId { get; set; }
+        public int? RunId { get; set; }
+        public bool ResultsVisible { get; set; }
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        // QUAL
+        public string QualTable { get; set; } = "";
+        public string QualIdCol { get; set; } = "";
+        public string QualNameCol { get; set; } = "";
+        public string QualApprovalCol { get; set; } = "";
+        public string QualHeqfTypeCol { get; set; } = "";
+        public string QualApprovalFilterValue { get; set; } = "A";
+        public string QualTypeCodesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
+        // CESM
+        public string CesmTable { get; set; } = "";
+        public string CesmIdCol { get; set; } = "";
+        public string CesmCodeCol { get; set; } = "";
+        // PQM
+        public string PqmTable { get; set; } = "";
+        public string PqmNameCol { get; set; } = "";
+        public string PqmHeqfTypeCol { get; set; } = "";
+        public string PqmCodeCol { get; set; } = "";
+        public string CurrentUserEngagementRole { get; set; } = "";
+        public bool HasDataAnalystSignoff { get; set; }
+        public bool CurrentUserHasSignedOff { get; set; }
+        public string CurrentUserSignoffComment { get; set; } = "";
+        public string CurrentStatus { get; set; } = "";
+        public string? LastEditedByUserName { get; set; }
+        public DateTime? LastEditedAt { get; set; }
+        public bool IsWorkspaceSaved { get; set; }
+        public Rule11ValidationSummary? Summary { get; set; }
+    }
+
+    public class Rule11WorkspaceSaveResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+        public bool SignoffsCleared { get; set; }
+        public int? ClearedSignoffCount { get; set; }
+        public Rule11WorkspaceStateViewModel? Workspace { get; set; }
+        public string? Error { get; set; }
     }
 
     public class Rule11RunReviewViewModel
@@ -204,65 +246,11 @@ namespace HemisAudit.ViewModels
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff =>
             Signoffs.Any(s => ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, CurrentUserEngagementRole));
-        public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserSignOff =>
+            IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
         public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
-        public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
-    }
-
-    public class Rule11WorkspaceStateViewModel
-    {
-        public int ClientId { get; set; }
-        public int? RunId { get; set; }
-        public bool ResultsVisible { get; set; }
-        public string Server { get; set; } = "";
-        public string Database { get; set; } = "";
-        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
-        public string QualTable { get; set; } = "dbo_QUAL";
-        public bool ExcludeMPrefixPattern { get; set; } = true;
-        public string PostgraduateTypesCsv { get; set; } = "07,27,28,49,72,73,08,30,50,74,75";
-        public string CurrentUserEngagementRole { get; set; } = "";
-        public bool HasDataAnalystSignoff { get; set; }
-        public bool CurrentUserHasSignedOff { get; set; }
-        public string CurrentUserSignoffComment { get; set; } = "";
-        public string CurrentStatus { get; set; } = "";
-        public string? LastEditedByUserName { get; set; }
-        public DateTime? LastEditedAt { get; set; }
-        public bool IsWorkspaceSaved { get; set; }
-        public Rule11ValidationSummary? Summary { get; set; }
-
-        public string StudTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string CregTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string CrseTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-
-        public string BridgeTable
-        {
-            get => QualTable;
-            set => QualTable = value;
-        }
-    }
-
-    public class Rule11WorkspaceSaveResult
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; } = "";
-        public bool SignoffsCleared { get; set; }
-        public int? ClearedSignoffCount { get; set; }
-        public Rule11WorkspaceStateViewModel? Workspace { get; set; }
-        public string? Error { get; set; }
+        public bool CanCurrentUserDownload =>
+            ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
     }
 
     public class Rule11RunSignoffInputModel
@@ -276,12 +264,5 @@ namespace HemisAudit.ViewModels
         public int ClientId { get; set; }
         public int? RunId { get; set; }
         public string Comment { get; set; } = "";
-    }
-
-    public class Rule11SqlResult
-    {
-        public bool Success { get; set; }
-        public string Sql { get; set; } = "";
-        public string? Error { get; set; }
     }
 }

@@ -47,6 +47,21 @@ namespace HemisAudit.Services
             }
         }
 
+        public async Task<Rule20ColumnDiscoveryResult> GetColumnsAsync(string server, string database, string driver, string tableName)
+        {
+            try
+            {
+                tableName = (tableName ?? "").Trim();
+                ValidateObjectName(tableName);
+                var columns = await GetTableColumnsAsync(server, database, driver, tableName);
+                return new Rule20ColumnDiscoveryResult { Success = true, Columns = columns };
+            }
+            catch (Exception ex)
+            {
+                return new Rule20ColumnDiscoveryResult { Success = false, Error = ex.Message };
+            }
+        }
+
         public async Task<Rule20TableDiscoveryResult> GetTablesAsync(string server, string database, string driver)
         {
             try
@@ -88,7 +103,7 @@ namespace HemisAudit.Services
             try
             {
                 ValidateRequest(request);
-                await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.QualTable, request.CregTable, request.CrseTable);
+                await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.QualTable, request.CregTable, request.CrseTable, request.ColumnMapping);
 
                 var summary = await AnalyseAsync(new Rule20ValidationRequest
                 {
@@ -124,7 +139,7 @@ namespace HemisAudit.Services
             try
             {
                 ValidateRequest(request);
-                await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.QualTable, request.CregTable, request.CrseTable);
+                await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.QualTable, request.CregTable, request.CrseTable, request.ColumnMapping);
 
                 var summary = await AnalyseAsync(request, includeAllReviewRows: true);
                 if (summary.Success && request.ClientId > 0)
@@ -158,7 +173,7 @@ namespace HemisAudit.Services
         public async Task<Rule20ValidationSummary> GetExportSummaryAsync(Rule20ValidationRequest request)
         {
             ValidateRequest(request);
-            await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.QualTable, request.CregTable, request.CrseTable);
+            await EnsureColumnsExistAsync(request.Server, request.Database, request.Driver, request.StudTable, request.QualTable, request.CregTable, request.CrseTable, request.ColumnMapping);
             return await AnalyseAsync(request, includeAllReviewRows: true);
         }
 
@@ -231,6 +246,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                     ? string.Join(", ", deserializedSummary.PgTypes)
                     : deserializedSummary.PgTypesText;
                 workspace.GoverningPartCodes = NormalizeGoverningPartCodes(deserializedSummary.GoverningPartCodes);
+                workspace.ColumnMapping = deserializedSummary.ColumnMapping ?? new Rule20ColumnMapping();
             }
 
             await reader.CloseAsync();
@@ -535,6 +551,7 @@ END";
         {
             ValidateRequest(request);
 
+            var m = request.ColumnMapping ?? new Rule20ColumnMapping();
             var studTable = Sanitise(request.StudTable);
             var qualTable = Sanitise(request.QualTable);
             var bridgeTable = Sanitise(request.CregTable);
@@ -542,17 +559,17 @@ END";
             var pgTypes = ParsePgTypes(request.PgTypesText);
             var governingPartCodes = NormalizeGoverningPartCodes(request.GoverningPartCodes);
             var pgTypeSqlList = BuildSqlStringList(pgTypes);
-            var procedureSteps = BuildProcedureSteps(request.StudTable, request.QualTable, request.CregTable, request.CrseTable);
+            var procedureSteps = BuildProcedureSteps(request.StudTable, request.QualTable, request.CregTable, request.CrseTable, m);
 
             var sql = $@"-- ============================================================================
 -- HEMIS RULE 20: FOUNDATION VALIDATION
 -- ============================================================================
 -- Database: {request.Database}
--- Foundation Student Filter: dbo_STUD._106 = 'Y'
--- Rule 20 Population Filter: dbo_CRSE._091 = 'Y'
--- Join Path: {request.StudTable} -> {request.CregTable} on _001
---            {request.CregTable} -> {request.CrseTable} on _030
--- Qualification Enrichment: {request.StudTable} -> {request.QualTable} on _001
+-- Foundation Student Filter: {request.StudTable}.{m.StudFoundationFlag} = '{m.StudFoundationValue}'
+-- Rule 20 Population Filter: {request.CrseTable}.{m.CrseFoundationFlag} = '{m.CrseFoundationValue}'
+-- Join Path: {request.StudTable} -> {request.CregTable} on {m.StudQualCode}/{m.CregQualCode}
+--            {request.CregTable} -> {request.CrseTable} on {m.CregCourseCode}/{m.CrseCourseCode}
+-- Qualification Enrichment: {request.StudTable} -> {request.QualTable} on {m.StudQualCode}/{m.QualQualCode}
 -- PASS Rule: rows in the filtered STUD -> CRED -> CRSE linkage PASS
 -- PG Types: {string.Join(", ", pgTypes)}
 -- Rule Scope: {FormatGoverningPartCodes(governingPartCodes)}
@@ -561,20 +578,20 @@ END";
 --   {string.Join("\n--   ", procedureSteps)}
 -- ============================================================================
 
-{BuildFoundationStudentCountQuery(studTable, qualTable, bridgeTable, crseTable)}
+{BuildFoundationStudentCountQuery(studTable, qualTable, bridgeTable, crseTable, m)}
 
 SELECT
-    S.[_001] AS STUD_Qualification_Code_001,
-    S.[_106] AS STUD_Foundation_Flag_106,
-    BRIDGE.[_001] AS CRED_Qualification_Code_001,
-    BRIDGE.[_030] AS CRED_Course_Code_030,
-    CRSE.[_091] AS CRSE_Foundation_Course_091,
-    CRSE.[_030] AS CRSE_Course_Code_030,
-    CASE WHEN {IsFoundationValidationPassCondition("CRSE")} THEN 'PASS' ELSE 'FAIL' END AS Validation_Result
-{BuildBaseJoinClause(studTable, qualTable, bridgeTable, crseTable)}
-WHERE {FoundationStudentCondition("S")}
-  AND {IsFoundationCourseCondition("CRSE")}
-ORDER BY S.[_007];";
+    S.[{m.StudQualCode}] AS STUD_Qualification_Code,
+    S.[{m.StudFoundationFlag}] AS STUD_Foundation_Flag,
+    BRIDGE.[{m.CregQualCode}] AS CRED_Qualification_Code,
+    BRIDGE.[{m.CregCourseCode}] AS CRED_Course_Code,
+    CRSE.[{m.CrseFoundationFlag}] AS CRSE_Foundation_Course,
+    CRSE.[{m.CrseCourseCode}] AS CRSE_Course_Code,
+    CASE WHEN {IsFoundationValidationPassCondition("CRSE", m)} THEN 'PASS' ELSE 'FAIL' END AS Validation_Result
+{BuildBaseJoinClause(studTable, qualTable, bridgeTable, crseTable, m)}
+WHERE {FoundationStudentCondition("S", m)}
+  AND {IsFoundationCourseCondition("CRSE", m)}
+ORDER BY S.[{m.StudStudentNo}];";
 
             return Task.FromResult(sql.Trim());
         }
@@ -585,6 +602,7 @@ ORDER BY S.[_007];";
             await using var conn = new SqlConnection(connStr);
             await conn.OpenAsync();
 
+            var m = request.ColumnMapping ?? new Rule20ColumnMapping();
             var studTable = Sanitise(request.StudTable);
             var qualTable = Sanitise(request.QualTable);
             var bridgeTable = Sanitise(request.CregTable);
@@ -592,7 +610,7 @@ ORDER BY S.[_007];";
             var pgTypes = ParsePgTypes(request.PgTypesText);
             var governingPartCodes = NormalizeGoverningPartCodes(request.GoverningPartCodes);
             var pgTypeSqlList = BuildSqlStringList(pgTypes);
-            var foundationStudentCount = await CountAsync(conn, BuildFoundationStudentCountQuery(studTable, qualTable, bridgeTable, crseTable));
+            var foundationStudentCount = await CountAsync(conn, BuildFoundationStudentCountQuery(studTable, qualTable, bridgeTable, crseTable, m));
             List<Rule20PartSummaryItemViewModel> partSummaries;
             List<Rule20ReviewRowViewModel> reviewRows;
 
@@ -600,7 +618,7 @@ ORDER BY S.[_007];";
             {
                 reviewRows = await LoadNotebookRowsAsync(
                     conn,
-                    BuildNotebookFullQuery(studTable, qualTable, bridgeTable, crseTable, pgTypeSqlList));
+                    BuildNotebookFullQuery(studTable, qualTable, bridgeTable, crseTable, pgTypeSqlList, m));
                 partSummaries = BuildNotebookPartSummaries(
                     reviewRows
                         .GroupBy(row => row.PartCode ?? "", StringComparer.OrdinalIgnoreCase)
@@ -614,7 +632,8 @@ ORDER BY S.[_007];";
                     qualTable,
                     bridgeTable,
                     crseTable,
-                    pgTypeSqlList);
+                    pgTypeSqlList,
+                    m);
             }
 
             reviewRows = NormalizeReviewRows(reviewRows);
@@ -642,6 +661,7 @@ ORDER BY S.[_007];";
                 QualTable = request.QualTable,
                 CregTable = request.CregTable,
                 CrseTable = request.CrseTable,
+                ColumnMapping = m,
                 PgTypesText = string.Join(", ", pgTypes),
                 PgTypes = pgTypes,
                 GoverningPartCodes = governingPartCodes,
@@ -804,25 +824,26 @@ WHERE RunID = @RunID;";
             string qualTable,
             string cregTable,
             string crseTable,
-            string pgTypeSqlList)
+            string pgTypeSqlList,
+            Rule20ColumnMapping? m = null)
         {
             return $@"
 SELECT
-    CAST(S.[_007] AS nvarchar(255)) AS StudentNumber007,
-    CAST(S.[_001] AS nvarchar(255)) AS QualificationCode001,
-    CAST(S.[_019] AS nvarchar(255)) AS Name019,
-    CAST(S.[_024] AS nvarchar(255)) AS IdNumber024,
-    CAST(S.[_106] AS nvarchar(255)) AS FoundationFlag106,
-    CAST(Q.[_003] AS nvarchar(255)) AS QualificationDescription003,
-    CAST(Q.[_005] AS nvarchar(255)) AS QualificationType005,
-    CAST(BRIDGE.[_001] AS nvarchar(255)) AS BridgeQualificationCode001,
-    CAST(BRIDGE.[_030] AS nvarchar(255)) AS CourseCode030,
-    CAST(CRSE.[_030] AS nvarchar(255)) AS CrseCourseCode030,
-    CAST(CRSE.[_091] AS nvarchar(255)) AS FoundationCourse091
-{BuildBaseJoinClause(studTable, qualTable, cregTable, crseTable)}
-WHERE {FoundationStudentCondition("S")}
-  AND {IsFoundationCourseCondition("CRSE")}
-ORDER BY S.[_007];";
+    CAST(S.[{ColOrDefault(m?.StudStudentNo, "_007")}] AS nvarchar(255)) AS StudentNumber007,
+    CAST(S.[{ColOrDefault(m?.StudQualCode, "_001")}] AS nvarchar(255)) AS QualificationCode001,
+    CAST(S.[{ColOrDefault(m?.StudName, "_019")}] AS nvarchar(255)) AS Name019,
+    CAST(S.[{ColOrDefault(m?.StudIdNo, "_024")}] AS nvarchar(255)) AS IdNumber024,
+    CAST(S.[{ColOrDefault(m?.StudFoundationFlag, "_106")}] AS nvarchar(255)) AS FoundationFlag106,
+    CAST(Q.[{ColOrDefault(m?.QualDescription, "_003")}] AS nvarchar(255)) AS QualificationDescription003,
+    CAST(Q.[{ColOrDefault(m?.QualType, "_005")}] AS nvarchar(255)) AS QualificationType005,
+    CAST(BRIDGE.[{ColOrDefault(m?.CregQualCode, "_001")}] AS nvarchar(255)) AS BridgeQualificationCode001,
+    CAST(BRIDGE.[{ColOrDefault(m?.CregCourseCode, "_030")}] AS nvarchar(255)) AS CourseCode030,
+    CAST(CRSE.[{ColOrDefault(m?.CrseCourseCode, "_030")}] AS nvarchar(255)) AS CrseCourseCode030,
+    CAST(CRSE.[{ColOrDefault(m?.CrseFoundationFlag, "_091")}] AS nvarchar(255)) AS FoundationCourse091
+{BuildBaseJoinClause(studTable, qualTable, cregTable, crseTable, m)}
+WHERE {FoundationStudentCondition("S", m)}
+  AND {IsFoundationCourseCondition("CRSE", m)}
+ORDER BY S.[{ColOrDefault(m?.StudStudentNo, "_007")}];";
         }
 
         private static List<Rule20PartSummaryItemViewModel> BuildNotebookPartSummaries(
@@ -855,11 +876,12 @@ ORDER BY S.[_007];";
             string qualTable,
             string cregTable,
             string crseTable,
-            string pgTypeSqlList)
+            string pgTypeSqlList,
+            Rule20ColumnMapping? m = null)
         {
             await using var command = connection.CreateConfiguredCommand();
             command.CommandTimeout = SqlCommandTimeoutSeconds;
-            command.CommandText = BuildNotebookPreviewAnalysisQuery(studTable, qualTable, cregTable, crseTable, pgTypeSqlList);
+            command.CommandText = BuildNotebookPreviewAnalysisQuery(studTable, qualTable, cregTable, crseTable, pgTypeSqlList, m);
 
             var partSummaries = new List<Rule20PartSummaryItemViewModel>();
             var reviewRows = new List<Rule20ReviewRowViewModel>();
@@ -990,17 +1012,18 @@ ORDER BY S.[_007];";
         private static string ReadString(SqlDataReader reader, int ordinal) =>
             reader.IsDBNull(ordinal) ? "" : Convert.ToString(reader.GetValue(ordinal)) ?? "";
 
-        private async Task EnsureColumnsExistAsync(string server, string database, string driver, string studTable, string qualTable, string cregTable, string crseTable)
+        private async Task EnsureColumnsExistAsync(string server, string database, string driver, string studTable, string qualTable, string cregTable, string crseTable, Rule20ColumnMapping? m = null)
         {
+            m ??= new Rule20ColumnMapping();
             var studColumns = await GetTableColumnsAsync(server, database, driver, studTable);
             var qualColumns = await GetTableColumnsAsync(server, database, driver, qualTable);
             var cregColumns = await GetTableColumnsAsync(server, database, driver, cregTable);
             var crseColumns = await GetTableColumnsAsync(server, database, driver, crseTable);
 
-            EnsureRequiredColumns(studTable, studColumns, ["_007", "_001", "_019", "_024", "_106"]);
-            EnsureRequiredColumns(qualTable, qualColumns, ["_001", "_003", "_005"]);
-            EnsureRequiredColumns(cregTable, cregColumns, ["_001", "_030"]);
-            EnsureRequiredColumns(crseTable, crseColumns, ["_030", "_091"]);
+            EnsureRequiredColumns(studTable, studColumns, [m.StudStudentNo, m.StudQualCode, m.StudName, m.StudIdNo, m.StudFoundationFlag]);
+            EnsureRequiredColumns(qualTable, qualColumns, [m.QualQualCode, m.QualDescription, m.QualType]);
+            EnsureRequiredColumns(cregTable, cregColumns, [m.CregQualCode, m.CregCourseCode]);
+            EnsureRequiredColumns(crseTable, crseColumns, [m.CrseCourseCode, m.CrseFoundationFlag]);
         }
 
         private async Task<List<string>> GetTableColumnsAsync(string server, string database, string driver, string tableName)
@@ -1041,6 +1064,11 @@ ORDER BY ORDINAL_POSITION;";
 
         private static void ValidateRequest(Rule20ValidationRequest request)
         {
+            request.StudTable = (request.StudTable ?? "").Trim();
+            request.QualTable = (request.QualTable ?? "").Trim();
+            request.CregTable = (request.CregTable ?? "").Trim();
+            request.CrseTable = (request.CrseTable ?? "").Trim();
+
             if (string.IsNullOrWhiteSpace(request.Server))
                 throw new InvalidOperationException("Server name is required.");
             if (string.IsNullOrWhiteSpace(request.Database))
@@ -1059,7 +1087,47 @@ ORDER BY ORDINAL_POSITION;";
             ValidateObjectName(request.CrseTable);
             ParsePgTypes(request.PgTypesText);
             NormalizeGoverningPartCodes(request.GoverningPartCodes);
+
+            request.ColumnMapping ??= new Rule20ColumnMapping();
+            NormalizeColumnMapping(request.ColumnMapping);
         }
+
+        private static void NormalizeColumnMapping(Rule20ColumnMapping m)
+        {
+            m.StudStudentNo = ColOrDefault(m.StudStudentNo, "_007");
+            m.StudQualCode = ColOrDefault(m.StudQualCode, "_001");
+            m.StudName = ColOrDefault(m.StudName, "_019");
+            m.StudIdNo = ColOrDefault(m.StudIdNo, "_024");
+            m.StudFoundationFlag = ColOrDefault(m.StudFoundationFlag, "_106");
+            m.StudFoundationValue = ValOrDefault(m.StudFoundationValue, "Y");
+            m.QualQualCode = ColOrDefault(m.QualQualCode, "_001");
+            m.QualDescription = ColOrDefault(m.QualDescription, "_003");
+            m.QualType = ColOrDefault(m.QualType, "_005");
+            m.CregQualCode = ColOrDefault(m.CregQualCode, "_001");
+            m.CregCourseCode = ColOrDefault(m.CregCourseCode, "_030");
+            m.CrseCourseCode = ColOrDefault(m.CrseCourseCode, "_030");
+            m.CrseFoundationFlag = ColOrDefault(m.CrseFoundationFlag, "_091");
+            m.CrseFoundationValue = ValOrDefault(m.CrseFoundationValue, "Y");
+
+            ValidateColumnName(m.StudStudentNo);
+            ValidateColumnName(m.StudQualCode);
+            ValidateColumnName(m.StudName);
+            ValidateColumnName(m.StudIdNo);
+            ValidateColumnName(m.StudFoundationFlag);
+            ValidateColumnName(m.QualQualCode);
+            ValidateColumnName(m.QualDescription);
+            ValidateColumnName(m.QualType);
+            ValidateColumnName(m.CregQualCode);
+            ValidateColumnName(m.CregCourseCode);
+            ValidateColumnName(m.CrseCourseCode);
+            ValidateColumnName(m.CrseFoundationFlag);
+        }
+
+        private static string ColOrDefault(string? val, string def) =>
+            string.IsNullOrWhiteSpace(val) ? def : val.Trim();
+
+        private static string ValOrDefault(string? val, string def) =>
+            string.IsNullOrWhiteSpace(val) ? def : val.Trim();
 
         private static void ValidateRequest(Rule20VerifyRequest request) =>
             ValidateRequest(new Rule20ValidationRequest
@@ -1072,7 +1140,8 @@ ORDER BY ORDINAL_POSITION;";
                 CregTable = request.CregTable,
                 CrseTable = request.CrseTable,
                 PgTypesText = request.PgTypesText,
-                GoverningPartCodes = request.GoverningPartCodes
+                GoverningPartCodes = request.GoverningPartCodes,
+                ColumnMapping = request.ColumnMapping ?? new Rule20ColumnMapping()
             });
 
         private async Task<int> ClearSignoffsAndFlagForReviewAsync(SqlConnection connection, int runId)
@@ -1323,10 +1392,10 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
         private static string BuildConnectionString(string server, string database, string driver) =>
             $"Server={server};Database={database};Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False;Connection Timeout=180;";
 
-        private static string BuildNotebookFullQuery(string studTable, string qualTable, string cregTable, string crseTable, string pgTypeSqlList) =>
+        private static string BuildNotebookFullQuery(string studTable, string qualTable, string cregTable, string crseTable, string pgTypeSqlList, Rule20ColumnMapping? m = null) =>
             $@"
 WITH Source AS (
-{BuildUnionQuery(studTable, qualTable, cregTable, crseTable, pgTypeSqlList)}
+{BuildUnionQuery(studTable, qualTable, cregTable, crseTable, pgTypeSqlList, m)}
 )
 SELECT
     PartOrder,
@@ -1356,10 +1425,10 @@ ORDER BY PartOrder,
          QualificationCode001,
          CourseCode030;";
 
-        private static string BuildNotebookPreviewAnalysisQuery(string studTable, string qualTable, string cregTable, string crseTable, string pgTypeSqlList) =>
+        private static string BuildNotebookPreviewAnalysisQuery(string studTable, string qualTable, string cregTable, string crseTable, string pgTypeSqlList, Rule20ColumnMapping? m = null) =>
             $@"
 WITH Source AS (
-{BuildUnionQuery(studTable, qualTable, cregTable, crseTable, pgTypeSqlList)}
+{BuildUnionQuery(studTable, qualTable, cregTable, crseTable, pgTypeSqlList, m)}
 )
 SELECT
     PartOrder,
@@ -1454,51 +1523,51 @@ ORDER BY PartOrder,
 
 DROP TABLE #Rule20Source;";
 
-        private static string BuildUnionQuery(string studTable, string qualTable, string cregTable, string crseTable, string pgTypeSqlList) =>
+        private static string BuildUnionQuery(string studTable, string qualTable, string cregTable, string crseTable, string pgTypeSqlList, Rule20ColumnMapping? m = null) =>
             $@"
 SELECT
     1 AS PartOrder,
     '{ScopeCode}' AS PartCode,
     '{ScopeTitle}' AS PartTitle,
     '{ScopeDescription}' AS PartDescription,
-    CAST(S.[_007] AS nvarchar(255)) AS StudentNumber007,
-    CAST(S.[_001] AS nvarchar(255)) AS QualificationCode001,
-    CAST(S.[_019] AS nvarchar(255)) AS Name019,
-    CAST(S.[_024] AS nvarchar(255)) AS IdNumber024,
-    CAST(S.[_106] AS nvarchar(255)) AS FoundationFlag106,
-    CAST(Q.[_003] AS nvarchar(255)) AS QualificationDescription003,
-    CAST(Q.[_005] AS nvarchar(255)) AS QualificationType005,
-    CAST(BRIDGE.[_001] AS nvarchar(255)) AS BridgeQualificationCode001,
-    CAST(BRIDGE.[_030] AS nvarchar(255)) AS CourseCode030,
-    CAST(CRSE.[_030] AS nvarchar(255)) AS CrseCourseCode030,
-    CAST(CRSE.[_091] AS nvarchar(255)) AS FoundationCourse091,
-    CASE WHEN {IsPostgraduateQualificationCondition("Q", pgTypeSqlList)} THEN 'Postgraduate' ELSE 'Undergraduate' END AS StudentType,
-    CASE WHEN {IsFoundationValidationPassCondition("CRSE")} THEN 'VALID' ELSE 'INVALID' END AS NotebookStatus,
-    CASE WHEN {IsFoundationValidationPassCondition("CRSE")} THEN 'PASS' ELSE 'FAIL' END AS ValidationResult
-{BuildBaseJoinClause(studTable, qualTable, cregTable, crseTable)}
-WHERE {FoundationStudentCondition("S")}
-  AND {IsFoundationCourseCondition("CRSE")}";
+    CAST(S.[{ColOrDefault(m?.StudStudentNo, "_007")}] AS nvarchar(255)) AS StudentNumber007,
+    CAST(S.[{ColOrDefault(m?.StudQualCode, "_001")}] AS nvarchar(255)) AS QualificationCode001,
+    CAST(S.[{ColOrDefault(m?.StudName, "_019")}] AS nvarchar(255)) AS Name019,
+    CAST(S.[{ColOrDefault(m?.StudIdNo, "_024")}] AS nvarchar(255)) AS IdNumber024,
+    CAST(S.[{ColOrDefault(m?.StudFoundationFlag, "_106")}] AS nvarchar(255)) AS FoundationFlag106,
+    CAST(Q.[{ColOrDefault(m?.QualDescription, "_003")}] AS nvarchar(255)) AS QualificationDescription003,
+    CAST(Q.[{ColOrDefault(m?.QualType, "_005")}] AS nvarchar(255)) AS QualificationType005,
+    CAST(BRIDGE.[{ColOrDefault(m?.CregQualCode, "_001")}] AS nvarchar(255)) AS BridgeQualificationCode001,
+    CAST(BRIDGE.[{ColOrDefault(m?.CregCourseCode, "_030")}] AS nvarchar(255)) AS CourseCode030,
+    CAST(CRSE.[{ColOrDefault(m?.CrseCourseCode, "_030")}] AS nvarchar(255)) AS CrseCourseCode030,
+    CAST(CRSE.[{ColOrDefault(m?.CrseFoundationFlag, "_091")}] AS nvarchar(255)) AS FoundationCourse091,
+    CASE WHEN {IsPostgraduateQualificationCondition("Q", pgTypeSqlList, m)} THEN 'Postgraduate' ELSE 'Undergraduate' END AS StudentType,
+    CASE WHEN {IsFoundationValidationPassCondition("CRSE", m)} THEN 'VALID' ELSE 'INVALID' END AS NotebookStatus,
+    CASE WHEN {IsFoundationValidationPassCondition("CRSE", m)} THEN 'PASS' ELSE 'FAIL' END AS ValidationResult
+{BuildBaseJoinClause(studTable, qualTable, cregTable, crseTable, m)}
+WHERE {FoundationStudentCondition("S", m)}
+  AND {IsFoundationCourseCondition("CRSE", m)}";
 
-        private static string BuildFoundationStudentCountQuery(string studTable, string qualTable, string bridgeTable, string crseTable) =>
+        private static string BuildFoundationStudentCountQuery(string studTable, string qualTable, string bridgeTable, string crseTable, Rule20ColumnMapping? m = null) =>
             $@"
 SELECT COUNT(*) AS Foundation_Students
 FROM [{studTable}] S
-WHERE {FoundationStudentCondition("S")};";
+WHERE {FoundationStudentCondition("S", m)};";
 
-        private static string BuildBaseJoinClause(string studTable, string qualTable, string bridgeTable, string crseTable) =>
+        private static string BuildBaseJoinClause(string studTable, string qualTable, string bridgeTable, string crseTable, Rule20ColumnMapping? m = null) =>
             $@"
 FROM [{studTable}] S
-LEFT JOIN [{qualTable}] Q ON S.[_001] = Q.[_001]
-LEFT JOIN [{bridgeTable}] BRIDGE ON S.[_001] = BRIDGE.[_001]
-LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
+LEFT JOIN [{qualTable}] Q ON S.[{ColOrDefault(m?.StudQualCode, "_001")}] = Q.[{ColOrDefault(m?.QualQualCode, "_001")}]
+LEFT JOIN [{bridgeTable}] BRIDGE ON S.[{ColOrDefault(m?.StudQualCode, "_001")}] = BRIDGE.[{ColOrDefault(m?.CregQualCode, "_001")}]
+LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[{ColOrDefault(m?.CregCourseCode, "_030")}] = CRSE.[{ColOrDefault(m?.CrseCourseCode, "_030")}]";
 
-        private static List<string> BuildProcedureSteps(string studTable, string qualTable, string bridgeTable, string crseTable) =>
+        private static List<string> BuildProcedureSteps(string studTable, string qualTable, string bridgeTable, string crseTable, Rule20ColumnMapping? m = null) =>
             new()
             {
-                $"Step 1: start from {studTable} and keep only foundation students where {studTable}._106 = 'Y'.",
-                $"Step 2: match the filtered {studTable} rows directly to {bridgeTable} (CRED) on _001 and carry {bridgeTable}._030 forward.",
-                $"Step 3: join {bridgeTable}._030 to {crseTable}._030 and keep only rows where {crseTable}._091 = 'Y'.",
-                $"Step 4: match {studTable} to {qualTable} on _001 only to enrich the rows for qualification description.",
+                $"Step 1: start from {studTable} and keep only foundation students where {studTable}.{ColOrDefault(m?.StudFoundationFlag,"_106")} = '{ValOrDefault(m?.StudFoundationValue,"Y")}'.",
+                $"Step 2: match the filtered {studTable} rows directly to {bridgeTable} (CRED) on {ColOrDefault(m?.StudQualCode,"_001")}/{ColOrDefault(m?.CregQualCode,"_001")} and carry {bridgeTable}.{ColOrDefault(m?.CregCourseCode,"_030")} forward.",
+                $"Step 3: join {bridgeTable}.{ColOrDefault(m?.CregCourseCode,"_030")} to {crseTable}.{ColOrDefault(m?.CrseCourseCode,"_030")} and keep only rows where {crseTable}.{ColOrDefault(m?.CrseFoundationFlag,"_091")} = '{ValOrDefault(m?.CrseFoundationValue,"Y")}'.",
+                $"Step 4: match {studTable} to {qualTable} on {ColOrDefault(m?.StudQualCode,"_001")}/{ColOrDefault(m?.QualQualCode,"_001")} only to enrich the rows for qualification description.",
                 "Step 5: treat rows that remain in the filtered STUD -> CRED -> CRSE linkage as PASS."
             };
 
@@ -1526,35 +1595,30 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
                 : $"FAIL: {string.Join("; ", failedChecks)}.";
         }
 
-        private static string FoundationStudentCondition(string alias) =>
-            $"CAST({alias}.[_106] AS nvarchar(10)) = 'Y'";
+        private static string FoundationStudentCondition(string alias, Rule20ColumnMapping? m = null)
+        {
+            var col = ColOrDefault(m?.StudFoundationFlag, "_106");
+            var val = ValOrDefault(m?.StudFoundationValue, "Y").Replace("'", "''");
+            return $"CAST({alias}.[{col}] AS nvarchar(10)) = '{val}'";
+        }
 
-        private static string IsFoundationCourseCondition(string alias) =>
-            $"CAST({alias}.[_091] AS nvarchar(10)) = 'Y'";
+        private static string IsFoundationCourseCondition(string alias, Rule20ColumnMapping? m = null)
+        {
+            var col = ColOrDefault(m?.CrseFoundationFlag, "_091");
+            var val = ValOrDefault(m?.CrseFoundationValue, "Y").Replace("'", "''");
+            return $"CAST({alias}.[{col}] AS nvarchar(10)) = '{val}'";
+        }
 
-        private static string IsFoundationValidationPassCondition(string alias) =>
-            IsFoundationCourseCondition(alias);
+        private static string IsFoundationValidationPassCondition(string alias, Rule20ColumnMapping? m = null) =>
+            IsFoundationCourseCondition(alias, m);
 
-        private static string QualificationTypeRawValue(string alias) =>
-            $"CAST({alias}.[_005] AS nvarchar(50))";
+        private static string QualificationTypeValue(string alias, Rule20ColumnMapping? m = null) =>
+            $"LTRIM(RTRIM(ISNULL(CAST({alias}.[{ColOrDefault(m?.QualType, "_005")}] AS nvarchar(50)), '')))";
 
-        private static string QualificationTypeValue(string alias) =>
-            $"LTRIM(RTRIM(ISNULL(CAST({alias}.[_005] AS nvarchar(50)), '')))";
-
-        private static string IsPostgraduateQualificationCondition(string alias, string pgTypeSqlList) =>
+        private static string IsPostgraduateQualificationCondition(string alias, string pgTypeSqlList, Rule20ColumnMapping? m = null) =>
             string.IsNullOrWhiteSpace(pgTypeSqlList)
                 ? "1 = 0"
-                : $"{QualificationTypeValue(alias)} IN ({pgTypeSqlList})";
-
-        private static string BuildPartACondition(string pgTypeSqlList) =>
-            string.IsNullOrWhiteSpace(pgTypeSqlList)
-                ? "1 = 1"
-                : $"{QualificationTypeValue("Q")} NOT IN ({pgTypeSqlList})";
-
-        private static string BuildPartCCondition(string pgTypeSqlList) =>
-            string.IsNullOrWhiteSpace(pgTypeSqlList)
-                ? "1 = 0"
-                : $"{QualificationTypeValue("Q")} IN ({pgTypeSqlList})";
+                : $"{QualificationTypeValue(alias, m)} IN ({pgTypeSqlList})";
 
         private static string BuildSqlStringList(List<string> values) =>
             values.Count == 0
@@ -1628,10 +1692,20 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
 
         private static void ValidateObjectName(string name)
         {
+            name = (name ?? "").Trim();
             if (string.IsNullOrWhiteSpace(name))
                 throw new InvalidOperationException("Object name cannot be blank.");
-            if (name.Any(ch => !(char.IsLetterOrDigit(ch) || ch == '_' || ch == '.')))
+            if (name.Any(ch => !(char.IsLetterOrDigit(ch) || ch == '_' || ch == '.' || ch == '-')))
                 throw new InvalidOperationException($"Invalid object name '{name}'.");
+        }
+
+        private static void ValidateColumnName(string colName)
+        {
+            colName = (colName ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(colName))
+                throw new InvalidOperationException("Column name cannot be blank.");
+            if (colName.Any(ch => !(char.IsLetterOrDigit(ch) || ch == '_')))
+                throw new InvalidOperationException($"Invalid column name '{colName}'.");
         }
 
         private static async Task<int> CountAsync(SqlConnection connection, string sql)
@@ -1720,6 +1794,9 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
             summary.DisplayedCount = summary.ReviewRows.Count;
             summary.IsPreviewOnly = summary.TotalValidated > summary.DisplayedCount;
             summary.PreviewLimit = summary.IsPreviewOnly ? summary.DisplayedCount : 0;
+            summary.ColumnMapping ??= new Rule20ColumnMapping();
+            summary.TableLinkageText = BuildTableLinkageText(summary.StudTable, summary.QualTable, summary.CregTable, summary.CrseTable);
+            summary.ProcedureSteps = BuildProcedureSteps(summary.StudTable, summary.QualTable, summary.CregTable, summary.CrseTable, summary.ColumnMapping);
 
             return summary;
         }
@@ -1762,7 +1839,8 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
                         CregTable = summary.CregTable,
                         CrseTable = summary.CrseTable,
                         PgTypesText = summary.PgTypesText,
-                        GoverningPartCodes = summary.GoverningPartCodes?.ToList() ?? new List<string>()
+                        GoverningPartCodes = summary.GoverningPartCodes?.ToList() ?? new List<string>(),
+                        ColumnMapping = summary.ColumnMapping ?? new Rule20ColumnMapping()
                     },
                     includeAllReviewRows: true);
 
@@ -1811,6 +1889,9 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
                 OverallStatusRuleText = summary.OverallStatusRuleText,
                 ClientId = summary.ClientId,
                 SavedRunId = summary.SavedRunId,
+                ColumnMapping = summary.ColumnMapping ?? new Rule20ColumnMapping(),
+                TableLinkageText = summary.TableLinkageText,
+                ProcedureSteps = summary.ProcedureSteps?.ToList() ?? new List<string>(),
                 PartSummaries = (summary.PartSummaries ?? new List<Rule20PartSummaryItemViewModel>())
                     .Select(item => new Rule20PartSummaryItemViewModel
                     {

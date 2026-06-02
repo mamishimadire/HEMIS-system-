@@ -1,0 +1,647 @@
+@using HemisAudit.Models
+@{
+    ViewData["Title"] = "Rule 41 – Student ASCII Agreement";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int cid ? cid : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager",  StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee",  StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+<style>
+.r41-pair-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; background:#f9f9f9; padding:6px 8px; border-radius:6px; border:1px solid #e8e8e8; }
+.r41-pair-row select,.r41-pair-row input[type=text] { font-size:.82rem; border:1px solid #ccc; border-radius:4px; padding:3px 7px; min-width:100px; max-width:170px; }
+.r41-pair-del { background:#C0392B; color:#fff; border:none; border-radius:4px; padding:2px 8px; cursor:pointer; font-size:.8rem; flex-shrink:0; }
+.r41-tbl { border-collapse:collapse; width:100%; font-size:.81rem; }
+.r41-tbl th { background:#1565A6; color:#fff; padding:5px 7px; text-align:center; border:1px solid #bbb; white-space:nowrap; }
+.r41-tbl td { padding:4px 6px; border:1px solid #ddd; text-align:center; vertical-align:middle; }
+.r41-tbl tr.agree    { background:#F1F8E9; }
+.r41-tbl tr.disagree { background:#FFEBEE; }
+.r41-tbl tr.missing  { background:#FFF3E0; }
+.r41-tbl td.oc { background:#DDEEFF; }
+.r41-agree { display:inline-block; padding:2px 7px; border-radius:4px; font-size:.75rem; font-weight:700; background:#E8F5E9; color:#1E8449; }
+.r41-exc   { display:inline-block; padding:2px 7px; border-radius:4px; font-size:.75rem; font-weight:700; background:#FFEBEE; color:#C0392B; }
+.r41-miss  { display:inline-block; padding:2px 7px; border-radius:4px; font-size:.75rem; font-weight:700; background:#FFF3E0; color:#E67E22; }
+.workspace-signoff-actions { display:flex; gap:10px; flex-wrap:wrap; padding-top:4px; }
+</style>
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <div class="engagement-selector">
+        <label for="r41ClientId">Engagement</label>
+        <select id="r41ClientId" onchange="r41OnClientChange(this.value)">
+            <option value="">Select engagement</option>
+            @foreach (var client in clients)
+            {
+                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                    @client.Name (@client.FiscalYear)
+                </option>
+            }
+        </select>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R41</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 41: Student ASCII Agreement</h1>
+            <p class="rule-header__sub">
+                Full outer reconciliation — <code>dbo_STUD</code> vs <code>MT-Audit-prod-std</code> (Audit system).
+                Join key: <code>_007</code> (STUD) &harr; <code>IAGSTNO</code> (Audit).
+            </p>
+        </div>
+        <div class="rule-header__badge" id="r41StatusBadge" style="display:none"></div>
+    </div>
+
+    @if (!isResultsOnlyRole)
+    {
+    <div class="accordion-stack">
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('r41-conn')">
+                <span class="acc-icon">DB</span><span>Database Connection</span><span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-r41-conn">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="r41Server">Server Name</label>
+                        <input id="r41Server" type="text" placeholder="SERVER\INSTANCE or (localdb)\MSSQLLocalDB" />
+                    </div>
+                    <div class="field-group">
+                        <label for="r41Driver">Driver</label>
+                        <select id="r41Driver">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label for="r41Db">Database</label>
+                        <select id="r41Db" onchange="r41LoadTables()"></select>
+                    </div>
+                </div>
+                <div class="action-bar" style="justify-content:flex-start;margin:10px 0 0">
+                    <button type="button" class="btn btn-primary" onclick="r41Connect()">Connect</button>
+                </div>
+                <div id="r41ConnOut" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('r41-tables')">
+                <span class="acc-icon">TB</span><span>Table Configuration &amp; Join Keys</span><span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-r41-tables" style="display:none">
+                <div class="info-box info-box--red" style="margin-bottom:12px">
+                    Tables auto-detected on connect. STUD uses <code>_007</code> and Audit uses <code>IAGSTNO</code> as the student number join key.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>STUD Table (HEMIS ASCII)</label>
+                        <select id="r41StudTable" onchange="r41LoadCols('stud',this.value)"></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Audit Table (MT-Audit-prod-std)</label>
+                        <select id="r41AuditTable" onchange="r41LoadCols('audit',this.value)"></select>
+                    </div>
+                    <div class="field-group">
+                        <label>STUD join key</label>
+                        <select id="r41StudKey"></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Audit join key</label>
+                        <select id="r41AuditKey"></select>
+                    </div>
+                </div>
+                <div id="r41TableOut" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('r41-colmap')">
+                <span class="acc-icon">CM</span><span>Column Mapping</span><span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-r41-colmap" style="display:none">
+                <div class="alert alert--info" style="margin-bottom:12px">
+                    Map STUD columns to Audit columns for field-by-field comparison. Defaults match the standard HEMIS layout.
+                    Connect and select a database to auto-populate.
+                </div>
+                <div id="r41ColPairs"></div>
+                <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:.82rem" onclick="r41AddPair()">&#65291; Add pair</button>
+            </div>
+        </div>
+    </div>
+    }
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 41 configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="r41RunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">Select an engagement to load the saved Rule 41 workspace.</div>
+        <div class="workspace-signoff-grid">
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
+                <div id="r41RunLabel">No saved run yet</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                <div id="r41StatusLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
+                <div id="r41EditedLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
+                <div id="r41RoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
+            </div>
+            <div class="field-group" style="grid-column:1/-1">
+                <label for="r41SignoffComment">Signoff Comment</label>
+                <textarea id="r41SignoffComment" rows="2" placeholder="Add the final review note confirming this validation is complete."></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            @if (!isResultsOnlyRole)
+            {
+                <button class="btn btn-success" id="r41SaveBtn" onclick="r41SaveWorkspace()">Save Workspace</button>
+            }
+            <button class="btn btn-primary" id="r41SignoffBtn" onclick="r41SignOff()">Sign Off</button>
+            <button class="btn btn-warning" id="r41RemoveSignoffBtn" onclick="r41RemoveSignoff()" style="display:none">Remove Signoff</button>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        @if (!isResultsOnlyRole)
+        {
+            <button class="btn btn-info"    onclick="r41Verify()">Verify Tables</button>
+            <button class="btn btn-success" onclick="r41Run()">&#9654; Run Rule 41</button>
+            <button class="btn btn-primary" onclick="r41Sql()">Generate SQL</button>
+        }
+        <button class="btn btn-warning" id="r41DlAllBtn" onclick="r41DlAll()" disabled>Download All</button>
+    </div>
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="r41-analysis"  onclick="r41Tab('r41-analysis')">Analysis</button>
+            <button class="tab-btn"        type="button" data-tab="r41-flagged"   onclick="r41Tab('r41-flagged')">FLAGGED</button>
+            <button class="tab-btn"        type="button" data-tab="r41-clear"     onclick="r41Tab('r41-clear')">CLEAR</button>
+            <button class="tab-btn"        type="button" data-tab="r41-sql"       onclick="r41Tab('r41-sql')">SQL Code</button>
+            <button class="tab-btn"        type="button" data-tab="r41-downloads" onclick="r41Tab('r41-downloads')">Downloads</button>
+        </div>
+        <div class="tab-pane active" data-tab-panel="r41-analysis">
+            <div id="r41AnalysisPane"><div class="empty-state"><p>Run Rule 41 validation to see results here.</p></div></div>
+        </div>
+        <div class="tab-pane" data-tab-panel="r41-flagged">
+            <div id="r41FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
+        </div>
+        <div class="tab-pane" data-tab-panel="r41-clear">
+            <div id="r41ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
+        </div>
+        <div class="tab-pane" data-tab-panel="r41-sql">
+            <textarea id="r41SqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="r41-downloads">
+            <div class="alert alert--info" style="margin-bottom:12px">Download the full Rule 41 result set after running validation.</div>
+            <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info"      id="r41DlExcel">Excel</button>
+                <button type="button" class="btn btn-info"      id="r41DlCsv">CSV (All)</button>
+                <button type="button" class="btn btn-secondary" id="r41DlExcCsv">CSV (Exceptions)</button>
+                <button type="button" class="btn btn-secondary" id="r41DlSql">SQL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="r41Spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="r41SpinMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<form id="r41AntiForgery" method="post" style="display:none">@Html.AntiForgeryToken()</form>
+
+<script>
+window.toggleAccordion = window.toggleAccordion || function(s) {
+    var b = document.getElementById('body-' + s);
+    if (b) b.style.display = b.style.display === 'none' ? '' : 'none';
+};
+
+window.r41Tab = function(tab) {
+    document.querySelectorAll('#app .results-panel .tab-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); });
+    document.querySelectorAll('#app .results-panel .tab-pane').forEach(function(p) { p.classList.toggle('active', p.dataset.tabPanel === tab); });
+};
+
+(function () {
+    var API = '/Rule41';
+    var ROLE = '@currentSystemRole';
+    var IS_RESULTS_ONLY = @(isResultsOnlyRole.ToString().ToLowerInvariant());
+    var TOKEN = (document.querySelector('#r41AntiForgery input[name="__RequestVerificationToken"]') || {}).value || '';
+
+    var DEF_PAIRS = [
+        { studCol: '_007', auditCol: 'IAGSTNO', label: 'Student No' },
+        { studCol: '_008', auditCol: 'IADIDNO', label: 'Birth Date' },
+        { studCol: '_001', auditCol: 'IAGQUAL', label: 'Qualification' }
+    ];
+
+    var st = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        runId: null, summary: null,
+        studCols: [], auditCols: [],
+        pairs: [],
+        isWorkspaceSaved: false, currentUserHasSignedOff: false, resultsVisible: false,
+        currentUserEngagementRole: ''
+    };
+
+    function g(id)             { return document.getElementById(id); }
+    function gv(id)            { var e = g(id); return e ? e.value : ''; }
+    function esc(v)            { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function fmt(n)            { return Number(n || 0).toLocaleString(); }
+    function show(id, v)       { var e = g(id); if (e) e.style.display = v ? '' : 'none'; }
+    function setHtml(id, html) { var e = g(id); if (e) e.innerHTML = html; }
+    function spin(msg)         { var e = g('r41SpinMsg'); if (e) e.textContent = msg || 'Processing...'; show('r41Spinner', true); }
+    function unspin()          { show('r41Spinner', false); }
+    function setWs(msg, type)  { var e = g('workspaceInfo'); if (e) { e.className = 'alert alert--' + (type || 'info'); e.textContent = msg; } }
+    function setStatus(id, msg, type) { var e = g(id); if (e) { e.className = 'alert alert--' + (type || 'info'); e.textContent = msg; } }
+
+    function fillSel(id, items, selected) {
+        var sel = typeof id === 'string' ? g(id) : id; if (!sel) return;
+        sel.innerHTML = '';
+        (items || []).forEach(function(item) {
+            var o = document.createElement('option');
+            o.value = o.textContent = item;
+            if (selected && selected === item) o.selected = true;
+            sel.appendChild(o);
+        });
+    }
+
+    function post(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
+            body: JSON.stringify(body)
+        }).then(function(r) { return r.json(); });
+    }
+
+    function setStatusBadge(status) {
+        var b = g('r41StatusBadge'); if (!b) return;
+        if (!status) { b.style.display = 'none'; return; }
+        b.style.display = ''; b.textContent = status;
+        b.className = 'rule-header__badge ' + (String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail');
+    }
+
+    /* ── Pair Management ── */
+    function renderPairs() {
+        var box = g('r41ColPairs'); if (!box) return;
+        box.innerHTML = '';
+        if (!st.pairs || !st.pairs.length) st.pairs = DEF_PAIRS.slice();
+        st.pairs.forEach(function(p, i) {
+            var row = document.createElement('div'); row.className = 'r41-pair-row';
+            row.innerHTML = '<span style="color:#888;font-size:.8rem">#' + (i + 1) + '</span>' +
+                '<input type="text" placeholder="STUD col" value="' + esc(p.studCol) + '" oninput="r41PairSet(' + i + ',\'studCol\',this.value)">' +
+                '<span style="color:#999">&harr;</span>' +
+                '<input type="text" placeholder="Audit col" value="' + esc(p.auditCol) + '" oninput="r41PairSet(' + i + ',\'auditCol\',this.value)">' +
+                '<input type="text" placeholder="Label" value="' + esc(p.label) + '" oninput="r41PairSet(' + i + ',\'label\',this.value)" style="max-width:130px">' +
+                '<button class="r41-pair-del" onclick="r41RemovePair(' + i + ')">&#x2715;</button>';
+            box.appendChild(row);
+        });
+    }
+
+    window.r41PairSet = function(i, key, val) { if (st.pairs[i]) st.pairs[i][key] = val; };
+    window.r41RemovePair = function(i) { st.pairs.splice(i, 1); renderPairs(); };
+    window.r41AddPair = function() { st.pairs.push({ studCol: '', auditCol: '', label: '' }); renderPairs(); };
+
+    /* ── Connection ── */
+    window.r41Connect = function() {
+        var server = gv('r41Server').trim();
+        if (!server) { setWs('Enter a server name first.', 'warning'); return; }
+        spin('Connecting to server...');
+        post(API + '/GetDatabases', { server: server, driver: gv('r41Driver') })
+        .then(function(d) {
+            unspin();
+            if (!d.success) { setStatus('r41ConnOut', d.error || 'Connection failed.', 'error'); return; }
+            fillSel('r41Db', d.databases || []);
+            setStatus('r41ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
+            if ((d.databases || []).length) r41LoadTables();
+        }).catch(function(e) { unspin(); setStatus('r41ConnOut', e.message, 'error'); });
+    };
+
+    window.r41LoadTables = function() {
+        var db = gv('r41Db'); if (!db) return;
+        spin('Loading tables...');
+        post(API + '/GetTables', { server: gv('r41Server').trim(), database: db, driver: gv('r41Driver') })
+        .then(function(d) {
+            unspin();
+            if (!d.success) { setStatus('r41TableOut', d.error || 'Failed to load tables.', 'error'); return; }
+            var tables = d.tables || [];
+            fillSel('r41StudTable',  tables, d.autoStudTable  || 'dbo_STUD');
+            fillSel('r41AuditTable', tables, d.autoAuditTable || 'MT-Audit-prod-std');
+            show('body-r41-tables', true); show('body-r41-colmap', true);
+            setStatus('r41TableOut', 'Loaded ' + tables.length + ' tables — STUD and Audit auto-detected.', 'success');
+            st.pairs = DEF_PAIRS.slice();
+            return Promise.all([
+                r41LoadColsInner('stud',  gv('r41StudTable')),
+                r41LoadColsInner('audit', gv('r41AuditTable'))
+            ]);
+        }).then(function() { renderPairs(); })
+        .catch(function(e) { unspin(); setStatus('r41TableOut', e.message, 'error'); });
+    };
+
+    function r41LoadColsInner(role, tableName) {
+        if (!tableName || !gv('r41Server') || !gv('r41Db')) return Promise.resolve();
+        return post(API + '/GetColumns', { server: gv('r41Server').trim(), database: gv('r41Db'), driver: gv('r41Driver'), tableName: tableName })
+        .then(function(d) {
+            if (!d.success) return;
+            var cols = d.columns || [];
+            if (role === 'stud')  { st.studCols  = cols; fillSel('r41StudKey',  cols, d.autoKey || '_007'); }
+            if (role === 'audit') { st.auditCols = cols; fillSel('r41AuditKey', cols, d.autoKey || 'IAGSTNO'); }
+        });
+    }
+
+    window.r41LoadCols = function(role, tbl) { r41LoadColsInner(role, tbl); };
+
+    window.r41Verify = function() {
+        spin('Verifying tables...');
+        post(API + '/VerifyTables', {
+            server: gv('r41Server').trim(), database: gv('r41Db'), driver: gv('r41Driver'),
+            studTable: gv('r41StudTable'), auditTable: gv('r41AuditTable'),
+            studKey: gv('r41StudKey') || '_007', auditKey: gv('r41AuditKey') || 'IAGSTNO'
+        }).then(function(d) {
+            unspin();
+            if (!d.success) { setStatus('r41TableOut', d.error || 'Verification failed.', 'error'); return; }
+            setStatus('r41TableOut', 'dbo_STUD: ' + fmt(d.studCount) + ' rows | MT-Audit: ' + fmt(d.auditCount) + ' rows', 'success');
+        }).catch(function(e) { unspin(); setStatus('r41TableOut', e.message, 'error'); });
+    };
+
+    function buildReq() {
+        return {
+            clientId: st.clientId, runId: st.runId,
+            server: gv('r41Server').trim(), database: gv('r41Db'), driver: gv('r41Driver') || 'ODBC Driver 17 for SQL Server',
+            studTable:  gv('r41StudTable')  || 'dbo_STUD',
+            auditTable: gv('r41AuditTable') || 'MT-Audit-prod-std',
+            studKey:    gv('r41StudKey')    || '_007',
+            auditKey:   gv('r41AuditKey')   || 'IAGSTNO',
+            pairs: st.pairs.filter(function(p) { return p.studCol && p.auditCol; })
+        };
+    }
+
+    window.r41Run = function() {
+        if (!st.clientId) { setWs('Select an engagement before running.', 'warning'); return; }
+        spin('Running Rule 41 validation...');
+        post(API + '/RunValidation', buildReq())
+        .then(function(d) {
+            unspin();
+            if (!d.success) { setWs(d.error || 'Validation failed.', 'error'); return; }
+            st.runId = d.savedRunId || st.runId;
+            st.currentUserHasSignedOff = false; st.isWorkspaceSaved = false; st.resultsVisible = true;
+            applySummary(d, false);
+            setWs('Rule 41 complete. Total: ' + fmt(d.totalCount) + ' | Agree: ' + fmt(d.agreeCount) + ' | Exceptions: ' + fmt((d.disagreeCount || 0) + (d.missingCount || 0)) + '. Overall: ' + d.status, d.status === 'PASS' ? 'success' : 'warning');
+            var dlBtn = g('r41DlAllBtn'); if (dlBtn) dlBtn.disabled = false;
+        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
+    };
+
+    window.r41Sql = function() {
+        spin('Generating SQL...');
+        post(API + '/GenerateSql', buildReq()).then(function(d) {
+            unspin();
+            if (!d.success) { alert('Error: ' + (d.error || 'Failed.')); return; }
+            var t = g('r41SqlText'); if (t) t.value = d.sql || '';
+            r41Tab('r41-sql');
+        }).catch(function(e) { unspin(); alert(e.message); });
+    };
+
+    window.r41DlAll = function() { if (st.runId) window.open(API + '/DownloadExcel?runId=' + st.runId, '_blank'); };
+
+    /* ── Workspace ── */
+    window.r41SaveWorkspace = function() {
+        spin('Saving workspace...');
+        post(API + '/SaveWorkspace', buildReq()).then(function(d) {
+            unspin();
+            if (!d.success) { setWs(d.error || 'Save failed.', 'error'); return; }
+            if (d.workspace) applyWsMeta(d.workspace);
+            setWs(d.message || 'Workspace saved.', d.signoffsCleared ? 'warning' : 'success');
+        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
+    };
+
+    window.r41SignOff = function() {
+        spin('Saving signoff...');
+        post(API + '/SignOffWorkspace', { clientId: st.clientId, runId: st.runId, comment: gv('r41SignoffComment') })
+        .then(function(d) {
+            unspin();
+            if (!d.success) { setWs(d.error || 'Signoff failed.', 'error'); return; }
+            st.currentUserHasSignedOff = true;
+            if (d.workspace) applyWsMeta(d.workspace);
+            setWs(d.message || 'Signoff saved.', 'success'); updateButtons();
+        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
+    };
+
+    window.r41RemoveSignoff = function() {
+        spin('Removing signoff...');
+        post(API + '/RemoveWorkspaceSignoff', { clientId: st.clientId, runId: st.runId, comment: '' })
+        .then(function(d) {
+            unspin();
+            if (!d.success) { setWs(d.error || 'Failed.', 'error'); return; }
+            st.currentUserHasSignedOff = false;
+            if (d.workspace) applyWsMeta(d.workspace);
+            setWs(d.message || 'Signoff removed.', 'warning'); updateButtons();
+        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
+    };
+
+    function applyWsMeta(ws) {
+        st.isWorkspaceSaved = !!ws.isWorkspaceSaved;
+        st.currentUserHasSignedOff = !!ws.currentUserHasSignedOff;
+        if (ws.currentUserEngagementRole) st.currentUserEngagementRole = ws.currentUserEngagementRole;
+        var b   = g('r41RunState');    if (b)   b.textContent   = ws.runId ? 'Run #' + ws.runId : 'No saved run loaded';
+        var rl  = g('r41RunLabel');    if (rl)  rl.textContent  = ws.runId ? 'Rule 41 Run #' + ws.runId : 'No saved run yet';
+        var sl  = g('r41StatusLabel'); if (sl)  sl.textContent  = ws.currentStatus || ws.status || '-';
+        var el  = g('r41EditedLabel'); if (el)  el.textContent  = ws.lastEditedAt ? new Date(ws.lastEditedAt).toLocaleString() : '-';
+        var rl2 = g('r41RoleLabel');   if (rl2) rl2.textContent = ws.currentUserEngagementRole || ROLE || '-';
+        var sc  = g('r41SignoffComment'); if (sc && ws.currentUserSignoffComment) sc.value = ws.currentUserSignoffComment;
+        updateButtons();
+    }
+
+    function updateButtons() {
+        var engRole = (st.currentUserEngagementRole || ROLE || '').toLowerCase();
+        var nSys    = (ROLE || '').toLowerCase();
+        var canEdit = !IS_RESULTS_ONLY && (nSys === 'dataanalyst' || engRole === 'dataanalyst');
+        var canSign = !!st.runId && !!st.isWorkspaceSaved &&
+            (engRole === 'dataanalyst' || (st.resultsVisible && (engRole === 'manager' || engRole === 'director')));
+        var signed  = st.currentUserHasSignedOff;
+        var sw = g('r41SaveBtn');   if (sw) sw.disabled = signed || !canEdit || !st.runId;
+        var so = g('r41SignoffBtn');if (so) { so.disabled = signed || !canSign; so.textContent = signed ? 'Signed Off' : 'Sign Off'; }
+        show('r41RemoveSignoffBtn', signed);
+    }
+
+    window.r41OnClientChange = function(val) {
+        st.clientId = parseInt(val) || 0;
+        if (!st.clientId) { setWs('Select an engagement to load the saved Rule 41 workspace.', 'info'); return; }
+        loadWorkspace();
+    };
+
+    function loadWorkspace() {
+        if (!st.clientId) return;
+        setWs('Loading saved workspace...', 'info');
+        (window.fetchJsonWithProgress || function(url, opts) { return fetch(url, opts).then(function(r) { return r.json(); }); })(API + '/GetWorkspaceState?clientId=' + st.clientId, { method: 'GET' })
+        .then(function(d) {
+            if (!d.success) { setWs(d.error || 'Failed to load workspace.', 'error'); return; }
+            applyWorkspace(d.workspace, d.resultsVisible);
+        }).catch(function(e) { setWs(e.message, 'error'); });
+    }
+
+    function applyWorkspace(ws, resultsVisible) {
+        if (!ws) {
+            st.runId = null; st.summary = null; st.isWorkspaceSaved = false;
+            st.currentUserHasSignedOff = false; st.resultsVisible = false; st.currentUserEngagementRole = '';
+            setWs('No saved Rule 41 workspace for this engagement yet.', 'info');
+            var b   = g('r41RunState');    if (b)   b.textContent   = 'No saved run loaded';
+            var rl  = g('r41RunLabel');    if (rl)  rl.textContent  = 'No saved run yet';
+            var sl  = g('r41StatusLabel'); if (sl)  sl.textContent  = '-';
+            var el  = g('r41EditedLabel'); if (el)  el.textContent  = '-';
+            st.pairs = DEF_PAIRS.slice(); renderPairs();
+            applySummary(null, false); updateButtons(); return;
+        }
+        st.runId = ws.runId || null;
+        st.isWorkspaceSaved = !!ws.isWorkspaceSaved;
+        st.currentUserHasSignedOff = !!ws.currentUserHasSignedOff;
+        st.resultsVisible = !!resultsVisible;
+        st.currentUserEngagementRole = ws.currentUserEngagementRole || '';
+
+        if (!IS_RESULTS_ONLY) {
+            var sv = g('r41Server'); if (sv && ws.server) sv.value = ws.server;
+            var dv = g('r41Driver'); if (dv && ws.driver) dv.value = ws.driver;
+            if (ws.database)   fillSel('r41Db',         [ws.database],    ws.database);
+            if (ws.studTable)  fillSel('r41StudTable',  [ws.studTable],   ws.studTable);
+            if (ws.auditTable) fillSel('r41AuditTable', [ws.auditTable],  ws.auditTable);
+            if (ws.studKey)    fillSel('r41StudKey',    [ws.studKey],     ws.studKey);
+            if (ws.auditKey)   fillSel('r41AuditKey',   [ws.auditKey],    ws.auditKey);
+        }
+
+        applyWsMeta(ws);
+        var sc = g('r41SignoffComment'); if (sc && ws.currentUserSignoffComment) sc.value = ws.currentUserSignoffComment;
+
+        st.pairs = (ws.summary && ws.summary.reconc && ws.summary.reconc.pairs && ws.summary.reconc.pairs.length) ? ws.summary.reconc.pairs.slice() : DEF_PAIRS.slice();
+        if (!IS_RESULTS_ONLY) renderPairs();
+
+        if (!resultsVisible) { setWs('Saved Rule 41 results are not available for your role.', 'info'); applySummary(null, false); updateButtons(); return; }
+        setWs(ws.summary ? 'Saved Rule 41 workspace loaded.' : 'Rule 41 workspace loaded. Run validation to generate results.', 'success');
+        if (ws.summary) applySummary(ws.summary, true);
+        else { applySummary(null, false); updateButtons(); }
+        var dlBtn = g('r41DlAllBtn'); if (dlBtn) dlBtn.disabled = !ws.runId;
+    }
+
+    /* ── Rendering ── */
+    function applySummary(summary, fromWs) {
+        st.summary = summary;
+        if (summary && !fromWs) st.runId = summary.savedRunId || st.runId;
+        setStatusBadge(summary ? summary.status : '');
+        renderAnalysis(summary);
+        renderReconc(summary ? summary.reconc : null);
+        if (summary && st.runId) {
+            var dlE = g('r41DlExcel');  if (dlE) dlE.onclick = function() { window.open(API + '/DownloadExcel?runId=' + st.runId, '_blank'); };
+            var dlC = g('r41DlCsv');    if (dlC) dlC.onclick = function() { window.open(API + '/DownloadCsv?runId=' + st.runId, '_blank'); };
+            var dlX = g('r41DlExcCsv');if (dlX) dlX.onclick = function() { window.open(API + '/DownloadExceptionsCsv?runId=' + st.runId, '_blank'); };
+            var dlS = g('r41DlSql');    if (dlS) dlS.onclick = function() { window.open(API + '/DownloadSql?runId=' + st.runId, '_blank'); };
+        }
+        updateButtons();
+    }
+
+    function renderAnalysis(s) {
+        var pane = g('r41AnalysisPane'); if (!pane) return;
+        if (!s) { pane.innerHTML = '<div class="empty-state"><p>Run Rule 41 validation to see results here.</p></div>'; return; }
+        var sc = String(s.status || '').toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail';
+        pane.innerHTML =
+            '<div class="stats-grid" style="margin-bottom:20px">' +
+            statCard('Total', fmt(s.totalCount || 0), '') +
+            statCard('Agree', fmt(s.agreeCount || 0), 'pass') +
+            statCard('Disagree', fmt(s.disagreeCount || 0), s.disagreeCount > 0 ? 'fail' : '') +
+            statCard('Missing', fmt(s.missingCount || 0), s.missingCount > 0 ? 'fail' : '') +
+            statCard('Exception Rate', Number(s.exceptionRate || 0).toFixed(2) + '%', s.exceptionRate > 0 ? 'fail' : 'pass') +
+            statCard('Overall', '<span class="badge ' + sc + '">' + esc(s.status) + '</span>', '') +
+            '</div>' +
+            '<div class="card" style="padding:16px"><div class="form-grid">' +
+            '<div><div class="stat-label">Database</div><div>' + esc(s.database || '') + '</div></div>' +
+            '<div><div class="stat-label">STUD Table</div><div>' + esc(s.studTable || '') + '</div></div>' +
+            '<div><div class="stat-label">Audit Table</div><div>' + esc(s.auditTable || '') + '</div></div>' +
+            '<div><div class="stat-label">Timestamp</div><div>' + esc(s.timestamp || '') + '</div></div>' +
+            '</div></div>';
+    }
+
+    function statCard(label, value, mod) {
+        var cls = mod === 'pass' ? ' stat-card--pass' : mod === 'fail' ? ' stat-card--fail' : '';
+        return '<div class="stat-card' + cls + '"><div class="stat-card__label">' + label + '</div><div class="stat-card__value">' + value + '</div></div>';
+    }
+
+    function renderReconc(reconc) {
+        if (!reconc) {
+            setHtml('r41FlaggedPane', '<div class="empty-state"><p>Run validation first.</p></div>');
+            setHtml('r41ClearPane',   '<div class="empty-state"><p>Run validation first.</p></div>');
+            return;
+        }
+        var pairs   = reconc.pairs || [];
+        var excRows = reconc.exceptionRows || [];
+        var agrRows = reconc.rows || [];
+
+        setHtml('r41FlaggedPane',
+            '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #C0392B">' +
+            '<strong>FLAGGED</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING rows.' +
+            '</div>' + buildTable(excRows, pairs, 'No exceptions — all students agree.'));
+
+        setHtml('r41ClearPane',
+            '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #1E8449">' +
+            '<strong>CLEAR</strong>: ' + fmt(reconc.agreeCount || 0) + ' students agree' +
+            (agrRows.length < (reconc.agreeCount || 0) ? ' (sample of ' + fmt(agrRows.length) + ' shown)' : '') + '.' +
+            '</div>' + buildTable(agrRows, pairs, 'No clear rows in this run.'));
+    }
+
+    function buildTable(rows, pairs, emptyMsg) {
+        if (!rows || !rows.length) return '<div class="empty-state"><p>' + emptyMsg + '</p></div>';
+        var hdrs = pairs.map(function(p) {
+            return '<th style="background:#1565A6">STUD ' + esc(p.studCol || p.StudCol || '') + '</th>' +
+                   '<th style="background:#0D6E2E">AUDIT ' + esc(p.auditCol || p.AuditCol || '') + '</th>' +
+                   '<th>Match</th>';
+        }).join('');
+        var body = rows.map(function(r) {
+            var ov = r.overallResult || r.OverallResult || '';
+            var cls = ov === 'AGREE' ? 'agree' : ov === 'DISAGREE' ? 'disagree' : 'missing';
+            var badge = ov === 'AGREE' ? '<span class="r41-agree">&#10003; AGREE</span>' : ov === 'DISAGREE' ? '<span class="r41-exc">&#x2717; DISAGREE</span>' : '<span class="r41-miss">? MISSING</span>';
+            var cells = pairs.map(function(p) {
+                var lbl = p.label || p.Label || p.studCol || '';
+                var fMap = r.fields || {};
+                var f = fMap[lbl] || fMap[lbl.charAt(0).toLowerCase() + lbl.slice(1)];
+                if (!f) {
+                    var lbl_lc = lbl.toLowerCase();
+                    var fKeys = Object.keys(fMap);
+                    for (var ki = 0; ki < fKeys.length; ki++) {
+                        if (fKeys[ki].toLowerCase() === lbl_lc) { f = fMap[fKeys[ki]]; break; }
+                    }
+                }
+                f = f || {};
+                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
+                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
+                var matchVal = f.match || f.Match || 'MISSING';
+                var mi = matchVal === 'AGREE' ? '<span style="color:#1E8449">&#10003;</span>' : matchVal === 'DISAGREE' ? '<span style="color:#C0392B">&#x2717;</span>' : '<span style="color:#E67E22">?</span>';
+                return '<td>' + esc(sv) + '</td><td class="oc">' + esc(av) + '</td><td>' + mi + '</td>';
+            }).join('');
+            return '<tr class="' + cls + '"><td style="font-size:.73rem;color:#777">' + (r.rowNumber || r.RowNumber || '') + '</td><td style="font-weight:600;font-family:monospace">' + esc(r.studentRef || r.StudentRef || r.staffRef || '') + '</td>' + cells + '<td>' + badge + '</td><td style="font-size:.71rem;text-align:left;max-width:230px">' + esc(r.disagreeDetail || r.DisagreeDetail || '') + '</td></tr>';
+        }).join('');
+        return '<div style="overflow-x:auto"><table class="r41-tbl"><thead><tr><th>#</th><th>Student No</th>' + hdrs + '<th>Result</th><th>Detail</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+    }
+
+    /* ── Init ── */
+    st.pairs = DEF_PAIRS.slice();
+    renderPairs();
+    applySummary(null, false);
+    updateButtons();
+    if (st.clientId) loadWorkspace();
+})();
+</script>

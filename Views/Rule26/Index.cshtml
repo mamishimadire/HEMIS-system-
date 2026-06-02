@@ -769,9 +769,53 @@
         });
     }
 
+    function renderPassSample(summary) {
+        const passRows = summary?.passRows || [];
+        if (!passRows.length) return '';
+        return `
+            <div class="card" style="padding:20px;margin-bottom:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <span class="badge badge--pass" style="font-size:11px">PASS</span>
+                    <h3 class="section-title" style="margin:0">Sample of Linked Personnel (All Controls Passed)</h3>
+                </div>
+                <div style="color:#64748b;margin-bottom:10px;font-size:13px">
+                    These personnel numbers were found in both tables with matching demographic values. Showing up to ${formatNumber(passRows.length)} matched record(s).
+                </div>
+                <div style="overflow:auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Direction</th>
+                                <th>Personnel Number</th>
+                                <th>Personnel Name</th>
+                                <th>Employment Type</th>
+                                <th>Gender</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${passRows.map(row => `
+                                <tr>
+                                    <td>${escapeHtml(row.directionLabel || '')}</td>
+                                    <td>${escapeHtml(row.personnelNumber || '')}</td>
+                                    <td>${escapeHtml(row.personnelName || '-')}</td>
+                                    <td>${escapeHtml(row.employmentType || '-')}</td>
+                                    <td>${escapeHtml(row.gender || '-')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
     function renderExceptionDetails(summary) {
-        if (!summary?.exceptions || !summary.exceptions.length) {
-            els.detailsPane.innerHTML = '<div class="alert alert--success" style="margin:0">No exceptions were found.</div>';
+        const passRows = summary?.passRows || [];
+        const hasExceptions = summary?.exceptions && summary.exceptions.length;
+
+        if (!hasExceptions) {
+            els.detailsPane.innerHTML = `
+                <div class="alert alert--success" style="margin-bottom:${passRows.length ? '16px' : '0'}">No exceptions were found — all linked personnel passed all controls.</div>
+                ${renderPassSample(summary)}`;
             return;
         }
 
@@ -847,6 +891,7 @@
             `).join('');
 
         els.detailsPane.innerHTML = `
+            ${renderPassSample(summary)}
             <div class="card" style="padding:20px">
                 <div class="alert alert--info" style="margin-bottom:16px">
                     Exceptions are explained according to the direction of testing. Use the filters below to focus on one direction or one control.

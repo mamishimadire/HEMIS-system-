@@ -1216,7 +1216,20 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
 
         private static void ApplyBrowserPreview(Rule35ValidationSummary summary)
         {
-            summary.ValidationRows = summary.ValidationRows
+            var failRows = summary.ValidationRows
+                .Where(r => string.Equals(r.DuplicateStatus, "DUPLICATE", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var passRows = summary.ValidationRows
+                .Where(r => !string.Equals(r.DuplicateStatus, "DUPLICATE", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            var failTake = Math.Min(failRows.Count, Math.Max(BrowserPreviewRowLimit / 2, 1));
+            var passTake = Math.Min(passRows.Count, BrowserPreviewRowLimit - failTake);
+            if (failTake == 0) passTake = Math.Min(passRows.Count, BrowserPreviewRowLimit);
+            else if (passTake == 0) failTake = Math.Min(failRows.Count, BrowserPreviewRowLimit);
+
+            summary.ValidationRows = failRows.Take(failTake)
+                .Concat(passRows.Take(passTake))
                 .Take(BrowserPreviewRowLimit)
                 .ToList();
             summary.DisplayedCount = Math.Min(summary.DisplayedCount, summary.ValidationRows.Count);

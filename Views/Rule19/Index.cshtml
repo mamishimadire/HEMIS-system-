@@ -159,6 +159,7 @@
                     Link <strong>dbo_STUD._001</strong> to <strong>dbo_QUAL._001</strong>, keep rows where
                     <strong>dbo_STUD._025</strong> matches the selected fulfilled value, and keep only qualification
                     types in the configured Masters/Doctoral list from <strong>dbo_QUAL._005</strong>.
+                    If PQM is configured: PASS requires <strong>QUAL._003 = PQM.AUTHORISED_QUALIFICATION_NAME</strong> AND <strong>QUAL._005 = PQM.HEQF_QUAL_TYPE</strong> on the same PQM row.
                     <br />
                     Rule 19 uses <strong>100% population testing only</strong>. No random sample is used in this module.
                 </div>
@@ -172,16 +173,32 @@
                         <select id="qualTable"></select>
                     </div>
                     <div class="field-group">
-                        <label for="qualCodeColumn">Qualification Code Column</label>
+                        <label for="pqmTable">PQM Table <small style="font-weight:normal;color:#888">(optional — enables name &amp; HEQF type matching)</small></label>
+                        <select id="pqmTable"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="qualCodeColumn">Qualification Code Column (_001)</label>
                         <select id="qualCodeColumn"></select>
                     </div>
                     <div class="field-group">
-                        <label for="fulfilledColumn">Fulfilled Column</label>
+                        <label for="qualNameColumn">Qualification Name Column (_003)</label>
+                        <select id="qualNameColumn"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="fulfilledColumn">Fulfilled Column (_025)</label>
                         <select id="fulfilledColumn"></select>
                     </div>
                     <div class="field-group">
-                        <label for="qualTypeColumn">Qualification Type Column</label>
+                        <label for="qualTypeColumn">Qualification Type Column (_005)</label>
                         <select id="qualTypeColumn"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="pqmQualNameColumn">PQM — Qual Name Column <small style="font-weight:normal;color:#888">(AUTHORISED_QUALIFICATION_NAME)</small></label>
+                        <select id="pqmQualNameColumn"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="pqmQualTypeColumn">PQM — HEQF Type Column <small style="font-weight:normal;color:#888">(HEQF_QUAL_TYPE)</small></label>
+                        <select id="pqmQualTypeColumn"></select>
                     </div>
                     <div class="field-group" style="grid-column:1 / -1">
                         <label for="mdTypesText">Masters / Doctoral Type Codes</label>
@@ -189,7 +206,7 @@
                     </div>
                 </div>
                 <div class="rule19-muted" style="margin-top:8px">
-                    Rule 19 follows the notebook logic and returns the full qualifying population in the saved results and exports.
+                    Rule 19 follows the notebook logic and returns the full qualifying population. When PQM is configured, PASS/FAIL is determined by PQM name and HEQF type matching.
                 </div>
                 <div id="configOutput" class="status-output"></div>
             </div>
@@ -503,11 +520,15 @@
             studTable: els.studTable.value,
             qualTable: els.qualTable.value,
             qualCodeColumn: els.qualCodeColumn.value,
+            qualNameColumn: document.getElementById('qualNameColumn')?.value || '_003',
             fulfilledColumn: els.fulfilledColumn.value,
             fulfilledValue: els.fulfilledValue.value,
             qualTypeColumn: els.qualTypeColumn.value,
             mdTypesText: els.mdTypesText.value.trim() || defaultMdTypes,
-            showAllRecords: true
+            showAllRecords: true,
+            pqmTable: document.getElementById('pqmTable')?.value || '',
+            pqmQualNameColumn: document.getElementById('pqmQualNameColumn')?.value || '',
+            pqmQualTypeColumn: document.getElementById('pqmQualTypeColumn')?.value || ''
         };
     }
 
@@ -755,10 +776,16 @@
             ).toUpperCase();
             return rowResult === state.resultFilter;
         });
-        const headers = Array.from(new Set(allRows.flatMap(row => Object.keys(row.displayValues || {}))));
-        const headHtml = headers.map(header => `<th>${htmlEscape(header)}</th>`).join('');
+        const hasPqm = !!(summary.pqmTable);
+        const baseHeaders = Array.from(new Set(allRows.flatMap(row => Object.keys(row.displayValues || {}))));
+        const pqmHeaders = hasPqm ? ['PQM_Name_Match', 'PQM_HEQF_Type_Match', 'PQM_Name_Matched', 'PQM_Type_Matched'] : [];
+        const headers = [...baseHeaders, ...pqmHeaders];
+        const headHtml = headers.map(h => {
+            const isPqm = pqmHeaders.includes(h);
+            return `<th style="${isPqm ? 'background:#CE93D8' : ''}">${htmlEscape(h)}</th>`;
+        }).join('');
         const bodyHtml = filteredRows.map(row => {
-            const cells = headers.map(header => {
+            const cells = baseHeaders.map(header => {
                 const value = row.displayValues?.[header] ?? '';
                 const normalizedValue = String(value || '').toUpperCase();
                 const cls = /validation_?result/i.test(header)
@@ -766,7 +793,13 @@
                     : '';
                 return `<td class="${cls}">${htmlEscape(value)}</td>`;
             }).join('');
-            return `<tr>${cells}</tr>`;
+            const pqmCells = hasPqm ? [
+                `<td style="${!row.pqmNameMatch ? 'background:#fff3e0' : ''}">${htmlEscape(row.pqmQualName || '—')}</td>`,
+                `<td style="${!row.pqmTypeMatch ? 'background:#fff3e0' : ''}">${htmlEscape(row.pqmQualType || '—')}</td>`,
+                `<td style="text-align:center">${row.pqmNameMatch ? '✓' : '<span style="color:#b91c1c">✗</span>'}</td>`,
+                `<td style="text-align:center">${row.pqmTypeMatch ? '✓' : '<span style="color:#b91c1c">✗</span>'}</td>`
+            ].join('') : '';
+            return `<tr>${cells}${pqmCells}</tr>`;
         }).join('');
 
         const noteHtml = summary.isPreviewOnly
@@ -868,6 +901,14 @@
         ensureOption(els.fulfilledColumn, workspace.fulfilledColumn || '_025');
         ensureOption(els.fulfilledValue, workspace.fulfilledValue || 'F', workspace.fulfilledValue || 'F');
         ensureOption(els.qualTypeColumn, workspace.qualTypeColumn || '_005');
+        const qualNameEl = document.getElementById('qualNameColumn');
+        if (qualNameEl) ensureOption(qualNameEl, workspace.qualNameColumn || '_003');
+        const pqmTableEl = document.getElementById('pqmTable');
+        const pqmNameEl  = document.getElementById('pqmQualNameColumn');
+        const pqmTypeEl  = document.getElementById('pqmQualTypeColumn');
+        if (pqmTableEl) ensureOption(pqmTableEl, workspace.pqmTable || '');
+        if (pqmNameEl)  ensureOption(pqmNameEl,  workspace.pqmQualNameColumn || '');
+        if (pqmTypeEl)  ensureOption(pqmTypeEl,  workspace.pqmQualTypeColumn || '');
         els.mdTypesText.value = workspace.mdTypesText || defaultMdTypes;
         els.workspaceSignoffComment.value = workspace.currentUserSignoffComment || '';
 
@@ -953,6 +994,15 @@
 
         populateSelect(els.studTable, data.tables || [], data.autoStudTable || 'dbo_STUD');
         populateSelect(els.qualTable, data.tables || [], data.autoQualTable || 'dbo_QUAL');
+        const pqmSel = document.getElementById('pqmTable');
+        if (pqmSel) {
+            pqmSel.innerHTML = '<option value="">Select table (e.g. PQM) — optional</option>';
+            (data.tables || []).forEach(t => pqmSel.appendChild(new Option(t, t)));
+            if (data.autoPqmTable && (data.tables || []).includes(data.autoPqmTable)) {
+                pqmSel.value = data.autoPqmTable;
+                await loadPqmColumns();
+            }
+        }
         await loadStudColumns();
         await loadQualColumns();
         setAlert(els.configOutput, 'success', `Loaded ${(data.tables || []).length} table(s).`);
@@ -976,7 +1026,7 @@
         await loadFilterValues(false);
     }
 
-    async function loadQualColumns() {
+    async function loadQualColumns(preferredQualNameColumn, preferredQualTypeColumn) {
         if (!els.qualTable.value) return;
 
         const data = await postJson(`${apiBasePath}/GetColumns`, {
@@ -989,7 +1039,27 @@
             throw new Error(data.error || 'Failed to load QUAL columns.');
         }
 
-        populateSelect(els.qualTypeColumn, data.columns || [], data.autoQualTypeColumn || '_005');
+        const qualNameSel = document.getElementById('qualNameColumn');
+        if (qualNameSel) populateSelect(qualNameSel, data.columns || [], preferredQualNameColumn || data.autoQualNameColumn || '_003');
+        populateSelect(els.qualTypeColumn, data.columns || [], preferredQualTypeColumn || data.autoQualTypeColumn || '_005');
+    }
+
+    async function loadPqmColumns(preferredNameCol, preferredTypeCol) {
+        const pqmSel = document.getElementById('pqmTable');
+        if (!pqmSel?.value) return;
+
+        const data = await postJson(`${apiBasePath}/GetColumns`, {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            tableName: pqmSel.value
+        });
+        if (!data.success) return;
+
+        const nameSel = document.getElementById('pqmQualNameColumn');
+        const typeSel = document.getElementById('pqmQualTypeColumn');
+        if (nameSel) populateSelect(nameSel, data.columns || [], preferredNameCol || data.autoPqmQualNameColumn || '');
+        if (typeSel) populateSelect(typeSel, data.columns || [], preferredTypeCol || data.autoPqmQualTypeColumn || '');
     }
 
     async function loadFilterValues(showUserFeedback = true) {
@@ -1204,6 +1274,13 @@
     els.fulfilledValue.addEventListener('change', markWorkspaceDirty);
     els.qualTypeColumn.addEventListener('change', markWorkspaceDirty);
     els.mdTypesText.addEventListener('change', markWorkspaceDirty);
+    document.getElementById('qualNameColumn')?.addEventListener('change', markWorkspaceDirty);
+    document.getElementById('pqmTable')?.addEventListener('change', async () => {
+        await markWorkspaceDirty();
+        await loadPqmColumns();
+    });
+    document.getElementById('pqmQualNameColumn')?.addEventListener('change', markWorkspaceDirty);
+    document.getElementById('pqmQualTypeColumn')?.addEventListener('change', markWorkspaceDirty);
     document.getElementById('connectBtn').addEventListener('click', () => connectDatabase().catch(err => {
         hideSpinner();
         setAlert(els.connectionOutput, 'error', htmlEscape(err.message));

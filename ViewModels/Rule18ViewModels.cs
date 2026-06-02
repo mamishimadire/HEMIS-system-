@@ -30,6 +30,21 @@ namespace HemisAudit.ViewModels
             set => BridgeTable = value;
         }
         public string CrseTable { get; set; } = "dbo_CRSE";
+        public string Control1FilterCol { get; set; } = "_019";
+        public string Control1FilterValue { get; set; } = "NS";
+        public string NsfasFilterCol { get; set; } = "_019";
+        public string NsfasFilterValue { get; set; } = "NS";
+        public string FoundationFilterCol { get; set; } = "_091";
+        public string FoundationFilterValue { get; set; } = "Y";
+        public string DistanceFilterCol { get; set; } = "_024";
+        public string DistanceFilterValue { get; set; } = "D";
+    }
+
+    public class ColumnValuesResult
+    {
+        public bool Success { get; set; }
+        public List<string> Values { get; set; } = new();
+        public string? Error { get; set; }
     }
 
     public class Rule18VerifyResult
@@ -42,6 +57,7 @@ namespace HemisAudit.ViewModels
         public int Control1PopulationCount { get; set; }
         public int Control2PopulationCount { get; set; }
         public int Control3PopulationCount { get; set; }
+        public int Control4PopulationCount { get; set; }
         public string? Error { get; set; }
     }
 
@@ -60,9 +76,14 @@ namespace HemisAudit.ViewModels
             set => BridgeTable = value;
         }
         public string CrseTable { get; set; } = "dbo_CRSE";
-        public int SampleControl1Size { get; set; } = 5;
-        public int SampleControl2Size { get; set; } = 3;
-        public int SampleControl3Size { get; set; } = 32;
+        public string Control1FilterCol { get; set; } = "_019";
+        public string Control1FilterValue { get; set; } = "NS";
+        public string NsfasFilterCol { get; set; } = "_019";
+        public string NsfasFilterValue { get; set; } = "NS";
+        public string FoundationFilterCol { get; set; } = "_091";
+        public string FoundationFilterValue { get; set; } = "Y";
+        public string DistanceFilterCol { get; set; } = "_024";
+        public string DistanceFilterValue { get; set; } = "D";
     }
 
     public class Rule18ControlSummaryItemViewModel
@@ -115,6 +136,14 @@ namespace HemisAudit.ViewModels
             set => BridgeTable = value;
         }
         public string CrseTable { get; set; } = "dbo_CRSE";
+        public string Control1FilterCol { get; set; } = "_019";
+        public string Control1FilterValue { get; set; } = "NS";
+        public string NsfasFilterCol { get; set; } = "_019";
+        public string NsfasFilterValue { get; set; } = "NS";
+        public string FoundationFilterCol { get; set; } = "_091";
+        public string FoundationFilterValue { get; set; } = "Y";
+        public string DistanceFilterCol { get; set; } = "_024";
+        public string DistanceFilterValue { get; set; } = "D";
         public string TableLinkageText { get; set; } = "";
         public string RuleModeText { get; set; } = "";
         public List<string> ProcedureSteps { get; set; } = new();
@@ -162,9 +191,14 @@ namespace HemisAudit.ViewModels
             set => BridgeTable = value;
         }
         public string CrseTable { get; set; } = "dbo_CRSE";
-        public int SampleControl1Size { get; set; } = 5;
-        public int SampleControl2Size { get; set; } = 3;
-        public int SampleControl3Size { get; set; } = 32;
+        public string Control1FilterCol { get; set; } = "_019";
+        public string Control1FilterValue { get; set; } = "NS";
+        public string NsfasFilterCol { get; set; } = "_019";
+        public string NsfasFilterValue { get; set; } = "NS";
+        public string FoundationFilterCol { get; set; } = "_091";
+        public string FoundationFilterValue { get; set; } = "Y";
+        public string DistanceFilterCol { get; set; } = "_024";
+        public string DistanceFilterValue { get; set; } = "D";
         public string CurrentUserEngagementRole { get; set; } = "";
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff { get; set; }
@@ -204,6 +238,15 @@ namespace HemisAudit.ViewModels
         public bool Success { get; set; }
         public string Sql { get; set; } = "";
         public string? Error { get; set; }
+    }
+
+    public class Rule18ColumnValuesRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string TableName { get; set; } = "";
+        public string ColumnName { get; set; } = "";
     }
 }
 

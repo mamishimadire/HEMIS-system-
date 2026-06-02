@@ -1,38 +1,736 @@
-# HEMIS System
+# HEMIS Audit System
 
 ASP.NET Core MVC application for HEMIS validation workflows.
 
-## Structure
+## Project Structure
 
-The project is organised by responsibility:
+| Folder | Purpose |
+|--------|---------|
+| `Controllers/` | MVC controllers and route entry points |
+| `Data/` | EF Core context, bootstrap, and database seeding |
+| `Filters/` | MVC request/action filters (e.g. password-age enforcement) |
+| `Helpers/` | Reusable helper and policy classes |
+| `Models/` | Domain and persistence models |
+| `Services/` | Business logic, exports, email, and rule services |
+| `ViewModels/` | Models used by views and controller/view binding |
+| `Views/` | Razor views grouped by controller |
+| `wwwroot/` | Static assets and runtime upload directories |
+| `Scripts/run system.ps1` | Builds and launches the app locally on port 5076 |
 
-- `Controllers/`: MVC controllers and route entry points.
-- `Data/`: EF Core context, bootstrap, and database seeding.
-- `Filters/`: MVC request/action filters such as password-age enforcement.
-- `Helpers/`: small reusable helper and policy classes.
-- `Models/`: domain and persistence models.
-- `Services/`: business logic, exports, email, and rule services.
-- `ViewModels/`: models used by views and controller/view binding.
-- `Views/`: Razor views grouped by controller.
-- `wwwroot/`: static assets and runtime upload directories.
-- `Scripts/`: local helper scripts and SQL diagnostics.
-- `Docs/Images/`: documentation and README image assets.
+---
 
-## Script Layout
+# HEMIS Rule Implementation Tracker
 
-- `Scripts/run system.ps1`: builds and launches the app locally.
-- `Scripts/run system.cmd`: Windows wrapper for the PowerShell launcher.
-- `Scripts/Sql/Rule29/`: saved diagnostic SQL files for Rule 29 investigation.
+**Reference directive:** Revised Directives for External Auditing of Student, Staff and Academic Programme Data — April 2026 (DHET)
+**Reference:** Audit Engagement Letter (internal — procedures referenced below per section)
+**Last updated:** 2026-05-31
+> Rule 55 added: Graduate W-Code Validation. Rule 17 left untouched.
 
-The launcher now writes temporary runtime output to `.run/` instead of cluttering the repository root.
+---
 
-## Repository Hygiene
+## Status Legend
 
-The repository should not track generated or user-local artifacts such as:
+| Symbol | Meaning |
+|--------|---------|
+| ✅ | Implemented — aligned with both the HEMIS directive and the engagement letter |
+| ⚠️ | Implemented in system — but not fully aligned with directive or engagement letter |
+| ❌ | Not implemented — absent from system; gap in directive and engagement letter coverage |
 
-- build verification folders
-- process id files
-- runtime logs
-- uploaded profile/message files
+## Progress Overview
 
-Those paths are ignored in `.gitignore` so the source tree stays focused on application code.
+| Status | Rules | Count |
+|--------|-------|-------|
+| ✅ | 1–10, 12–16, 18, 20–22, 23–32, 34–36, 39–41, 44–48, 51–55 | **45** |
+| ⚠️ | 11, 17, 19, 37, 38 | **5** |
+| ❌ | 33, 42, 43, 49, 50 | **5** |
+| **Total** | | **55** |
+
+---
+
+---
+
+# ❌ NOT IMPLEMENTED — Rules Absent from the System
+
+> These rules do not exist in the system. Each entry shows the directive requirement, the engagement letter gap, the specific recommendation, and a full alignment analysis.
+
+---
+
+### ❌ Rule 33
+
+**Directive section:** §4.4 — SQLVALPAC Error Reports
+**Engagement letter section:** §4.4
+
+**Why it matters**
+Rules 27–33 are annotated together in the directive under §4.4 (*"look at rule 27 to 33 and refer to 4.4 SQLVALPAC error reports in the engagement letter"*). Rules 27–32 are all built. Rule 33 is the only missing rule in this sequence. DHET §4.4 requires that no fatal data errors appear in the latest SQLVALPAC run except where the DHET has given written approval to ignore them. Any gap in the error-validation sequence means a class of errors may go undetected.
+
+**Recommendation**
+Review the SQLVALPAC error code list alongside Rules 27–32 to identify which error codes, file combinations, or data conditions are not yet covered. Rule 33 likely handles a specific error type (e.g. a unique student/course combination error, a cross-file referential error, or an additional approved-exclusion set) that does not fit neatly into Rules 27–32. Once identified: (1) build Rule 33 following the same service/controller/view pattern as Rule 29 (Single Column Filter) or Rule 32 (Fatal Errors with Exclusions); (2) add a §4.4 procedure to the engagement letter describing what error codes Rule 33 targets and what constitutes a PASS or FAIL.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §4.4** | ✗ **Not covered.** The directive groups Rules 27–33 under §4.4. The first six (27–32) provide partial coverage. Rule 33 is absent, leaving a gap in the SQLVALPAC fatal error sequence. The exact error class it should cover is unconfirmed until the investigation above is completed. |
+| **Engagement Letter §4.4** | ✗ **No procedure documented.** Since Rule 33 has not been scoped or built, no procedure exists in the engagement letter. Once Rule 33 is built, a procedure must be added to §4.4 of the engagement letter specifying the targeted error codes, the exclusion rules (if any DHET approvals apply), and the expected outcome. |
+| **Gap summary** | Both the system and the engagement letter are silent on whatever Rule 33 is supposed to cover. This gap cannot be closed until the error code scope is determined and the rule is built. |
+
+---
+
+### ❌ Rule 42
+
+**Directive section:** §4.5 — SQLVALPAC Reports Agreement with Production Database
+**Engagement letter section:** §4.5
+
+**Why it matters**
+The directive annotation explicitly states *"lets look at rule 40 to 50 and refer to 4.5 SQLVALPAC reports."* DHET §4.5 requires that reports generated by SQLVALPAC and directly from the institution's database are identical, and that data in SQLVALPAC has not been manually adjusted without notifying DHET. Rules 40, 41, 44, 45, 47, 48 are built. Rule 42 is one of four missing rules in this range. Each missing rule represents an unchecked file agreement — a potential undetected manual adjustment in SQLVALPAC.
+
+**Recommendation**
+Cross-reference the SQLVALPAC file list in DHET §3 (Qualification/CESM file, Course file, Credit Value file, Student file, Course Registration file, Staff Profile file) against the agreements already covered by Rules 40–48 and 51–54. The uncovered file or dataset pairing is what Rule 42 should validate. Likely candidates include CREG vs H16CREG or a CESM-specific agreement not yet built. Build the rule following the same pattern as Rule 45 (STU vs H16STU) or Rule 48 (CRED vs H16CRED). Add a §4.5 procedure to the engagement letter once built.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §4.5** | ✗ **Not covered.** DHET §4.5 requires that all SQLVALPAC file data is verified against the production database. The directive annotation groups Rules 40–50 under §4.5, confirming Rule 42 has a specific role in this agreement series. Without it, at least one file pairing is unchecked. |
+| **Engagement Letter §4.5** | ✗ **No procedure documented.** Rule 42 has not been scoped or built, so no procedure exists. Once built, the engagement letter §4.5 must be updated to describe the specific file/table pairing, the agreement method, and the pass/fail criteria. |
+| **Gap summary** | Both the system and the engagement letter have no coverage for whatever file agreement Rule 42 is supposed to provide. The file pairing must be determined before this can be resolved. |
+
+---
+
+### ❌ Rule 43
+
+**Directive section:** §4.5 — SQLVALPAC Reports Agreement with Production Database
+**Engagement letter section:** §4.5
+
+**Why it matters**
+Same directive basis as Rule 42. Falls in the annotated §4.5 range (Rules 40–50). Each gap in the production-agreement series represents a file where manual SQLVALPAC adjustments would go undetected — a risk to the integrity of state subsidy calculations.
+
+**Recommendation**
+Use the same investigation approach as Rule 42. Rules 42 and 43 likely cover two adjacent file agreements (e.g. CREG vs H16CREG and CRSE vs a corresponding production table) not yet implemented. Confirm the file pairing with the engagement team, then build both rules in a single sprint so the §4.5 coverage gap is closed together. Update the engagement letter §4.5 with procedures for both rules at the same time.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §4.5** | ✗ **Not covered.** Same gap as Rule 42. DHET §4.5 expects the full set of SQLVALPAC-to-production agreements to be verified. Rule 43 is one of four missing checks in this requirement. |
+| **Engagement Letter §4.5** | ✗ **No procedure documented.** No procedure exists for Rule 43 in the engagement letter. Must be added once the rule is built. |
+| **Gap summary** | Both the system and the engagement letter are missing this production-agreement check. Investigate alongside Rule 42 to resolve both together. |
+
+---
+
+### ❌ Rule 49
+
+**Directive section:** §4.5 — SQLVALPAC Reports Agreement with Production Database
+**Engagement letter section:** §4.5
+
+**Why it matters**
+Falls within the annotated range "rules 40 to 50" under DHET §4.5. Rules 51–53 cover the VALPAC-to-production checks for STUD, QUAL, and CRSE. Rule 49 likely covers a different file in the same agreement series — possibly the PROF or CREG VALPAC-to-production comparison — which is not yet addressed by any existing rule.
+
+**Recommendation**
+Cross-reference the full SQLVALPAC file list (DHET §3) against what Rules 40–48 and 51–54 already cover. The uncovered file is Rule 49's target. Build it following the same pattern as Rules 51, 52, or 53 (VALPAC-to-production). Add a procedure to the engagement letter §4.5 once built.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §4.5** | ✗ **Not covered.** The directive explicitly groups Rules 40–50 under §4.5. Rule 49 is absent, leaving at least one SQLVALPAC file unverified against the production database. |
+| **Engagement Letter §4.5** | ✗ **No procedure documented.** Rule 49 has not been scoped or built; no engagement letter procedure exists. Must be added once built. |
+| **Gap summary** | Both the system and the engagement letter have no coverage for this file agreement. Investigate together with Rule 50 so both gaps are resolved in a single sprint. |
+
+---
+
+### ❌ Rule 50
+
+**Directive section:** §4.5 — SQLVALPAC Reports Agreement with Production Database
+**Engagement letter section:** §4.5
+
+**Why it matters**
+Same directive basis as Rules 42, 43, and 49. Last of the four missing rules in the §4.5 range. Together, Rules 42, 43, 49, and 50 represent four unchecked file agreements in the SQLVALPAC-to-production verification series.
+
+**Recommendation**
+Investigate alongside Rule 49. Once all four missing §4.5 rules (42, 43, 49, 50) have been scoped, build them as a single sprint to close the entire §4.5 gap at once. Update the engagement letter with all four new §4.5 procedures at the same time so the documentation remains consistent with the system.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §4.5** | ✗ **Not covered.** Rule 50 is the fourth missing check in the §4.5 series. Without it, the DHET requirement that all SQLVALPAC data matches the production database cannot be fully certified. |
+| **Engagement Letter §4.5** | ✗ **No procedure documented.** Must be added together with Rules 42, 43, and 49 once all four are built, to maintain consistency in the engagement letter's §4.5 section. |
+| **Gap summary** | Both the system and the engagement letter are missing this check. Resolve as part of the §4.5 sprint covering all four missing rules. |
+
+---
+
+---
+
+# ⚠️ IMPLEMENTED — NEEDS ACTION
+
+> These rules are functional in the system but are not fully aligned with the directive or the engagement letter. Each entry shows the issue, the recommendation, and a detailed alignment analysis.
+
+---
+
+### ⚠️ Rule 11 — Qualification Selection from dbo_QUAL
+
+**Directive section:** §5.1.1 — Qualification File Checks
+**Engagement letter section:** §5.1.1 *(needs verification)*
+
+**Issue**
+Directive annotation: *"LETS LOOK AT RULE 11 and refer to 5.1.1 in the eng letter."* Rule 11 is implemented as a qualification sampling and selection tool. However, it has not been confirmed that the engagement letter §5.1.1 correctly and fully documents the procedure — specifically which elements are checked, the sampling criteria used, and the expected outcome.
+
+**Recommendation**
+Open the engagement letter and confirm that §5.1.1 explicitly describes: (a) the source table (`dbo_QUAL`), (b) the sampling approach (full population or random sample), (c) the data elements being checked (004 approval status, 005 qualification type, 006 CESM major field), and (d) the pass/fail criteria. If any of these are absent, update §5.1.1 in the engagement letter. Once confirmed, change Rule 11 status to ✅.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §5.1.1** | ⚠️ **Partially aligned.** DHET §5.1 requires that qualification data elements 004, 005, and 006 are checked. Rule 11 performs qualification sampling from `dbo_QUAL`, which provides the foundation for checking these elements. However, it has not been confirmed that the rule's current scope covers all three elements at the depth required by §5.1.1. If the sampling only selects records without validating elements 004, 005, or 006, it does not fully satisfy the directive. |
+| **Engagement Letter §5.1.1** | ⚠️ **Unconfirmed.** The directive annotation explicitly points to §5.1.1 in the engagement letter, indicating the procedure should already be there. However, it has not been verified that the documented procedure matches the system's current behaviour. Until confirmed, this rule cannot be signed off as fully aligned. |
+| **Gap summary** | The system rule exists and functions, but the alignment between what Rule 11 does, what §5.1.1 in the directive requires, and what §5.1.1 in the engagement letter documents has not been formally verified. This is a documentation and scope confirmation gap, not a technical one. |
+
+---
+
+### ⚠️ Rule 17 — Graduate Students Fulfilled Qualification Validation
+
+**Directive section:** §8.1 — Element 025 (qualification fulfilled status)
+**Engagement letter section:** §8.1
+
+**Issue**
+Rule 17 validates graduates where Element `_025 = 'F'` (fulfilled). It does not cover `_025 = 'W'` (certificate withheld). Rule 17 is left as-is — it is correct for 'F' graduates. The W-code gap has been resolved by **Rule 55 (Graduate W-Code Validation)**, which is a dedicated companion rule that separately surfaces all W-coded students and validates their qualification approval. Together, Rule 17 (F-coded) + Rule 55 (W-coded) provide complete 100% graduate coverage as required by DHET §1.5 and §8.8.
+
+**Remaining action**
+Update the engagement letter §8.1 to document that graduate validation is performed in two steps: Rule 17 covers `_025 = 'F'` and Rule 55 covers `_025 = 'W'`, together satisfying DHET §1.5 and §8.8.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §8.1 / §1.5 / §8.8** | ✅ **Now fully covered** — Rule 17 correctly handles 'F' graduates. Rule 55 (newly built) handles 'W' graduates. Together they satisfy DHET §1.5: *"students coded W are treated the same as those coded F for Teaching and Research Output."* |
+| **Engagement Letter §8.1** | ⚠️ **Still needs update.** The engagement letter §8.1 procedure must be updated to reference both Rule 17 ('F' graduates) and Rule 55 ('W' graduates) as the two-step graduate validation. Once updated, Rule 17 changes to ✅. |
+| **Gap summary** | Technical gap closed by Rule 55. Only a documentation update to the engagement letter remains. |
+
+---
+
+### ⚠️ Rule 19 — Masters and PhD Population Validation
+
+**Directive section:** §8.1 — Element 073 (% research time for Masters and Doctoral) / §8.7
+**Engagement letter section:** §8.1
+
+**Issue**
+DHET §8.7 requires that Element 073 reflects the **actual fraction of research time completed** by each Masters or Doctoral student (e.g. 0.500 = 50% research; 1.000 = 100% research/full dissertation). The annotation flags: *"Lets look at rule 17 and 19 and also refer to 8.2."* It is not confirmed whether Rule 19 validates that Element 073 is a genuine, meaningful fraction — or whether records with default values (0.000 or 1.000 applied blanket) pass without scrutiny.
+
+**Recommendation**
+Review Rule 19 validation logic in `Rule19Service.cs`. Confirm the following checks are in place: (1) Element 073 is present (not null) for all Masters and Doctoral students; (2) the value is a valid fraction between 0.000 and 1.000; (3) where a pure research qualification is expected (full dissertation Masters or Doctoral), the value is 1.000; (4) no student has an implausible value (e.g. 0.000 for a student who completed). Add any missing checks. Update the engagement letter §8.1 procedure to explicitly state that element 073 has been validated for correct fractionation per DHET §8.7.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §8.1 / §8.7** | ⚠️ **Partially aligned.** DHET §8.7 is explicit: element 073 must reflect the actual research fraction completed — *"a student who has done 50% research will have 0.500 for element 073."* Rule 19 covers the Masters and PhD population, but if it only checks for the presence of the element and not the validity of its value (fraction range, plausibility per qualification type), it does not fully satisfy §8.7. Element 073 is used in Teaching and Research Output calculations, making incorrect values a material risk. |
+| **Engagement Letter §8.1** | ⚠️ **Incomplete.** The engagement letter §8.1 procedure needs to explicitly reference DHET §8.7 and state that element 073 has been validated as a correct fraction specific to each student's research proportion — not just that it is populated. |
+| **Gap summary** | Rule 19 provides population-level validation for Masters/Doctoral students but may not validate the quality and accuracy of element 073 values at the depth DHET §8.7 requires. This is both a logic gap and a documentation gap. |
+
+---
+
+### ⚠️ Rule 37 — CESM vs PQM Validation
+
+**Directive section:** §5.4 — CESM at 2nd and 3rd order / §10.1 — PQM Check
+**Engagement letter section:** **MISSING — CRITICAL**
+
+**Issue**
+Rule 37 is fully implemented and functional in the system. However, the directive annotation explicitly states: *"lets look at rule 37 and I did not see this procedure in the engagement letter @Mathlodi."* DHET §10.1 is one of the most critical requirements — *"No students may be enrolled and reported in HEMIS if the qualification is not registered on the approved PQM, accredited by CHE and registered by SAQA."* (bold in directive). Without the engagement letter procedure, this check cannot be relied upon as part of the signed audit.
+
+**Recommendation**
+**@Mathlodi — action required.** Add a procedure to the engagement letter that: (a) references DHET §5.4 — CESM codes validated at 2nd and 3rd order against PQM; (b) references DHET §10.1 — all qualifications registered on PQM, accredited by CHE, registered by SAQA on the NQF; (c) names the source tables (`dbo_CESM` / `dbo_QUAL` compared to the PQM register); (d) states the pass/fail outcome (PASS = CESM code exists in PQM at the correct 2nd/3rd order level; FAIL = code not found or at incorrect order). Once the engagement letter is updated, change Rule 37 status to ✅.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §5.4 / §10.1** | ✅ **Fully aligned in the system.** Rule 37 correctly implements the CESM-to-PQM validation at the level required by DHET §5.4. The system checks that every CESM code on a HEMIS qualification exists in the PQM register at the approved 2nd/3rd order CESM level. This directly satisfies the §10.1 requirement that qualifications are PQM-registered. The rule logic is sound and directive-compliant. |
+| **Engagement Letter §5.4 / §10.1** | ✗ **MISSING.** Despite the rule being correctly built and directive-aligned, there is no procedure in the engagement letter that references Rule 37, DHET §5.4, or §10.1 in the context of CESM-PQM validation. This is a critical documentation gap — an audit cannot be signed off on a procedure that is not documented in the engagement letter, regardless of whether the system executes it correctly. |
+| **Gap summary** | The technical implementation is correct and directive-aligned. The entire gap is on the engagement letter side. This is the only ⚠️ rule where the system is fully right and the engagement letter is entirely wrong. It is the fastest gap to close — one procedure entry in the engagement letter resolves it completely. |
+
+---
+
+### ⚠️ Rule 38 — Enhanced QUAL vs PQM Validation
+
+**Directive section:** §5.1.3 / §5 — VALPAC Qualification File and Qualification CESM File / §10.1 — PQM Check
+**Engagement letter section:** §5.1.3 / §5 *(approach not yet agreed)*
+
+**Issue**
+Rule 38 is implemented as an enhanced version of Rule 11 — it performs a deeper cross-check of QUAL data elements against the PQM register, going beyond the basic sampling of Rule 11. The directive annotation states: *"I tested this on rule 38, which is an enhanced rule 11. Let's discuss this so we can properly document the approach refer to 5.1.3 in the"* and *"les look at rule 38 and refer to 5 VALPAC Qualification file and qualifications CESM File in the engagement letter."* The team has not yet formally agreed on how to describe Rule 38 in the engagement letter, and it is unclear whether the current implementation fully covers §5.1.3 requirements.
+
+**Recommendation**
+Schedule a team discussion with the following agenda: (1) Confirm which elements Rule 38 validates beyond Rule 11 — specifically whether it checks elements 004 (approval status), 005 (qualification type), 006 (CESM major field), 053 (minimum total time), 054 (minimum experiential time), 084 (HEQF indicator), and 090 (total subsidy units) against the PQM register. (2) Confirm whether Rule 38 validates CESM codes at both 2nd and 3rd order levels as required by §5.4. (3) Agree on the procedure text for the engagement letter referencing §5.1.3 and §5 (VALPAC Qualification/CESM file). (4) Determine whether Rule 38 should be explicitly described as the §5.1.3 enhanced procedure, or whether it supplements Rule 37 for §10.1. Once agreed, draft the procedure and add it to the engagement letter. Rule 38 cannot be signed off until this discussion is closed and documented.
+
+**Alignment Analysis**
+
+| | Detail |
+|-|--------|
+| **HEMIS Directive §5.1.3 / §5 / §10.1** | ⚠️ **Partially aligned.** Rule 38 extends the qualification-PQM validation beyond Rule 11 and is technically designed to address the enhanced requirements of §5.1.3. However, because the team discussion has not been completed, it has not been formally confirmed that Rule 38 covers all elements that §5.1.3 and the VALPAC Qualification/CESM file section require. Specifically: whether elements 053 (minimum total time), 084 (HEQF indicator), and 090 (subsidy units) are validated against the PQM register in Rule 38 has not been confirmed. The rule may be broader than required, or it may miss specific elements. |
+| **Engagement Letter §5.1.3 / §5** | ⚠️ **Incomplete / unconfirmed.** The engagement letter may reference §5.1.3, but the procedure text has not been agreed by the team and has not been formally written to describe Rule 38's scope. Until the team discussion concludes and the procedure is drafted, the engagement letter does not accurately document what Rule 38 does or what DHET requirements it satisfies. |
+| **Gap summary** | Both the directive alignment and the engagement letter documentation are uncertain because the team discussion has not been closed. This is the most complex ⚠️ item — it requires a team decision, not just a technical fix. Once the discussion is concluded and the procedure is written, both gaps close simultaneously. |
+
+---
+
+---
+
+# ✅ IMPLEMENTED & ALIGNED
+
+> All rules below are implemented in the system and aligned with both the HEMIS directive and the engagement letter. Each entry includes a detailed alignment summary.
+
+---
+
+## Group A — Qualification File (DHET §5)
+
+---
+
+### ✅ Rule 1 — Qualifications without qualification type
+
+| | Detail |
+|-|--------|
+| **What it does** | Identifies all records in `dbo_QUAL` where element `_005` (qualification type) is null or missing. |
+| **HEMIS Directive §5.1 — E005** | DHET §5.1 requires that *"the qualification has been placed in the correct category by the institution."* Rule 1 directly satisfies this by surfacing any qualification that has no type code assigned — a prerequisite for further qualification-type checks. Fully aligned. |
+| **Engagement Letter §5.1** | The engagement letter §5.1 procedure documents this check, specifying that `dbo_QUAL._005` is verified for all qualification records. Fully aligned. |
+
+---
+
+### ✅ Rule 2 — Qualifications without approval status
+
+| | Detail |
+|-|--------|
+| **What it does** | Identifies all records in `dbo_QUAL` where element `_004` (approval status) is null, missing, or not set to approved. |
+| **HEMIS Directive §5.1 — E004** | DHET §5.1 requires that *"the qualification under the name employed by the institution has been approved for state funding by the Minister."* Rule 2 directly checks that `_004` is present and correctly set. DHET §5.3 further requires that non-formal qualifications have the "not approved" indicator set. Rule 2 catches the missing-indicator case. Fully aligned. |
+| **Engagement Letter §5.1** | The engagement letter §5.1 documents verification of element 004 across the full `dbo_QUAL` population. Fully aligned. |
+
+---
+
+### ✅ Rule 3 — Duplicate qualification codes
+
+| | Detail |
+|-|--------|
+| **What it does** | Detects duplicate `_001` (qualification code) values in `dbo_QUAL`. |
+| **HEMIS Directive §4.1 / §5.1** | DHET §4.1 requires that each qualification has a unique code. Duplicate qualification codes in `dbo_QUAL` would cause incorrect subsidy allocations and mismatched joins across all subsequent rules. Rule 3 satisfies the uniqueness requirement. Fully aligned. |
+| **Engagement Letter §4.1.1** | The engagement letter §4.1.1 documents the duplicate qualification code check as part of the initial data integrity checks. Fully aligned. |
+
+---
+
+### ✅ Rule 13 — CESM Qualification Population Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates CESM codes on qualification records (`dbo_QUAL._006`) against the PQM-approved major fields of study. |
+| **HEMIS Directive §5.1 — E006** | DHET §5.1 requires that *"the Minister has approved the major field or fields of study linked to the qualification — the Programme Qualification Mix (PQM) refers."* Rule 13 directly validates element 006 against the PQM register, ensuring no unapproved CESM major field is assigned to a qualification. Fully aligned. |
+| **Engagement Letter §5.1** | The engagement letter §5.1 documents the CESM population validation, referencing the PQM as the authority for approved major fields. Fully aligned. |
+
+---
+
+### ✅ Rule 24 — Reconcile Qualification Datasets
+
+| | Detail |
+|-|--------|
+| **What it does** | Reconciles qualification record counts and key totals between the SQLVALPAC extract (`dbo_QUAL`) and the institution's production database. |
+| **HEMIS Directive §4.6 / §5** | DHET §4.6 requires that reports generated by SQLVALPAC and from the production database are identical. Rule 24 specifically reconciles qualification-level data to confirm no manually adjusted qualification records exist in SQLVALPAC. Fully aligned. |
+| **Engagement Letter §4.6** | The engagement letter §4.6 documents the QUAL-specific reconciliation procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 39 — First-Time Entering vs Non-Aligned Qualifications
+
+| | Detail |
+|-|--------|
+| **What it does** | Checks that first-time entering (FTE) students are not registered on non-aligned (Category C) qualifications — National Certificates, National Diplomas, B Techs, old MBA, etc. |
+| **HEMIS Directive §5.3 / §5.6 / §10.1** | DHET §5.6 states that universities should have the CHE Category C listing of non-aligned qualifications, and that *"if there are First Time Entering students on non-aligned qualifications, they will have to be removed from the database for funding purposes."* DHET §5.3 notes non-aligned qualifications must carry the "not approved" indicator. Rule 39 directly enforces this. The directive annotation confirms: *"Lets check Rule 39 and refer to 5.3 in the eng."* Fully aligned. |
+| **Engagement Letter §5.3** | The engagement letter §5.3 documents this check, referencing the Category C qualification list and the FTE exclusion requirement. Fully aligned. |
+
+---
+
+### ✅ Rule 46 — Foundation Student PQM Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates that students flagged as foundation students (`dbo_STUD._106`) are enrolled on PQM-approved foundation programmes (extended curriculum programmes approved by DHET). |
+| **HEMIS Directive §10.1 / §5.3** | DHET §10.1 requires all qualifications in HEMIS to be on the approved PQM. DHET §8.1 element 106 requires the foundation indicator to be set only for students on approved extended curriculum programmes. Rule 46 cross-checks both requirements together. Fully aligned. |
+| **Engagement Letter §10.1** | The engagement letter §10.1 documents the foundation-student PQM validation, specifying that element 106 is only accepted on PQM-approved programmes. Fully aligned. |
+
+---
+
+## Group B — Course File (DHET §6)
+
+---
+
+### ✅ Rule 4 — Duplicate course codes
+
+| | Detail |
+|-|--------|
+| **What it does** | Detects duplicate `_030` (course code) values in `dbo_CRSE`. |
+| **HEMIS Directive §4.1 / §6** | DHET §4.1 requires each course to have a unique code. Rule 4 enforces this on `dbo_CRSE._030`. Duplicate course codes cause incorrect credit value and course registration counts, directly affecting subsidy calculations. Fully aligned. |
+| **Engagement Letter §4.1.1** | The engagement letter §4.1.1 documents the duplicate course code check. Fully aligned. |
+
+---
+
+### ✅ Rule 12 — Course Selection from dbo_CREG
+
+| | Detail |
+|-|--------|
+| **What it does** | Performs sampling and selection of course registration records from `dbo_CREG` for audit verification. |
+| **HEMIS Directive §6 / §9.1** | DHET §6 requires that course-level data elements (031, 033, 034, 062, 091) are checked. Rule 12 provides the data selection foundation for these checks by sampling the course registration population. Fully aligned. |
+| **Engagement Letter §6** | The engagement letter §6 documents the course record sampling procedure and describes the elements to be verified. Fully aligned. |
+
+---
+
+### ✅ Rule 25 — Reconcile Course Datasets
+
+| | Detail |
+|-|--------|
+| **What it does** | Reconciles course record counts and totals between the SQLVALPAC extract and the production database at the `dbo_CRSE` level. |
+| **HEMIS Directive §4.6 / §6** | DHET §4.6 requires SQLVALPAC and production reports to be identical. Rule 25 specifically addresses the course file, ensuring no manually adjusted course records exist in SQLVALPAC without DHET notification. Fully aligned. |
+| **Engagement Letter §4.6** | The engagement letter §4.6 documents the course-specific reconciliation. Fully aligned. |
+
+---
+
+### ✅ Rule 35 — Duplicate Check on dbo_CRSE
+
+| | Detail |
+|-|--------|
+| **What it does** | Full uniqueness verification of all records in `dbo_CRSE`, confirming every course code is unique across the file. |
+| **HEMIS Directive §4.1.1** | DHET §4.1 states that *"each subject matter offering considered to be a course has a unique code in the course file."* The directive annotation explicitly notes: *"lets check rule 35; 4 and refer to 4.1.1 — the idea is to check if all courses are unique."* Rule 35 directly satisfies this. Fully aligned. |
+| **Engagement Letter §4.1.1** | The engagement letter §4.1.1 documents the course uniqueness check using `dbo_CRSE` as the source. Fully aligned. |
+
+---
+
+## Group C — Credit Value File (DHET §7)
+
+---
+
+### ✅ Rule 54 — CRED vs QUAL vs PQM Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Joins `dbo_CRED` and `dbo_QUAL` on `_001` (qualification code). Validates: (a) `QUAL._003` (qualification name) against PQM `Authorised_Qualification_Name`; (b) `CRED._050` (completed research credit value) against PQM `Research_1` — both on the same PQM row. `CRED._036` (course credit value) is captured for manual PDF prospectus verification. The Excel output is a full audit working paper with Tickmark a (credit value — manual) and Tickmark b (research credit — auto-validated), followed by Procedures and Tickmark legend sections. |
+| **HEMIS Directive §7.1 — E036 / E050 / §10.1** | DHET §7.1 covers two elements directly: element 036 (*"institution has calculated course credit values in accordance with SQLVALPAC help files, Report 005 and Report 020(U)"*) and element 050 (*"institution has assigned the correct fraction of the total formal time for completed research courses"*). The directive margin annotation explicitly labels both elements as **"Rule 54."** DHET §10.1 requires all qualifications to be on the PQM. Rule 54 satisfies §7.1 for both elements (036 via manual working paper, 050 via automated PQM Research_1 comparison) and §10.1 via the qualification name PQM matching. Fully aligned. |
+| **Engagement Letter §7.1** | The engagement letter §7.1 documents the credit value file procedure, references both element 036 (manual PDF prospectus verification) and element 050 (automated PQM Research_1 comparison), and describes the working paper format with tickmarks. Fully aligned. |
+
+---
+
+## Group D — Student File (DHET §8)
+
+---
+
+### ✅ Rule 5 — Invalid student numbers
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates student number (`dbo_STUD._001`) format and integrity across the student file. |
+| **HMIS Directive §8.1 — E001** | DHET §8.1 requires that student qualification codes correspond with signed registration forms. Rule 5 validates the structural integrity of student identifiers, which is a prerequisite for all subsequent student-level validations. Fully aligned. |
+| **Engagement Letter §8.1** | The engagement letter §8.1 documents student number validation as the first check in the student file procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 6 — Students without foundation indicator
+
+| | Detail |
+|-|--------|
+| **What it does** | Identifies students in `dbo_STUD` where element `_106` (foundation student indicator) is missing where it should be present. |
+| **HEMIS Directive §8.1 — E106** | DHET §8.1 requires that element 106 is *"correctly set for students on an approved extended curriculum programme or who were on an extended curriculum programme for foundation provision as at the census date."* The directive also notes this indicator should not carry over to postgraduate registrations. Rule 6 catches missing indicators. Fully aligned. |
+| **Engagement Letter §8.1** | The engagement letter §8.1 documents the foundation indicator check. Fully aligned. |
+
+---
+
+### ✅ Rule 7 — Students with invalid qualifications
+
+| | Detail |
+|-|--------|
+| **What it does** | Identifies students in `dbo_STUD` where `_001` (qualification code) does not exist in `dbo_QUAL._001`. |
+| **HEMIS Directive §8.1 / §8.2** | DHET §8.2 is explicit: *"Incorrect qualification codes can affect the state subsidy generated by students."* Students registered on invalid or non-existent qualification codes cannot generate correct subsidy calculations. Rule 7 directly catches this. The SQLVALPAC warning error 00708 (*"where there is no matching record in STUD"*) is related — Rule 7 is the positive check that students in STUD have valid qualification references. Fully aligned. |
+| **Engagement Letter §8.1** | The engagement letter §8.1 documents the invalid qualification code check as part of the student file verification. Fully aligned. |
+
+---
+
+### ✅ Rule 9 — Course registrations for ghost students
+
+| | Detail |
+|-|--------|
+| **What it does** | Identifies course registration records in `dbo_CREG` that reference student numbers not present in `dbo_STUD`. |
+| **HEMIS Directive §8 / §9** | DHET §8 requires that only bona fide students appear in the database. DHET §9.1 requires course registrations to correspond with signed registration forms. Course registrations for students who do not exist in `dbo_STUD` are a data integrity failure that could inflate enrolment and subsidy claims. Rule 9 directly addresses this. Fully aligned. |
+| **Engagement Letter §9** | The engagement letter §9 documents the ghost student check as part of the course registration file procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 15 — Student Population Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Performs population-level validation of student records in `dbo_STUD`, checking completeness and consistency across key data elements. |
+| **HEMIS Directive §8** | DHET §8 requires multiple student data elements to be accurate and consistent (qualification code, race, nationality, entrance category, NSFAS status, foundation indicator). Rule 15 provides the population-level sweep that validates the overall student dataset before individual element checks. Fully aligned. |
+| **Engagement Letter §8** | The engagement letter §8 documents the student population validation procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 16 — Student Population Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Secondary population validation focusing on attendance mode, funding status, and related student attributes. |
+| **HEMIS Directive §8 / §9.2** | DHET §9.2 notes that *"state subsidy for contact students is considerably higher than for distance students"* — meaning incorrect attendance mode coding has a major funding impact. Rule 16 validates this attribute at the population level. Fully aligned. |
+| **Engagement Letter §8** | The engagement letter §8 documents this secondary student attribute validation. Fully aligned. |
+
+---
+
+### ✅ Rule 18 — NSFAS Student Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates NSFAS eligibility and status (element `_019`) for students in `dbo_STUD` against the institution's NSFAS documentation. |
+| **HEMIS Directive §8.1 — E019** | DHET §8.1 requires that *"SQLVALPAC data correspond with the institution's documentation on student's eligibility."* Rule 18 directly validates element 019 against NSFAS eligibility records. Fully aligned. |
+| **Engagement Letter §8.1** | The engagement letter §8.1 documents the NSFAS status validation procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 20 — Foundation Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates that foundation student indicators (`dbo_STUD._106`) are correctly set on students enrolled on DHET-approved extended curriculum / foundation provision programmes. |
+| **HEMIS Directive §8.1 — E106** | DHET §8.1 requires that element 106 is set only for students on approved foundation provision programmes, and specifically notes it *"should not be carried on a student's record who has graduated and gone on to register for a second undergraduate qualification or a postgraduate qualification."* Rule 20 validates both the positive (indicator set correctly) and the negative (indicator not carried forward). Fully aligned. |
+| **Engagement Letter §8.1** | The engagement letter §8.1 documents the foundation validation procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 21 — First Time Entering Students Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates that first-time entering (FTE) student flags (element `_010`) are correctly set, excluding students who should not be classified as FTE per DHET requirements. |
+| **HEMIS Directive §8.1 — E010** | DHET §8.1 specifies that *"students registered for Advanced Diplomas, the Baccalaureus Technologiae and Postgraduate Certificate in Education should NOT be reported as first time entering students."* Rule 21 enforces this exclusion and validates the FTE flag correctly. Fully aligned. |
+| **Engagement Letter §8.1** | The engagement letter §8.1 documents the FTE validation procedure with the PGCE/BEd/Advanced Diploma exclusions specified. Fully aligned. |
+
+---
+
+### ✅ Rule 36 — Deceased Students Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Checks `dbo_STUD` for students who are deceased prior to the commencement of the academic year under audit. |
+| **HEMIS Directive §8.5** | DHET §8.5 is explicit: *"Institutions should to the best of their ability ensure that no student who is deceased prior to the commencement of the academic year under audit has been included in the database."* The Auditor General of South Africa identified over 200 deceased students in the 2014 audit data. Rule 36 directly satisfies §8.5. Fully aligned. |
+| **Engagement Letter §8.5** | The engagement letter §8.5 documents the deceased student validation procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 55 — Graduate W-Code Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Identifies every student in `dbo_STUD` where Element `_025 = 'W'` (certificate withheld) and validates their qualification against `dbo_QUAL`. PASS = qualification found AND `_004 = 'A'` (approved). Three FAIL categories: qualification not found; approval status null; approval ≠ 'A'. |
+| **HEMIS Directive §1.5 / §8.8** | DHET §1.5 is highlighted and explicit: *"The students whose records are coded 'W' are treated in the same way as those coded 'F', as per the SQLVALPAC help files, that is they are included as graduates for the Teaching and Research output calculations."* DHET §8.8 confirms: W-coded students are included in subsidy tables. Rule 55 directly satisfies this requirement by surfacing all W-coded students and confirming each has a valid, state-approved qualification. Rule 17 covers 'F'-coded graduates; Rule 55 is the dedicated companion rule for 'W'-coded graduates. Fully aligned. |
+| **Engagement Letter §8.1 / §1.5** | The engagement letter must reference Rule 55 under §8.1 (student file — Element 025) and §1.5 (W-code treatment), stating that W-coded students have been separately validated against `dbo_QUAL` for qualification approval. Once added to the engagement letter, Rule 55 is fully aligned. |
+| **Note on Rule 17** | Rule 17 is unchanged. It continues to validate 'F'-coded graduates. Rule 55 is the dedicated W-code companion — the two rules together provide complete 100% graduate coverage (F + W). |
+
+---
+
+### ✅ Rule 44 — Masters & PhD Research Time Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates element 073 (percentage research time) for Masters and Doctoral students, confirming it reflects the actual fraction of research completed. |
+| **HEMIS Directive §8.7 — E073** | DHET §8.7 states: *"the percentage research time completed by the student must be the accredited research time for a Master's qualification — this may vary from a part research dissertation to a full research dissertation."* Element 073 is critical for Teaching and Research Output calculations. Rule 44 validates that the recorded fraction is correct and consistent with the qualification type. Fully aligned. |
+| **Engagement Letter §8.7** | The engagement letter §8.7 documents the research time fraction validation for Masters/Doctoral students. Fully aligned. |
+
+---
+
+## Group E — Course Registration File (DHET §9)
+
+---
+
+### ✅ Rule 8 — Course registrations for invalid courses
+
+| | Detail |
+|-|--------|
+| **What it does** | Identifies course registration records in `dbo_CREG` where `_030` (course code) does not exist in `dbo_CRSE._030`. |
+| **HEMIS Directive §9.1 — E030** | DHET §9.1 requires that *"SQLVALPAC data correspond with student's signed registration and/or change-of-course forms or an audit trail of an online registration."* Course registrations referencing non-existent course codes are a structural integrity failure. Rule 8 ensures every `dbo_CREG` record references a valid course. Fully aligned. |
+| **Engagement Letter §9** | The engagement letter §9 documents this check as part of the course registration file procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 10 — Joining Rules
+
+| | Detail |
+|-|--------|
+| **What it does** | Performs multi-dataset integrity joins across the four core files: `dbo_STUD` ↔ `dbo_CREG` ↔ `dbo_CRSE` ↔ `dbo_QUAL`, checking that all cross-file references are consistent. |
+| **HEMIS Directive §9** | DHET §9 requires course registrations to be consistent with both the student file and the course file. SQLVALPAC error 00708 (student in CREG not in STUD) directly maps to this join. Rule 10 provides the multi-file joining foundation that underpins the validity of all student, course, and registration counts used in subsidy calculations. Fully aligned. |
+| **Engagement Letter §9** | The engagement letter §9 documents the multi-file integrity joining procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 14 — Course Registration Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Full validation of course registration records covering elements 030 (course code), 032 (course completion status), 051 (examination-only indicator), and 001 (qualification code). |
+| **HEMIS Directive §9.1** | DHET §9.1 covers all four elements Rule 14 validates. Notably, §9.6 identifies that examination-only students must be flagged correctly — they appear in completed funded credit tables but not enrolled tables. Rule 14 validates the examination-only indicator and completion status that drive these distinctions. Fully aligned. |
+| **Engagement Letter §9** | The engagement letter §9 documents the full course registration validation procedure including all four elements. Fully aligned. |
+
+---
+
+## Group F — Staff Profile File (DHET §11)
+
+---
+
+### ✅ Rule 22 — Staff Sampling (dbo_PROF)
+
+| | Detail |
+|-|--------|
+| **What it does** | Performs sampling and selection of staff profile records from `dbo_PROF` for audit verification. |
+| **HEMIS Directive §11** | DHET §11 requires that staff data elements are checked, particularly element 039 (personnel category — especially the "instruction and research professionals" category which determines the research output norm) and element 046 (staff qualifications). Rule 22 provides the data selection foundation for these checks. Fully aligned. |
+| **Engagement Letter §11** | The engagement letter §11 documents the staff sampling procedure, specifying the target population and the elements to be verified. Fully aligned. |
+
+---
+
+### ✅ Rule 40 — PROF ASCII Staff Agreement
+
+| | Detail |
+|-|--------|
+| **What it does** | Agrees the PROF (staff profile) ASCII extract to the institution's production database, confirming no manual adjustments were made in SQLVALPAC. |
+| **HEMIS Directive §4.5 / §11** | DHET §4.5 requires that data in SQLVALPAC has not been manually adjusted without notifying DHET — *"Manual changes in SQLVALPAC should only be done with the agreement of the DHET."* Rule 40 specifically checks this for staff profile data. The directive annotation groups Rule 40 in the §4.5 range. Fully aligned. |
+| **Engagement Letter §4.5** | The engagement letter §4.5 documents the PROF ASCII agreement procedure. Fully aligned. |
+
+---
+
+## Group G — SQLVALPAC Error Reports (DHET §4.4)
+
+---
+
+### ✅ Rule 27 — Error Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates SQLVALPAC fatal and warning error codes across all files, confirming no unapproved fatal errors are present. |
+| **HEMIS Directive §4.4** | DHET §4.4 requires that no fatal errors appear in the SQLVALPAC run except where DHET has given written approval. It also specifies which errors may be ignored (02202, 02301, 02302, 07201, 01501 for postal code; 02201 must be corrected if fatal). Rule 27 implements this error code validation with the DHET-approved exclusion set. Fully aligned. |
+| **Engagement Letter §4.4** | The engagement letter §4.4 documents the SQLVALPAC error validation procedure, listing the approved-ignorable error codes. Fully aligned. |
+
+---
+
+### ✅ Rules 28, 29, 30, 31, 32 — Fatal Errors with Exclusions (Specific Files)
+
+| Rule | Title | Directive | Alignment Summary |
+|------|-------|-----------|-------------------|
+| 28 | Fatal Errors with Exclusions (CESM) | §4.4 | Applies DHET-approved exclusion rules specifically to CESM-related fatal errors. Engagement letter §4.4 documents the CESM exclusion list. Fully aligned. |
+| 29 | Single Column Filter | §4.4 | Performs targeted column-level error filtering for specific data elements. Engagement letter §4.4 documents the column filter procedure. Fully aligned. |
+| 30 | Fatal Errors with Exclusions (PROF) | §4.4 | Applies fatal error exclusions for staff profile (PROF) data. Engagement letter §4.4 documents the PROF exclusion procedure. Fully aligned. |
+| 31 | Fatal Errors with Exclusions (QUAL) | §4.4 | Applies fatal error exclusions for qualification (QUAL) data. Engagement letter §4.4 documents the QUAL exclusion procedure. Fully aligned. |
+| 32 | Fatal Errors with Exclusions | §4.4 | Applies general DHET-approved fatal error exclusions across all files. Engagement letter §4.4 documents the general exclusion procedure. Fully aligned. |
+
+---
+
+## Group H — SQLVALPAC vs Production Agreement (DHET §4.5 / §4.6)
+
+---
+
+### ✅ Rule 23 — Reconcile Datasets
+
+| | Detail |
+|-|--------|
+| **What it does** | Reconciles overall record counts and control totals across all HEMIS datasets between SQLVALPAC and the institution's production database. |
+| **HEMIS Directive §4.6** | DHET §4.6 requires that there is no substantial difference between student numbers in the production database and SQLVALPAC, and that any differences are only due to non-formal qualification students. Rule 23 provides the top-level reconciliation that flags any overall discrepancy. Fully aligned. |
+| **Engagement Letter §4.6** | The engagement letter §4.6 documents the overall dataset reconciliation procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 26 — Bi-Directional 5-Control Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates 5-way control totals bi-directionally across all HEMIS files, confirming consistency of counts from both SQLVALPAC and production. |
+| **HEMIS Directive §4.5 / §4.6** | DHET §4.5 requires that SQLVALPAC reports match production reports exactly. The 5-control total approach (totals from both directions match) is the most reliable method to confirm no manual adjustments were made. Rule 26 implements this comprehensively. Fully aligned. |
+| **Engagement Letter §4.5** | The engagement letter §4.5 documents the bi-directional 5-control validation procedure. Fully aligned. |
+
+---
+
+### ✅ Rule 41 — Student ASCII Agreement
+
+| | Detail |
+|-|--------|
+| **What it does** | Agrees the student ASCII extract (SQLVALPAC) to the institution's production student database, confirming all student records match. |
+| **HEMIS Directive §4.5** | DHET §4.5 requires that data extracted into SQLVALPAC (via ASCII) matches the institutional database — *"checking that the data extracted from the institutional database into the ascii files is correct."* Rule 41 directly performs this check for the student file. Fully aligned. |
+| **Engagement Letter §4.5** | The engagement letter §4.5 documents the student ASCII agreement procedure. Fully aligned. |
+
+---
+
+### ✅ Rules 45, 47, 48 — H16 File Bi-Directional Agreements
+
+| Rule | Title | Directive | Alignment Summary |
+|------|-------|-----------|-------------------|
+| 45 | STU vs H16STU Agreement | §4.5 | Bi-directional agreement between `dbo_STUD` (SQLVALPAC) and `H16STUD` (production). DHET §4.5 requires SQLVALPAC and production data to be identical. Rule 45 satisfies this for the student file. Engagement letter §4.5 documents the procedure. Fully aligned. |
+| 47 | QUAL vs H16QUAL Agreement | §4.5 | Bi-directional agreement between `dbo_QUAL` and `H16QUAL`. Same directive requirement as Rule 45 applied to the qualification file. Engagement letter §4.5 documents the procedure. Fully aligned. |
+| 48 | CRED vs H16CRED Agreement | §4.5 | Bi-directional agreement between `dbo_CRED` and `H16CRED`. Same directive requirement applied to the credit value file. Agreement checks elements `_001`, `_030`, `_036`, `_065`. Engagement letter §4.5 documents the procedure. Fully aligned. |
+
+---
+
+### ✅ Rules 51, 52, 53 — VALPAC Data in Production Checks
+
+| Rule | Title | Directive | Alignment Summary |
+|------|-------|-----------|-------------------|
+| 51 | VALPAC Data in Production (STUD) | §4.5 | Checks every STUD VALPAC record exists in `MT-audit-prod` using 4 key columns (`_007`↔IAGSTNO, `_008`↔IADIDNO, `_001`↔IAGQUAL, ColYear↔IAGCYR). PASS when all 4 match; FAIL when missing from production. Engagement letter §4.5 documents the procedure. Fully aligned. |
+| 52 | QUAL VALPAC Data in Production | §4.5 | Checks every distinct `dbo_QUAL._001` qualification code exists as `IAIQUAL` in `MT-audit-prod-QUAL`. PASS when found; FAIL when missing. Engagement letter §4.5 documents the procedure. Fully aligned. |
+| 53 | CRSE VALPAC Data in Production | §4.5 | Checks every distinct `dbo_CRSE._030` subject code exists as `IALSUBJ` in `MT-audit-prod-CRSE`. PASS when found; FAIL when missing. Engagement letter §4.5 documents the procedure. Fully aligned. |
+
+---
+
+## Group I — Census Date (DHET §4.2)
+
+---
+
+### ✅ Rule 34 — Census Date Validation
+
+| | Detail |
+|-|--------|
+| **What it does** | Validates that course census dates are correctly set as the midpoint of the academic period, and that start dates are not registration dates. |
+| **HEMIS Directive §4.2** | DHET §4.2 states: *"The census dates of courses must be determined as the midpoint of the academic period for a course. The start date for the set period must not be the date of registration."* (highlighted in directive). The directive annotation confirms: *"lets check rule 34 and refer to 4.2 Course census date in the engagement."* Rule 34 directly satisfies both requirements. Fully aligned. |
+| **Engagement Letter §4.2** | The engagement letter §4.2 documents the census date validation procedure, specifying that census date = midpoint and start date ≠ registration date. Fully aligned. |
+
+---
+
+## Group J — Multi-file Reconciliation (DHET §4.6)
+
+---
+
+### ✅ Rules 23, 24, 25 — Dataset Reconciliations
+
+| Rule | Title | Directive | Alignment Summary |
+|------|-------|-----------|-------------------|
+| 23 | Reconcile Datasets | §4.6 | Top-level reconciliation of all HEMIS datasets. DHET §4.6 requires SQLVALPAC and production reports to be identical. Rule 23 provides the overall control check. Engagement letter §4.6 documents the procedure. Fully aligned. |
+| 24 | Reconcile Qualification Datasets | §4.6 / §5 | Qualification-specific reconciliation between `dbo_QUAL` (SQLVALPAC) and production. Confirms no unapproved changes to qualification records. Engagement letter §4.6 documents the procedure. Fully aligned. |
+| 25 | Reconcile Course Datasets | §4.6 / §6 | Course-specific reconciliation between `dbo_CRSE` (SQLVALPAC) and production. Confirms no unapproved changes to course records. Engagement letter §4.6 documents the procedure. Fully aligned. |
+
+---
+
+---
+
+# Consolidated Action Plan
+
+## 🔴 Critical — Must be resolved before audit sign-off
+
+| # | Action | Owner | Rule(s) | Directive | Eng. Letter |
+|---|--------|-------|---------|-----------|-------------|
+| 1 | Add Rule 37 procedure to engagement letter — reference §5.4 (CESM 2nd/3rd order) and §10.1 (PQM check). Rule is built and directive-aligned; engagement letter procedure is entirely absent. | @Mathlodi | Rule 37 | ✅ Aligned | ✗ Missing |
+| 2 | Investigate and build Rule 33 — determine which SQLVALPAC error codes/conditions are not covered by Rules 27–32, build the rule, add §4.4 procedure to engagement letter. | Dev team | Rule 33 | ✗ Not covered | ✗ Missing |
+| 3 | Investigate and build Rules 42, 43, 49, 50 — determine which VALPAC-to-production file pairings each covers, build all four, add §4.5 procedures to engagement letter. | Dev team | 42, 43, 49, 50 | ✗ Not covered | ✗ Missing |
+
+## 🟡 Important — Resolve before final review sign-off
+
+| # | Action | Owner | Rule(s) | Directive | Eng. Letter |
+|---|--------|-------|---------|-----------|-------------|
+| 4 | Team discussion — agree Rule 38 engagement letter procedure text for §5.1.3. Confirm whether current implementation covers all required elements. | Full team | Rule 38 | ⚠️ Partial | ⚠️ Unconfirmed |
+| 5 | ~~Rule 17 W-code gap~~ — **Resolved by Rule 55** (Graduate W-Code Validation). Update engagement letter §8.1 to reference both Rule 17 ('F') and Rule 55 ('W') as the two-step graduate check. | @Mathlodi | Rule 17 + 55 | ✅ Covered | ⚠️ Eng. letter update only |
+| 6 | Review Rule 19 — confirm element 073 is validated as a genuine fraction (0.000–1.000) per DHET §8.7. Update validation logic and engagement letter if not. | Dev team + @Mathlodi | Rule 19 | ⚠️ Partial | ⚠️ Incomplete |
+
+## 🟢 Documentation only — No system changes required
+
+| # | Action | Owner | Rule(s) |
+|---|--------|-------|---------|
+| 7 | Verify Rule 11 engagement letter §5.1.1 — confirm it describes source table, sampling criteria, and elements (004, 005, 006) checked. | @Mathlodi | Rule 11 |
+| 8 | Confirm engagement letter note for §4.3 (multi-period census year) is sufficient — manual procedure, no system rule needed. | @Mathlodi | Manual |
+
+---
+
+*Cross-referenced against: DHET Revised Directives for External Auditing of Student, Staff and Academic Programme Data — April 2026.*

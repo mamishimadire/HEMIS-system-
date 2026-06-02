@@ -94,16 +94,7 @@ namespace HemisAudit.Controllers
             if (workspace != null)
                 workspace.ResultsVisible = resultsVisible;
 
-            if (workspace != null && !resultsVisible)
-            {
-                workspace.Server = "";
-                workspace.Database = "";
-                workspace.Driver = "ODBC Driver 17 for SQL Server";
-                workspace.StudTable = "dbo_STUD";
-                workspace.BridgeTable = "dbo_CREG";
-                workspace.CrseTable = "dbo_CRSE";
-                workspace.Summary = null;
-            }
+            if (workspace != null && !resultsVisible) workspace.Summary = null;
 
             return Json(new
             {
@@ -164,7 +155,15 @@ namespace HemisAudit.Controllers
                 Database = review.Summary.Database,
                 StudTable = review.Summary.StudTable,
                 BridgeTable = review.Summary.BridgeTable,
-                CrseTable = review.Summary.CrseTable
+                CrseTable = review.Summary.CrseTable,
+                Control1FilterCol = review.Summary.Control1FilterCol,
+                Control1FilterValue = review.Summary.Control1FilterValue,
+                NsfasFilterCol = review.Summary.NsfasFilterCol,
+                NsfasFilterValue = review.Summary.NsfasFilterValue,
+                FoundationFilterCol = review.Summary.FoundationFilterCol,
+                FoundationFilterValue = review.Summary.FoundationFilterValue,
+                DistanceFilterCol = review.Summary.DistanceFilterCol,
+                DistanceFilterValue = review.Summary.DistanceFilterValue
             });
 
             return View(review);
@@ -177,6 +176,16 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> GetTables([FromBody] ConnectionViewModel model) =>
             Json(await RequireDataAnalystAsync(async () => await _rule18.GetTablesAsync(model.Server, model.Database, model.Driver)));
+
+        [HttpPost]
+        public async Task<IActionResult> GetColumnValues([FromBody] Rule18ColumnValuesRequest model) =>
+            Json(await RequireDataAnalystAsync(async () =>
+                await _rule18.GetColumnValuesAsync(model.Server, model.Database, model.Driver, model.TableName, model.ColumnName)));
+
+        [HttpPost]
+        public async Task<IActionResult> GetTableColumns([FromBody] Rule18ColumnValuesRequest model) =>
+            Json(await RequireDataAnalystAsync(async () =>
+                await _rule18.GetTableColumnsListAsync(model.Server, model.Database, model.Driver, model.TableName)));
 
         [HttpPost]
         public async Task<IActionResult> VerifyTables([FromBody] Rule18VerifyRequest request) =>

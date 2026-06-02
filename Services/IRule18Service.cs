@@ -6,6 +6,8 @@ namespace HemisAudit.Services
     {
         Task<DatabaseListResult> GetDatabasesAsync(string server, string driver);
         Task<Rule18TableDiscoveryResult> GetTablesAsync(string server, string database, string driver);
+        Task<ColumnValuesResult> GetColumnValuesAsync(string server, string database, string driver, string tableName, string columnName);
+        Task<ColumnValuesResult> GetTableColumnsListAsync(string server, string database, string driver, string tableName);
         Task<Rule18VerifyResult> VerifyTablesAsync(Rule18VerifyRequest request);
         Task<Rule18ValidationSummary> RunValidationAsync(Rule18ValidationRequest request, string? userEmail = null, string? userName = null);
         Task<Rule18ValidationSummary?> GetPendingValidationPreviewAsync(int clientId, string reviewerEmail);

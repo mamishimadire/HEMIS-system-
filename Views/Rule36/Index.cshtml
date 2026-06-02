@@ -1532,6 +1532,7 @@ async function saveWorkspace() {
             state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
             state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
             state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
+            state.isWorkspaceSaved = !!result.workspace.isWorkspaceSaved;
             document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || document.getElementById('signoffComment').value;
             if (result.workspace.summary) {
                 applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });

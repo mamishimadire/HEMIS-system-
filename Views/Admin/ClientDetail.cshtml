@@ -1,4 +1,4 @@
-@using HemisAudit.Helpers
+﻿@using HemisAudit.Helpers
 @model HemisAudit.ViewModels.ClientDetailViewModel
 @{
     ViewData["Title"] = Model.EngagementName;
@@ -225,12 +225,12 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35 and 36</span>
+            <span class="collapsible-trigger__meta">Rules 1–10, 11–32, 34–36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60 and 61</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
             <div class="card" style="padding:18px 20px">
-                @if (canOpenModule && (canRunModules || string.Equals(currentSystemRole, "Admin", StringComparison.OrdinalIgnoreCase)))
+                @if (canOpenModule)
                 {
                     <div class="module-card-grid">
                         @foreach (var integrityRule in IntegrityRuleCatalog.GetRuleNumbers().Where(ruleNumber => ruleNumber >= 1 && ruleNumber <= 10).Select(IntegrityRuleCatalog.Get))
@@ -247,8 +247,8 @@
 
                         <article class="module-card">
                             <div class="module-card__eyebrow">Rule 11</div>
-                            <h4 class="module-card__title">Qualification Selection from dbo_QUAL</h4>
-                            <p class="module-card__text">Test 100% of approved undergraduate and postgraduate qualification populations from <code>dbo_QUAL</code> using <code>_004</code>, <code>_005</code>, and the <code>M_____</code> exclusion pattern, then keep the saved result set available for review and signoff.</p>
+                            <h4 class="module-card__title">QUAL vs CESM vs PQM Validation</h4>
+                            <p class="module-card__text">Joins <code>dbo_QUAL</code> and <code>dbo_CESM</code> on <code>_001</code>, then validates each qualification name (<code>QUAL._003</code> vs PQM <code>Authorised_Qualification_Name</code>) and HEQF type (<code>QUAL._005</code> vs PQM <code>HEQF_Qual_Type</code>) on the same PQM row. PASS when both match. EL §5.1.2.</p>
                             <div class="module-card__actions">
                                 <a href="/Rule11?clientId=@Model.Id" class="btn btn-success">Open Rule 11</a>
                             </div>
@@ -461,6 +461,186 @@
                             <p class="module-card__text">Match student records against the deceased students reference table and save exceptions for review and signoff.</p>
                             <div class="module-card__actions">
                                 <a href="/Rule36?clientId=@Model.Id" class="btn btn-success">Open Rule 36</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 37</div>
+                            <h4 class="module-card__title">CESM vs PQM Validation</h4>
+                            <p class="module-card__text">Cross-validate HEMIS CESM codes and qualification names against the PQM reference table, flagging records where the code prefix or authorised qualification name does not match.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule37?clientId=@Model.Id" class="btn btn-success">Open Rule 37</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 38</div>
+                            <h4 class="module-card__title">Enhanced QUAL vs PQM Validation</h4>
+                            <p class="module-card__text">Left-join approved QUAL records to the PQM register and validate qualification type, minimum contact time, WIL hours, HEQF indicator, and total subsidy across controls 5.1.1–5.1.6.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule38?clientId=@Model.Id" class="btn btn-success">Open Rule 38</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 39</div>
+                            <h4 class="module-card__title">First-Time Entering vs Non-Aligned Qualifications</h4>
+                            <p class="module-card__text">Cross-match first-time entering students against the Non-Aligned Qualifications (NAL) register, flagging students enrolled in qualifications that are not aligned to a recognised HEQSF qualification.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule39?clientId=@Model.Id" class="btn btn-success">Open Rule 39</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 40</div>
+                            <h4 class="module-card__title">PROF ASCII Staff Agreement</h4>
+                            <p class="module-card__text">Reconcile common columns between the HEMIS ASCII PROF file and the VALPAC PROF and SFTE tables, identifying AGREE, DISAGREE, and MISSING staff records per Procedure 4.5.2.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule40?clientId=@Model.Id" class="btn btn-success">Open Rule 40</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 41</div>
+                            <h4 class="module-card__title">Student ASCII Agreement</h4>
+                            <p class="module-card__text">Full outer reconciliation of dbo_STUD against MT-Audit-prod-std on student number (_007 ↔ IAGSTNO), comparing birth date and qualification columns and flagging AGREE, DISAGREE, and MISSING records.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule41?clientId=@Model.Id" class="btn btn-success">Open Rule 41</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 44</div>
+                            <h4 class="module-card__title">Masters &amp; PhD Research Time Validation</h4>
+                            <p class="module-card__text">Validate Masters and PhD student research time compliance, flagging records where research registration exceeds the permitted duration thresholds for full-time and part-time students.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule44?clientId=@Model.Id" class="btn btn-success">Open Rule 44</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 45</div>
+                            <h4 class="module-card__title">STU vs H16STU Agreement</h4>
+                            <p class="module-card__text">Full outer reconciliation of the STU table against H16STU on student number (_007 ↔ _007), comparing birth date and qualification columns and flagging AGREE, DISAGREE, and MISSING records.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule45?clientId=@Model.Id" class="btn btn-success">Open Rule 45</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 46</div>
+                            <h4 class="module-card__title">Foundation Student PQM Validation</h4>
+                            <p class="module-card__text">Validate foundation students (dbo_STUD._106='Y') through two controls: full path via QUAL→CRED→CRSE→PQM and a short path via QUAL→PQM, flagging students whose qualifications do not appear in the PQM register.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule46?clientId=@Model.Id" class="btn btn-success">Open Rule 46</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 47</div>
+                            <h4 class="module-card__title">QUAL vs H16QUAL Agreement</h4>
+                            <p class="module-card__text">Full outer reconciliation of the QUAL table against H16QUAL on qualification code (_001 ↔ _001), comparing qualification fields and flagging AGREE, DISAGREE, and MISSING records.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule47?clientId=@Model.Id" class="btn btn-success">Open Rule 47</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 48</div>
+                            <h4 class="module-card__title">CRED vs H16CRED Agreement</h4>
+                            <p class="module-card__text">Full outer reconciliation of the CRED table against H16CRED on credential code (_001 ↔ _001), comparing credential fields (_001, _030, _036, _065) and flagging AGREE, DISAGREE, and MISSING records.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule48?clientId=@Model.Id" class="btn btn-success">Open Rule 48</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 51</div>
+                            <h4 class="module-card__title">VALPAC Data in Production</h4>
+                            <p class="module-card__text">Checks that every record in STUD VALPAC exists in STUD PRODUCTION using 4 mapped columns: _007↔IAGSTNO, _008↔IADIDNO, _001↔IAGQUAL, ColYear↔IAGCYR. PASS when all 4 columns match; FAIL when the record is missing from Production.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule51?clientId=@Model.Id" class="btn btn-success">Open Rule 51</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 52</div>
+                            <h4 class="module-card__title">dbo_QUAL Qualification Code in MT-audit-prod-QUAL</h4>
+                            <p class="module-card__text">Checks that every distinct <code>_001</code> (qualification code) in <code>dbo_QUAL</code> exists as <code>IAIQUAL</code> in <code>MT-audit-prod-QUAL</code>. PASS when the qualification code is found; FAIL when it is missing from the production table.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule52?clientId=@Model.Id" class="btn btn-success">Open Rule 52</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 53</div>
+                            <h4 class="module-card__title">dbo_CRSE Subject Code in MT-audit-prod-CRSE</h4>
+                            <p class="module-card__text">Checks that every distinct <code>_030</code> (subject code) value in <code>dbo_CRSE</code> exists as <code>IALSUBJ</code> in <code>MT-audit-prod-CRSE</code>. PASS when the subject code is found; FAIL when it is missing from the production table.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule53?clientId=@Model.Id" class="btn btn-success">Open Rule 53</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 54</div>
+                            <h4 class="module-card__title">CRED vs QUAL vs PQM Validation</h4>
+                            <p class="module-card__text">Joins <code>dbo_CRED</code> and <code>dbo_QUAL</code> on <code>_001</code>, then validates the qualification name (<code>QUAL._003</code> vs PQM <code>Authorised_Qualification_Name</code>) and Research_1 flag (<code>CRED._050</code> vs PQM <code>Research_1</code>). PASS when both fields match on the same PQM row; credit value (<code>_036</code>) is captured for manual prospectus verification.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule54?clientId=@Model.Id" class="btn btn-success">Open Rule 54</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 55</div>
+                            <h4 class="module-card__title">Graduate W-Code Validation</h4>
+                            <p class="module-card__text">Identifies all students where Element 025='W' (certificate withheld) in <code>dbo_STUD</code> and validates their qualification is approved in <code>dbo_QUAL</code> (<code>_004='A'</code>). Per DHET §1.5, W-coded students must be treated identically to 'F' graduates for Teaching and Research Output calculations. PASS when the qualification is found and approved; FAIL when missing or not approved for state funding.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule55?clientId=@Model.Id" class="btn btn-success">Open Rule 55</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 57</div>
+                            <h4 class="module-card__title">Registration Documentation Agreement</h4>
+                            <p class="module-card__text">Selects <code>dbo_CREG</code> records filtered by <code>_064</code>, joins to <code>dbo_STUD</code> on student ID (<code>_007</code>), and validates that <code>STUD._024</code> agrees with <code>CREG._064</code>. Agrees to the student's signed application and/or registration documentation.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule57?clientId=@Model.Id" class="btn btn-success">Open Rule 57</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 58</div>
+                            <h4 class="module-card__title">STAFF VALPAC Data in STAFF PRODUCTION</h4>
+                            <p class="module-card__text">Checks that every record in <code>STAFF VALPAC</code> exists in <code>STAFF PRODUCTION</code> using <code>_037 ↔ PERSONEL_NUMBER</code>. PASS when the staff record is found in Production; FAIL when it is missing.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule58?clientId=@Model.Id" class="btn btn-success">Open Rule 58</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 59</div>
+                            <h4 class="module-card__title">SFTE VALPAC Data in STAFF PRODUCTION</h4>
+                            <p class="module-card__text">Checks that every record in <code>SFTE VALPAC</code> exists in <code>STAFF PRODUCTION</code> using <code>_037 ↔ PERSONEL_NUMBER</code>. PASS when the SFTE record is found in Production; FAIL when it is missing.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule59?clientId=@Model.Id" class="btn btn-success">Open Rule 59</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 60</div>
+                            <h4 class="module-card__title">CRSE vs H16CRSE Agreement</h4>
+                            <p class="module-card__text">Checks that <code>CRSE</code> and <code>H16CRSE</code> align on the configured agreement fields and flags missing or mismatched records for review.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule60?clientId=@Model.Id" class="btn btn-success">Open Rule 60</a>
+                            </div>
+                        </article>
+
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 61</div>
+                            <h4 class="module-card__title">Masters / Doctoral Research Time Validation</h4>
+                            <p class="module-card__text">Starts from <code>dbo_STUD</code>, bridges to <code>dbo_QUAL</code> on <code>_001</code>, filters the configured <code>QUAL._005</code> codes, then matches <code>QUAL._003</code> to <code>PQM.Authorised_Qualification_Name</code> and compares <code>STUD._073</code> to <code>PQM.Research_1</code>.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule61?clientId=@Model.Id" class="btn btn-success">Open Rule 61</a>
                             </div>
                         </article>
                     </div>
@@ -906,7 +1086,7 @@ else
     <div class="empty-card">
         @if (canOpenModule)
         {
-            <p>No validation runs yet. <a href="@RuleRouteHelper.GetWorkspaceUrl(1, Model.Id)">Open Rule 1</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(2, Model.Id)">Open Rule 2</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(3, Model.Id)">Open Rule 3</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(4, Model.Id)">Open Rule 4</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(5, Model.Id)">Open Rule 5</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(6, Model.Id)">Open Rule 6</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(7, Model.Id)">Open Rule 7</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(8, Model.Id)">Open Rule 8</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(9, Model.Id)">Open Rule 9</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(10, Model.Id)">Open Rule 10</a>, <a href="/Rule11?clientId=@Model.Id">Open Rule 11</a>, <a href="/Rule12?clientId=@Model.Id">Open Rule 12</a>, <a href="/Rule13?clientId=@Model.Id">Open Rule 13</a>, <a href="/Rule14?clientId=@Model.Id">Open Rule 14</a>, <a href="/Rule15?clientId=@Model.Id">Open Rule 15</a>, <a href="/Rule16?clientId=@Model.Id">Open Rule 16</a>, <a href="/Rule17?clientId=@Model.Id">Open Rule 17</a>, <a href="/Rule18?clientId=@Model.Id">Open Rule 18</a>, <a href="/Rule21?clientId=@Model.Id">Open Rule 21</a>, <a href="/Rule22?clientId=@Model.Id">Open Rule 22</a>, <a href="/Rule23?clientId=@Model.Id">Open Rule 23</a>, <a href="/Rule24?clientId=@Model.Id">Open Rule 24</a>, <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule28?clientId=@Model.Id">Open Rule 28</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, <a href="/Rule35?clientId=@Model.Id">Open Rule 35</a>, or <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a></p>
+            <p>No validation runs yet. <a href="@RuleRouteHelper.GetWorkspaceUrl(1, Model.Id)">Open Rule 1</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(2, Model.Id)">Open Rule 2</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(3, Model.Id)">Open Rule 3</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(4, Model.Id)">Open Rule 4</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(5, Model.Id)">Open Rule 5</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(6, Model.Id)">Open Rule 6</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(7, Model.Id)">Open Rule 7</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(8, Model.Id)">Open Rule 8</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(9, Model.Id)">Open Rule 9</a>, <a href="@RuleRouteHelper.GetWorkspaceUrl(10, Model.Id)">Open Rule 10</a>, <a href="/Rule11?clientId=@Model.Id">Open Rule 11</a>, <a href="/Rule12?clientId=@Model.Id">Open Rule 12</a>, <a href="/Rule13?clientId=@Model.Id">Open Rule 13</a>, <a href="/Rule14?clientId=@Model.Id">Open Rule 14</a>, <a href="/Rule15?clientId=@Model.Id">Open Rule 15</a>, <a href="/Rule16?clientId=@Model.Id">Open Rule 16</a>, <a href="/Rule17?clientId=@Model.Id">Open Rule 17</a>, <a href="/Rule18?clientId=@Model.Id">Open Rule 18</a>, <a href="/Rule21?clientId=@Model.Id">Open Rule 21</a>, <a href="/Rule22?clientId=@Model.Id">Open Rule 22</a>, <a href="/Rule23?clientId=@Model.Id">Open Rule 23</a>, <a href="/Rule24?clientId=@Model.Id">Open Rule 24</a>, <a href="/Rule25?clientId=@Model.Id">Open Rule 25</a>, <a href="/Rule26?clientId=@Model.Id">Open Rule 26</a>, <a href="/Rule27?clientId=@Model.Id">Open Rule 27</a>, <a href="/Rule28?clientId=@Model.Id">Open Rule 28</a>, <a href="/Rule29?clientId=@Model.Id">Open Rule 29</a>, <a href="/Rule30?clientId=@Model.Id">Open Rule 30</a>, <a href="/Rule31?clientId=@Model.Id">Open Rule 31</a>, <a href="/Rule32?clientId=@Model.Id">Open Rule 32</a>, <a href="/Rule34?clientId=@Model.Id">Open Rule 34</a>, <a href="/Rule35?clientId=@Model.Id">Open Rule 35</a>, <a href="/Rule36?clientId=@Model.Id">Open Rule 36</a>, <a href="/Rule60?clientId=@Model.Id">Open Rule 60</a>, or <a href="/Rule61?clientId=@Model.Id">Open Rule 61</a></p>
         }
         else if (Model.IsArchived)
         {

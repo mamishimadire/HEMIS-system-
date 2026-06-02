@@ -53,6 +53,8 @@ namespace HemisAudit.Controllers
             {
                 var roles           = await _users.GetRolesAsync(u);
                 var assignedClients = await _systemDb.GetAssignedClientCountAsync(u, roles.FirstOrDefault() ?? "");
+                var isLockedOut     = await _users.IsLockedOutAsync(u);
+                var lockoutEnd      = await _users.GetLockoutEndDateAsync(u);
                 list.Add(new UserListViewModel
                 {
                     Id                   = u.Id,
@@ -63,6 +65,8 @@ namespace HemisAudit.Controllers
                     EmployeeCode         = u.EmployeeCode,
                     ProfilePicturePath   = u.ProfilePicturePath,
                     IsActive             = u.IsActive,
+                    IsLockedOut          = isLockedOut,
+                    LockoutEnd           = lockoutEnd,
                     CreatedAt            = u.CreatedAt,
                     LastLoginAt          = u.LastLoginAt,
                     Roles                = roles.ToList(),
@@ -376,6 +380,8 @@ namespace HemisAudit.Controllers
                     refreshed.PasswordChangedAt = DateTime.UtcNow;
                     refreshed.PasswordHistory = _passwordPolicy.BuildPasswordHistory(refreshed.PasswordHistory, refreshed.PasswordHash ?? string.Empty);
                     await _users.UpdateAsync(refreshed);
+                    await _users.SetLockoutEndDateAsync(refreshed, null);
+                    await _users.ResetAccessFailedCountAsync(refreshed);
                     var refreshedRoles = await _users.GetRolesAsync(refreshed);
                     await _systemDb.EnsureUserMirrorAsync(refreshed, refreshedRoles.FirstOrDefault() ?? "");
                 }
@@ -386,6 +392,24 @@ namespace HemisAudit.Controllers
             {
                 TempData["Error"] = string.Join(", ", result.Errors.Select(e => e.Description));
             }
+            return RedirectToAction(nameof(Users));
+        }
+
+        // ── Unlock Account ─────────────────────────────────────────────────────
+        [HttpPost, ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UnlockUser(string id)
+        {
+            var user = await _users.FindByIdAsync(id);
+            if (user == null) return NotFound();
+
+            await _users.SetLockoutEndDateAsync(user, null);
+            await _users.ResetAccessFailedCountAsync(user);
+
+            var admin = await _users.GetUserAsync(User);
+            await _audit.LogAsync("unlock_user", $"Unlocked account for {user.Email}", admin?.Id, admin?.Email);
+
+            TempData["Success"] = $"Account for {user.FullName} unlocked.";
             return RedirectToAction(nameof(Users));
         }
 
@@ -464,9 +488,7 @@ namespace HemisAudit.Controllers
             ViewBag.CanManageAssignments =
                 isAdmin &&
                 !detail.IsArchived;
-            ViewBag.ShowModulesWorkspaceUi =
-                isAdmin ||
-                (isDataAnalyst && canAccessModule);
+            ViewBag.ShowModulesWorkspaceUi = canAccessModule || isAdmin;
 
             detail.CanArchive = false;
             detail.ArchiveEligibilityMessage = detail.IsArchived

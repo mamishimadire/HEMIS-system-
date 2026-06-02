@@ -43,10 +43,10 @@
 
                 if (!hasMarker) {
                     var returnUrl = window.location.pathname + window.location.search + window.location.hash;
-                    window.location.replace('/Account/Login?force=true&returnUrl=' + encodeURIComponent(returnUrl));
+                    window.location.replace('/Account/Login?returnUrl=' + encodeURIComponent(returnUrl));
                 }
             } catch (_) {
-                window.location.replace('/Account/Login?force=true');
+                window.location.replace('/Account/Login');
             }
         })();
     </script>
@@ -136,6 +136,7 @@
             }
         })();
     </script>
+    @RenderSection("Styles", required: false)
 </head>
 <body>
 <div class="layout app-shell">
@@ -1023,5 +1024,6 @@
 
 })();
 </script>
+@RenderSection("Scripts", required: false)
 </body>
 </html>

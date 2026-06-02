@@ -97,18 +97,7 @@ namespace HemisAudit.Controllers
             if (workspace != null)
                 workspace.ResultsVisible = resultsVisible;
 
-            if (workspace != null && !resultsVisible)
-            {
-                workspace.Server = "";
-                workspace.Database = "";
-                workspace.Driver = "ODBC Driver 17 for SQL Server";
-                workspace.StudTable = "dbo_STUD";
-                workspace.QualTable = "dbo_QUAL";
-                workspace.CregTable = "dbo_CRED";
-                workspace.CrseTable = "dbo_CRSE";
-                workspace.PgTypesText = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
-                workspace.Summary = null;
-            }
+            if (workspace != null && !resultsVisible) workspace.Summary = null;
 
             return Json(new
             {
@@ -185,6 +174,10 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> GetTables([FromBody] ConnectionViewModel model) =>
             Json(await RequireDataAnalystAsync(async () => await _rule20.GetTablesAsync(model.Server, model.Database, model.Driver)));
+
+        [HttpPost]
+        public async Task<IActionResult> GetColumns([FromBody] Rule20GetColumnsRequest request) =>
+            Json(await RequireDataAnalystAsync(async () => await _rule20.GetColumnsAsync(request.Server, request.Database, request.Driver, request.TableName)));
 
         [HttpPost]
         public async Task<IActionResult> VerifyTables([FromBody] Rule20VerifyRequest request) =>

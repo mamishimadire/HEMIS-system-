@@ -831,7 +831,8 @@ DROP TABLE #PayrollBase;";
                 LinkedRecordCount = linkedRecordCount,
                 ClientId = request.ClientId,
                 Directions = [direction1, direction2],
-                Exceptions = direction1.Exceptions.Concat(direction2.Exceptions).ToList()
+                Exceptions = direction1.Exceptions.Concat(direction2.Exceptions).ToList(),
+                PassRows = direction1.PassRows.Concat(direction2.PassRows).Take(BrowserPreviewRowLimit).ToList()
             };
         }
 
@@ -954,6 +955,26 @@ FROM [{payrollTable}];";
             EvaluateLinkedControlsForProfDirection(direction, controls, linkedPairs);
             direction.Controls = controls;
             direction.TotalExceptions = direction.Exceptions.Count;
+
+            var exceptionPersonnelProf = direction.Exceptions
+                .Select(e => e.PersonnelNumber)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            direction.PassRows = linkedPairs
+                .Where(pair => !exceptionPersonnelProf.Contains(pair.Prof.PersonnelNumber))
+                .GroupBy(pair => pair.Prof.PersonnelNumber, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .Select(pair => new Rule26PassRowViewModel
+                {
+                    DirectionKey = direction.DirectionKey,
+                    DirectionLabel = direction.DirectionLabel,
+                    PersonnelNumber = pair.Prof.PersonnelNumber,
+                    PersonnelName = pair.Payroll.PersonnelName,
+                    EmploymentType = pair.Prof.EmploymentType,
+                    Gender = pair.Prof.Gender
+                })
+                .Take(BrowserPreviewRowLimit)
+                .ToList();
+
             return direction;
         }
 
@@ -1003,6 +1024,26 @@ FROM [{payrollTable}];";
             EvaluateLinkedControlsForPayrollDirection(direction, controls, linkedPairs);
             direction.Controls = controls;
             direction.TotalExceptions = direction.Exceptions.Count;
+
+            var exceptionPersonnelPayroll = direction.Exceptions
+                .Select(e => e.PersonnelNumber)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            direction.PassRows = linkedPairs
+                .Where(pair => !exceptionPersonnelPayroll.Contains(pair.Payroll.PersonnelNumber))
+                .GroupBy(pair => pair.Payroll.PersonnelNumber, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .Select(pair => new Rule26PassRowViewModel
+                {
+                    DirectionKey = direction.DirectionKey,
+                    DirectionLabel = direction.DirectionLabel,
+                    PersonnelNumber = pair.Payroll.PersonnelNumber,
+                    PersonnelName = pair.Payroll.PersonnelName,
+                    EmploymentType = pair.Payroll.EmploymentType,
+                    Gender = pair.Payroll.Gender
+                })
+                .Take(BrowserPreviewRowLimit)
+                .ToList();
+
             return direction;
         }
 
@@ -1696,6 +1737,9 @@ END";
             summary.Exceptions = summary.Exceptions
                 .Take(BrowserPreviewRowLimit)
                 .ToList();
+            summary.PassRows = summary.PassRows
+                .Take(BrowserPreviewRowLimit)
+                .ToList();
             summary.Directions = summary.Directions
                 .Select(direction => new Rule26DirectionResultViewModel
                 {
@@ -1708,6 +1752,9 @@ END";
                     TotalExceptions = direction.TotalExceptions,
                     Controls = direction.Controls,
                     Exceptions = direction.Exceptions
+                        .Take(BrowserPreviewRowLimit)
+                        .ToList(),
+                    PassRows = direction.PassRows
                         .Take(BrowserPreviewRowLimit)
                         .ToList()
                 })

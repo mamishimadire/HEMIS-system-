@@ -40,6 +40,7 @@ namespace HemisAudit.ViewModels
         public string? AutoFirstDayColumn { get; set; }
         public string? AutoLastDayColumn { get; set; }
         public string? AutoCensusDateColumn { get; set; }
+        public string? AutoBlockColumn { get; set; }
         public string? Error { get; set; }
     }
 
@@ -52,6 +53,7 @@ namespace HemisAudit.ViewModels
         public string FirstDayColumn { get; set; } = "";
         public string LastDayColumn { get; set; } = "";
         public string CensusDateColumn { get; set; } = "";
+        public string BlockColumn { get; set; } = "";
     }
 
     public class Rule34SampleRowViewModel
@@ -80,6 +82,8 @@ namespace HemisAudit.ViewModels
         public string CensusDateColumn { get; set; } = "";
         public int StartYear { get; set; }
         public int EndYear { get; set; }
+        public string BlockColumn { get; set; } = "";
+        public string BlockExcludeValues { get; set; } = "5, 5F, 8F, 8G, R0, R1, R2";
     }
 
     public class Rule34ValidationRowRecord
@@ -96,6 +100,7 @@ namespace HemisAudit.ViewModels
         public bool ComparisonResult { get; set; }
         public bool DateMatch { get; set; }
         public string ValidationStatus { get; set; } = "";
+        public string BlockValue { get; set; } = "";
     }
 
     public class Rule34ValidationSummary
@@ -119,6 +124,9 @@ namespace HemisAudit.ViewModels
         public int WeekendCount { get; set; }
         public int ClientId { get; set; }
         public int? SavedRunId { get; set; }
+        public string BlockColumn { get; set; } = "";
+        public string BlockExcludeValues { get; set; } = "";
+        public int ExcludedRowCount { get; set; }
         public List<Rule34HolidayItemViewModel> Holidays { get; set; } = new();
         public List<Rule34ValidationRowRecord> ValidationRows { get; set; } = new();
         public List<Rule34ValidationRowRecord> Exceptions { get; set; } = new();
@@ -159,6 +167,8 @@ namespace HemisAudit.ViewModels
         public string CensusDateColumn { get; set; } = "";
         public int StartYear { get; set; }
         public int EndYear { get; set; }
+        public string BlockColumn { get; set; } = "";
+        public string BlockExcludeValues { get; set; } = "5, 5F, 8F, 8G, R0, R1, R2";
         public string CurrentUserEngagementRole { get; set; } = "";
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff { get; set; }

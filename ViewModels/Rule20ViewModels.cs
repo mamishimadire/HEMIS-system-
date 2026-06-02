@@ -2,6 +2,35 @@ using HemisAudit.Helpers;
 
 namespace HemisAudit.ViewModels
 {
+    public class Rule20ColumnMapping
+    {
+        // STUD table column roles
+        public string StudStudentNo { get; set; } = "_007";
+        public string StudQualCode { get; set; } = "_001";
+        public string StudName { get; set; } = "_019";
+        public string StudIdNo { get; set; } = "_024";
+        public string StudFoundationFlag { get; set; } = "_106";
+        public string StudFoundationValue { get; set; } = "Y";
+        // QUAL table column roles
+        public string QualQualCode { get; set; } = "_001";
+        public string QualDescription { get; set; } = "_003";
+        public string QualType { get; set; } = "_005";
+        // CRED/bridge table column roles
+        public string CregQualCode { get; set; } = "_001";
+        public string CregCourseCode { get; set; } = "_030";
+        // CRSE table column roles
+        public string CrseCourseCode { get; set; } = "_030";
+        public string CrseFoundationFlag { get; set; } = "_091";
+        public string CrseFoundationValue { get; set; } = "Y";
+    }
+
+    public class Rule20ColumnDiscoveryResult
+    {
+        public bool Success { get; set; }
+        public List<string> Columns { get; set; } = new();
+        public string? Error { get; set; }
+    }
+
     public class Rule20TableDiscoveryResult
     {
         public bool Success { get; set; }
@@ -24,6 +53,7 @@ namespace HemisAudit.ViewModels
         public string CrseTable { get; set; } = "dbo_CRSE";
         public string PgTypesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
         public List<string> GoverningPartCodes { get; set; } = ["ALL"];
+        public Rule20ColumnMapping ColumnMapping { get; set; } = new();
     }
 
     public class Rule20VerifyResult
@@ -47,6 +77,7 @@ namespace HemisAudit.ViewModels
         public string CrseTable { get; set; } = "dbo_CRSE";
         public string PgTypesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
         public List<string> GoverningPartCodes { get; set; } = ["ALL"];
+        public Rule20ColumnMapping ColumnMapping { get; set; } = new();
     }
 
     public class Rule20PartSummaryItemViewModel
@@ -101,6 +132,7 @@ namespace HemisAudit.ViewModels
         public string QualTable { get; set; } = "dbo_QUAL";
         public string CregTable { get; set; } = "dbo_CRED";
         public string CrseTable { get; set; } = "dbo_CRSE";
+        public Rule20ColumnMapping ColumnMapping { get; set; } = new();
         public string PgTypesText { get; set; } = "";
         public List<string> PgTypes { get; set; } = new();
         public List<string> GoverningPartCodes { get; set; } = ["ALL"];
@@ -148,6 +180,7 @@ namespace HemisAudit.ViewModels
         public string QualTable { get; set; } = "dbo_QUAL";
         public string CregTable { get; set; } = "dbo_CRED";
         public string CrseTable { get; set; } = "dbo_CRSE";
+        public Rule20ColumnMapping ColumnMapping { get; set; } = new();
         public string PgTypesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
         public List<string> GoverningPartCodes { get; set; } = ["ALL"];
         public string CurrentUserEngagementRole { get; set; } = "";
@@ -189,6 +222,14 @@ namespace HemisAudit.ViewModels
         public bool Success { get; set; }
         public string Sql { get; set; } = "";
         public string? Error { get; set; }
+    }
+
+    public class Rule20GetColumnsRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string TableName { get; set; } = "";
     }
 }
 

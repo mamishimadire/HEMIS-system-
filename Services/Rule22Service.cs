@@ -114,9 +114,11 @@ namespace HemisAudit.Services
                 var profTable = Sanitise(request.ProfTable);
                 var col041 = Sanitise(request.Column041);
                 var col039 = Sanitise(request.Column039);
-                var control1Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl1Condition(col041, col039)};");
-                var control2Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl2Condition(col041, col039)};");
-                var control3Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl3Condition(col041, col039)};");
+                var fv041 = SafeFilterValue(request.FilterValue041);
+                var fv039 = SafeFilterValue(request.FilterValue039);
+                var control1Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl1Condition(col041, col039, fv041, fv039)};");
+                var control2Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl2Condition(col041, col039, fv041, fv039)};");
+                var control3Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl3Condition(col041, col039, fv041, fv039)};");
 
                 return new Rule22VerifyResult
                 {
@@ -243,6 +245,8 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 workspace.Control1SampleSize = deserializedSummary.Control1SampleSize;
                 workspace.Control2SampleSize = deserializedSummary.Control2SampleSize;
                 workspace.Control3SampleSize = deserializedSummary.Control3SampleSize;
+                workspace.FilterValue041 = string.IsNullOrWhiteSpace(deserializedSummary.FilterValue041) ? "PE" : deserializedSummary.FilterValue041;
+                workspace.FilterValue039 = string.IsNullOrWhiteSpace(deserializedSummary.FilterValue039) ? "01" : deserializedSummary.FilterValue039;
             }
 
             await reader.CloseAsync();
@@ -535,6 +539,8 @@ END";
             var profTable = Sanitise(request.ProfTable);
             var col041 = Sanitise(request.Column041);
             var col039 = Sanitise(request.Column039);
+            var fv041 = SafeFilterValue(request.FilterValue041);
+            var fv039 = SafeFilterValue(request.FilterValue039);
 
             var sql = $@"-- ================================================================
 -- HEMIS RULE 22: STAFF VALIDATION (dbo_PROF)
@@ -542,32 +548,32 @@ END";
 -- Database: {request.Database}
 -- Table: [{profTable}]
 -- Scope: 100% validation of all rows that match Control 1, Control 2, or Control 3
--- Control 1: [{col041}] = 'PE' AND [{col039}] = '01'
--- Control 2: [{col041}] = 'PE' AND [{col039}] <> '01'
--- Control 3: [{col041}] <> 'PE' AND [{col039}] <> '01'
+-- Control 1: [{col041}] = '{fv041}' AND [{col039}] = '{fv039}'
+-- Control 2: [{col041}] = '{fv041}' AND [{col039}] <> '{fv039}'
+-- Control 3: [{col041}] <> '{fv041}' AND [{col039}] <> '{fv039}'
 -- Ordering: deterministic by [_037], [_038]
 -- ================================================================
 
 SELECT COUNT(*) AS Control1Available
 FROM [{profTable}]
-WHERE {BuildControl1Condition(col041, col039)};
+WHERE {BuildControl1Condition(col041, col039, fv041, fv039)};
 
 SELECT COUNT(*) AS Control2Available
 FROM [{profTable}]
-WHERE {BuildControl2Condition(col041, col039)};
+WHERE {BuildControl2Condition(col041, col039, fv041, fv039)};
 
 SELECT COUNT(*) AS Control3Available
 FROM [{profTable}]
-WHERE {BuildControl3Condition(col041, col039)};
+WHERE {BuildControl3Condition(col041, col039, fv041, fv039)};
 
 WITH Rule22Classified AS
 (
     SELECT
-        {BuildControlTypeCase(col041, col039)} AS Control_Type,
-        {BuildControlDefinitionCase(col041, col039)} AS Control_Definition,
+        {BuildControlTypeCase(col041, col039, fv041, fv039)} AS Control_Type,
+        {BuildControlDefinitionCase(col041, col039, fv041, fv039)} AS Control_Definition,
         ROW_NUMBER() OVER
         (
-            PARTITION BY {BuildControlTypeCase(col041, col039)}
+            PARTITION BY {BuildControlTypeCase(col041, col039, fv041, fv039)}
             ORDER BY
                 CASE WHEN TRY_CONVERT(bigint, [_037]) IS NULL THEN 1 ELSE 0 END,
                 TRY_CONVERT(bigint, [_037]),
@@ -586,7 +592,7 @@ WITH Rule22Classified AS
         CAST([_094] AS nvarchar(255)) AS Col_094,
         'PASS' AS Validation_Result
     FROM [{profTable}]
-    WHERE {BuildIncludedCondition(col041, col039)}
+    WHERE {BuildIncludedCondition(col041, col039, fv041, fv039)}
 )
 SELECT
     ROW_NUMBER() OVER
@@ -636,15 +642,19 @@ ORDER BY
             var profTable = Sanitise(request.ProfTable);
             var col041 = Sanitise(request.Column041);
             var col039 = Sanitise(request.Column039);
+            var fv041 = SafeFilterValue(request.FilterValue041);
+            var fv039 = SafeFilterValue(request.FilterValue039);
 
-            var control1Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl1Condition(col041, col039)};");
-            var control2Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl2Condition(col041, col039)};");
-            var control3Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl3Condition(col041, col039)};");
+            var control1Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl1Condition(col041, col039, fv041, fv039)};");
+            var control2Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl2Condition(col041, col039, fv041, fv039)};");
+            var control3Count = await CountAsync(conn, $"SELECT COUNT(*) FROM [{profTable}] WHERE {BuildControl3Condition(col041, col039, fv041, fv039)};");
             var reviewRows = NormalizeReviewRows(await LoadValidationRowsAsync(
                 conn,
                 profTable,
                 col041,
                 col039,
+                fv041,
+                fv039,
                 includeAllReviewRows ? null : ReviewPreviewRowsPerControl));
             var previewControl1Count = reviewRows.Count(r => r.ControlType == "Control 1");
             var previewControl2Count = reviewRows.Count(r => r.ControlType == "Control 2");
@@ -664,6 +674,8 @@ ORDER BY
                 ProfTable = request.ProfTable,
                 Column041 = request.Column041,
                 Column039 = request.Column039,
+                FilterValue041 = fv041,
+                FilterValue039 = fv039,
                 Control1SampleSize = 0,
                 Control2SampleSize = 0,
                 Control3SampleSize = 0,
@@ -677,7 +689,7 @@ ORDER BY
                     new()
                     {
                         ControlType = "Control 1",
-                        ControlDefinition = "_041='PE' AND _039='01'",
+                        ControlDefinition = $"_041='{fv041}' AND _039='{fv039}'",
                         AvailableCount = control1Count,
                         RequestedCount = control1Count,
                         SampleCount = includeAllReviewRows ? control1Count : previewControl1Count,
@@ -687,7 +699,7 @@ ORDER BY
                     new()
                     {
                         ControlType = "Control 2",
-                        ControlDefinition = "_041='PE' AND _039<>'01'",
+                        ControlDefinition = $"_041='{fv041}' AND _039<>'{fv039}'",
                         AvailableCount = control2Count,
                         RequestedCount = control2Count,
                         SampleCount = includeAllReviewRows ? control2Count : previewControl2Count,
@@ -697,7 +709,7 @@ ORDER BY
                     new()
                     {
                         ControlType = "Control 3",
-                        ControlDefinition = "_041<>'PE' AND _039<>'01'",
+                        ControlDefinition = $"_041<>'{fv041}' AND _039<>'{fv039}'",
                         AvailableCount = control3Count,
                         RequestedCount = control3Count,
                         SampleCount = includeAllReviewRows ? control3Count : previewControl3Count,
@@ -844,6 +856,8 @@ ORDER BY ORDINAL_POSITION;";
             string profTable,
             string col041,
             string col039,
+            string fv041,
+            string fv039,
             int? perControlLimit)
         {
             await using var command = connection.CreateConfiguredCommand();
@@ -852,11 +866,11 @@ ORDER BY ORDINAL_POSITION;";
 WITH Rule22Classified AS
 (
     SELECT
-        {BuildControlTypeCase(col041, col039)} AS Control_Type,
-        {BuildControlDefinitionCase(col041, col039)} AS Control_Definition,
+        {BuildControlTypeCase(col041, col039, fv041, fv039)} AS Control_Type,
+        {BuildControlDefinitionCase(col041, col039, fv041, fv039)} AS Control_Definition,
         ROW_NUMBER() OVER
         (
-            PARTITION BY {BuildControlTypeCase(col041, col039)}
+            PARTITION BY {BuildControlTypeCase(col041, col039, fv041, fv039)}
             ORDER BY
                 CASE WHEN TRY_CONVERT(bigint, [_037]) IS NULL THEN 1 ELSE 0 END,
                 TRY_CONVERT(bigint, [_037]),
@@ -873,10 +887,10 @@ WITH Rule22Classified AS
         CAST([_047] AS nvarchar(255)) AS Col_047,
         CAST([_048] AS nvarchar(255)) AS Col_048,
         CAST([_094] AS nvarchar(255)) AS Col_094,
-        {BuildValidationResultCase(col041, col039)} AS Validation_Result,
-        {BuildExceptionReasonCase(col041, col039)} AS Exception_Reason
+        {BuildValidationResultCase(col041, col039, fv041, fv039)} AS Validation_Result,
+        {BuildExceptionReasonCase(col041, col039, fv041, fv039)} AS Exception_Reason
     FROM [{profTable}]
-    WHERE {BuildIncludedCondition(col041, col039)}
+    WHERE {BuildIncludedCondition(col041, col039, fv041, fv039)}
 )
 SELECT
     Control_Type,
@@ -966,6 +980,8 @@ ORDER BY
                 ProfTable = request.ProfTable,
                 Column041 = request.Column041,
                 Column039 = request.Column039,
+                FilterValue041 = request.FilterValue041,
+                FilterValue039 = request.FilterValue039,
                 Control1SampleSize = request.Control1SampleSize,
                 Control2SampleSize = request.Control2SampleSize,
                 Control3SampleSize = request.Control3SampleSize
@@ -1281,46 +1297,49 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             return Convert.ToInt32(await command.ExecuteScalarAsync());
         }
 
-        private static string BuildControl1Condition(string col041, string col039) =>
-            $"{SqlValue(col041)} = 'PE' AND {SqlValue(col039)} = '01'";
+        private static string SafeFilterValue(string? value) =>
+            (value ?? "").Replace("'", "''").Trim();
 
-        private static string BuildControl2Condition(string col041, string col039) =>
-            $"{SqlValue(col041)} = 'PE' AND {SqlValue(col039)} <> '01'";
+        private static string BuildControl1Condition(string col041, string col039, string fv041, string fv039) =>
+            $"{SqlValue(col041)} = '{fv041}' AND {SqlValue(col039)} = '{fv039}'";
 
-        private static string BuildControl3Condition(string col041, string col039) =>
-            $"{SqlValue(col041)} <> 'PE' AND {SqlValue(col039)} <> '01'";
+        private static string BuildControl2Condition(string col041, string col039, string fv041, string fv039) =>
+            $"{SqlValue(col041)} = '{fv041}' AND {SqlValue(col039)} <> '{fv039}'";
 
-        private static string BuildIncludedCondition(string col041, string col039) =>
-            $"(({BuildControl1Condition(col041, col039)}) OR ({BuildControl2Condition(col041, col039)}) OR ({BuildControl3Condition(col041, col039)}))";
+        private static string BuildControl3Condition(string col041, string col039, string fv041, string fv039) =>
+            $"{SqlValue(col041)} <> '{fv041}' AND {SqlValue(col039)} <> '{fv039}'";
 
-        private static string BuildUnclassifiedCondition(string col041, string col039) =>
-            $"NOT {BuildIncludedCondition(col041, col039)}";
+        private static string BuildIncludedCondition(string col041, string col039, string fv041, string fv039) =>
+            $"(({BuildControl1Condition(col041, col039, fv041, fv039)}) OR ({BuildControl2Condition(col041, col039, fv041, fv039)}) OR ({BuildControl3Condition(col041, col039, fv041, fv039)}))";
 
-        private static string BuildControlTypeCase(string col041, string col039) =>
+        private static string BuildUnclassifiedCondition(string col041, string col039, string fv041, string fv039) =>
+            $"NOT {BuildIncludedCondition(col041, col039, fv041, fv039)}";
+
+        private static string BuildControlTypeCase(string col041, string col039, string fv041, string fv039) =>
             $@"CASE
-        WHEN {BuildControl1Condition(col041, col039)} THEN 'Control 1'
-        WHEN {BuildControl2Condition(col041, col039)} THEN 'Control 2'
-        WHEN {BuildControl3Condition(col041, col039)} THEN 'Control 3'
+        WHEN {BuildControl1Condition(col041, col039, fv041, fv039)} THEN 'Control 1'
+        WHEN {BuildControl2Condition(col041, col039, fv041, fv039)} THEN 'Control 2'
+        WHEN {BuildControl3Condition(col041, col039, fv041, fv039)} THEN 'Control 3'
         ELSE 'Unclassified'
     END";
 
-        private static string BuildControlDefinitionCase(string col041, string col039) =>
+        private static string BuildControlDefinitionCase(string col041, string col039, string fv041, string fv039) =>
             $@"CASE
-        WHEN {BuildControl1Condition(col041, col039)} THEN '_041=''PE'' AND _039=''01'''
-        WHEN {BuildControl2Condition(col041, col039)} THEN '_041=''PE'' AND _039<>''01'''
-        WHEN {BuildControl3Condition(col041, col039)} THEN '_041<>''PE'' AND _039<>''01'''
+        WHEN {BuildControl1Condition(col041, col039, fv041, fv039)} THEN '_041=''{fv041}'' AND _039=''{fv039}'''
+        WHEN {BuildControl2Condition(col041, col039, fv041, fv039)} THEN '_041=''{fv041}'' AND _039<>''{fv039}'''
+        WHEN {BuildControl3Condition(col041, col039, fv041, fv039)} THEN '_041<>''{fv041}'' AND _039<>''{fv039}'''
         ELSE 'Did not match Control 1, Control 2, or Control 3'
     END";
 
-        private static string BuildValidationResultCase(string col041, string col039) =>
+        private static string BuildValidationResultCase(string col041, string col039, string fv041, string fv039) =>
             $@"CASE
-        WHEN {BuildIncludedCondition(col041, col039)} THEN 'PASS'
+        WHEN {BuildIncludedCondition(col041, col039, fv041, fv039)} THEN 'PASS'
         ELSE 'FAIL'
     END";
 
-        private static string BuildExceptionReasonCase(string col041, string col039) =>
+        private static string BuildExceptionReasonCase(string col041, string col039, string fv041, string fv039) =>
             $@"CASE
-        WHEN {BuildIncludedCondition(col041, col039)} THEN ''
+        WHEN {BuildIncludedCondition(col041, col039, fv041, fv039)} THEN ''
         ELSE 'Row did not match any Rule 22 control.'
     END";
 
@@ -1358,6 +1377,8 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             var control2Count = summary.Control2Count > 0 ? summary.Control2Count : reviewRows.Count(r => r.ControlType == "Control 2");
             var control3Count = summary.Control3Count > 0 ? summary.Control3Count : reviewRows.Count(r => r.ControlType == "Control 3");
             var totalValidated = control1Count + control2Count + control3Count;
+            var fv041 = string.IsNullOrWhiteSpace(summary.FilterValue041) ? "PE" : summary.FilterValue041;
+            var fv039 = string.IsNullOrWhiteSpace(summary.FilterValue039) ? "01" : summary.FilterValue039;
 
             summary.Control1SampleSize = 0;
             summary.Control2SampleSize = 0;
@@ -1374,9 +1395,9 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             summary.ReviewRows = reviewRows;
             summary.ControlSummaries = new List<Rule22ControlSummaryItemViewModel>
             {
-                BuildControlSummary("Control 1", "_041='PE' AND _039='01'", control1Count, control1Count, reviewRows),
-                BuildControlSummary("Control 2", "_041='PE' AND _039<>'01'", control2Count, control2Count, reviewRows),
-                BuildControlSummary("Control 3", "_041<>'PE' AND _039<>'01'", control3Count, control3Count, reviewRows)
+                BuildControlSummary("Control 1", $"_041='{fv041}' AND _039='{fv039}'", control1Count, control1Count, reviewRows),
+                BuildControlSummary("Control 2", $"_041='{fv041}' AND _039<>'{fv039}'", control2Count, control2Count, reviewRows),
+                BuildControlSummary("Control 3", $"_041<>'{fv041}' AND _039<>'{fv039}'", control3Count, control3Count, reviewRows)
             };
 
             return summary;

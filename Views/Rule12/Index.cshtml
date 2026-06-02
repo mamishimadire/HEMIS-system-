@@ -1,7 +1,7 @@
 @using HemisAudit.Models
 @using HemisAudit.ViewModels
 @{
-    ViewData["Title"] = "Rule 12 - Course Selection from dbo_CREG";
+    ViewData["Title"] = "Rule 12 - Active Students";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
@@ -59,16 +59,65 @@
                 </option>
             }
         </select>
-        <small>Rule 12 tests 100% of the course population selected from <code>dbo_CREG._030</code> against <code>dbo_CRSE._030</code>. No sampling is used.</small>
+        <small>Rule 12 filters active students from <code>dbo_CREG</code> where <code>dbo_CRES._031 = 'A'</code>, then validates their qualification code against <code>dbo_QUAL._001</code>.</small>
     </div>
 
     <div class="rule-header">
         <div class="rule-header__icon">R12</div>
         <div>
-            <h1 class="rule-header__title">HEMIS Rule 12: Course Selection from dbo_CREG</h1>
-            <p class="rule-header__sub">100% population testing of courses selected from <code>dbo_CREG._030</code> against <code>dbo_CRSE._030</code>.</p>
+            <h1 class="rule-header__title">HEMIS Rule 12: Active Students</h1>
+            <p class="rule-header__sub">Filter active students (<code>dbo_CRES._031 = 'A'</code>) from <code>dbo_CREG</code> and validate their qualification codes against <code>dbo_QUAL._001</code>.</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px;border-left:5px solid #1565C0;background:var(--rule15-card,#fff)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span style="background:#1565C0;color:#fff;font-size:11px;font-weight:800;padding:3px 10px;border-radius:4px;letter-spacing:.5px;text-transform:uppercase">Audit Procedures Note</span>
+            <span style="color:var(--text-muted);font-size:12px">Course Registration File (CREG) — Sample of 40 Students</span>
+        </div>
+        <p style="margin:0 0 12px 0;font-size:13px;color:var(--text)">
+            Select a sample of <strong>40 students</strong> from the Course Registration file (CREG) and perform the following procedures:
+        </p>
+        <div style="margin-bottom:14px">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#1565C0;margin-bottom:8px">Supporting Documents to Obtain from the Registrar</div>
+            <ul style="margin:0;padding-left:20px;font-size:13px;color:var(--text);line-height:1.8">
+                <li>The student's signed application and/or registration form, or proof of online registration;</li>
+                <li>The student's examination script or academic records; and</li>
+                <li>The electronic registration records.</li>
+            </ul>
+        </div>
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#1565C0;margin-bottom:8px">Verification Steps</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+                <tr style="background:#1565C0;color:#fff">
+                    <th style="padding:7px 10px;text-align:left;width:120px">Element</th>
+                    <th style="padding:7px 10px;text-align:left">Procedure</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="background:#EEF4FF">
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 064<br><span style="font-weight:400;font-size:11px;color:#555">Attendance Mode</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Verify that the attendance mode recorded in the Course Registration file (CREG) agrees to the student's signed application and/or registration documentation.</td>
+                </tr>
+                <tr>
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 018<br><span style="font-weight:400;font-size:11px;color:#555">Funding Status</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Obtain confirmation from the Registrar that the student is <strong>not</strong> registered for the same course at another public institution as part of a collaborative arrangement.</td>
+                </tr>
+                <tr style="background:#EEF4FF">
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 030<br><span style="font-weight:400;font-size:11px;color:#555">Course Code</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Agree the course code per the Course Registration file to the student's signed application, registration, and/or change-of-course documentation.</td>
+                </tr>
+                <tr>
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 032<br><span style="font-weight:400;font-size:11px;color:#555">Course Completion Status</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Agree the completion status recorded in the Course Registration file to the student academic records.</td>
+                </tr>
+                <tr style="background:#EEF4FF">
+                    <td style="padding:7px 10px;font-weight:700;white-space:nowrap">Element 051<br><span style="font-weight:400;font-size:11px;color:#555">Examination Indicator</span></td>
+                    <td style="padding:7px 10px;color:var(--text)">Agree the examination indicator per the Course Registration file to the registration records and student academic records.</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 
     @if (!isResultsOnlyRole)
@@ -114,23 +163,65 @@
                 </button>
                 <div class="accordion-body" id="body-config" style="display:none">
                     <div class="info-box info-box--red">
-                        <strong>Rule 12 Logic:</strong><br />
-                        <span>Step 1: from <strong>dbo_CREG</strong>, select the full course population on <strong>_030</strong>.</span><br />
-                        <span>Step 2: test whether <strong>dbo_CRSE</strong> contains a matching course on <strong>_030</strong> for each selected course.</span><br />
-                        <span>The validation tests 100% of the selected course population and marks each course PASS or FAIL based on course existence.</span>
+                        <strong>Rule 12 Logic — Active Students:</strong><br />
+                        <span>Step 1: Join <strong>dbo_CREG</strong> to <strong>dbo_CRES</strong> on the course column (<strong>_030</strong>) and filter <strong>CRES._031 = 'A'</strong> to identify active students.</span><br />
+                        <span>Step 2: For each active student, test whether their qualification code (<strong>CREG._001</strong>) exists in <strong>dbo_QUAL._001</strong>.</span><br />
+                        <span>Rows are marked PASS when the qualification exists in QUAL and FAIL when it does not.</span>
                     </div>
                     <div class="form-grid">
                         <div class="field-group">
                             <label for="cregTable">CREG Table</label>
-                            <select id="cregTable"></select>
+                            <select id="cregTable" onchange="loadColumnsForTable('creg', this.value)"></select>
                         </div>
                         <div class="field-group">
-                            <label for="crseTable">CRSE Table</label>
-                            <select id="crseTable"></select>
+                            <label for="qualTable">QUAL Table <small style="font-weight:normal">(qualification reference)</small></label>
+                            <select id="qualTable" onchange="loadColumnsForTable('qual', this.value)"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresTable">CRES Table <small style="font-weight:normal">(registration status)</small></label>
+                            <select id="cresTable" onchange="loadColumnsForTable('cres', this.value)"></select>
                         </div>
                     </div>
+                    <div class="form-grid" style="margin-top:12px">
+                        <div class="field-group">
+                            <label for="cregStudentCol">CREG Student No. Column <small style="font-weight:normal">(display, default _007)</small></label>
+                            <select id="cregStudentCol"><option value="_007">_007</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cregQualCol">CREG Qualification Column <small style="font-weight:normal">(join to QUAL, default _001)</small></label>
+                            <select id="cregQualCol"><option value="_001">_001</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cregCourseCol">CREG Course Column <small style="font-weight:normal">(join to CRES, default _030)</small></label>
+                            <select id="cregCourseCol"><option value="_030">_030</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="qualJoinCol">QUAL Join Column <small style="font-weight:normal">(default _001)</small></label>
+                            <select id="qualJoinCol"><option value="_001">_001</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="qualDescCol">QUAL Description Column <small style="font-weight:normal">(display, default _003)</small></label>
+                            <select id="qualDescCol"><option value="_003">_003</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresCourseCol">CRES Course Column <small style="font-weight:normal">(join from CREG, default _030)</small></label>
+                            <select id="cresCourseCol"><option value="_030">_030</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresStatusCol">CRES Status Column <small style="font-weight:normal">(filter column, default _031)</small></label>
+                            <select id="cresStatusCol"><option value="_031">_031</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresStatusFilter">Active Status Filter Value <small style="font-weight:normal">(default A)</small></label>
+                            <input id="cresStatusFilter" type="text" value="A" maxlength="20" style="text-transform:uppercase" />
+                        </div>
+                    </div>
+                    <div class="action-bar" style="justify-content:flex-start;margin:10px 0 0">
+                        <button type="button" class="btn btn-secondary" onclick="detectRule12Columns()">Auto-Detect Columns</button>
+                    </div>
                     <div class="alert alert--info" style="margin-top:16px">
-                        <strong>Control 1:</strong> <code>dbo_CREG._030 = dbo_CRSE._030</code>
+                        <strong>Control 1:</strong> <code>[CREG].[_001] = [QUAL].[_001]</code> &nbsp;|&nbsp; <strong>Filter:</strong> <code>[CRES].[_031] = 'A'</code><br/>
+                        All table and column names are configurable. Use Auto-Detect after connecting to populate dropdowns.
                     </div>
                     <div id="configOutput" class="status-output"></div>
                 </div>
@@ -258,7 +349,7 @@ window.toggleAccordion = function (section) {
     const isResultsOnlyRole = @(isResultsOnlyRole.ToString().ToLowerInvariant());
     const browserResultsRenderLimit = 10;
     const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
-    const defaultCrseTable = 'dbo_CRSE';
+    const defaultCrseTable = 'dbo_QUAL';
     const state = {
         clientId: @(selectedClientId > 0 ? selectedClientId : 0),
         currentRunId: null,
@@ -275,6 +366,7 @@ window.toggleAccordion = function (section) {
         controlFilter: 'ALL',
         chartInstances: {}
     };
+    let workspaceLoadToken = 0;
 
     const els = {
         clientId: document.getElementById('clientId'),
@@ -282,7 +374,16 @@ window.toggleAccordion = function (section) {
         driver: document.getElementById('driver'),
         database: document.getElementById('database'),
         cregTable: document.getElementById('cregTable'),
-        crseTable: document.getElementById('crseTable'),
+        qualTable: document.getElementById('qualTable'),
+        cresTable: document.getElementById('cresTable'),
+        cregStudentCol: document.getElementById('cregStudentCol'),
+        cregQualCol: document.getElementById('cregQualCol'),
+        cregCourseCol: document.getElementById('cregCourseCol'),
+        qualJoinCol: document.getElementById('qualJoinCol'),
+        qualDescCol: document.getElementById('qualDescCol'),
+        cresCourseCol: document.getElementById('cresCourseCol'),
+        cresStatusCol: document.getElementById('cresStatusCol'),
+        cresStatusFilter: document.getElementById('cresStatusFilter'),
         connectionOutput: document.getElementById('connectionOutput'),
         configOutput: document.getElementById('configOutput'),
         analysisPane: document.getElementById('analysisPane'),
@@ -384,6 +485,19 @@ window.toggleAccordion = function (section) {
         });
     }
 
+    async function fetchWorkspaceState(clientId, includeSummary = false) {
+        const response = await fetch(`${apiBasePath}/GetWorkspaceState?clientId=${encodeURIComponent(clientId)}&includeSummary=${includeSummary ? 'true' : 'false'}`, {
+            method: 'GET'
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to load workspace.');
+        }
+
+        return data;
+    }
+
     async function downloadBlob(url, payload, defaultName) {
         await window.downloadFileWithProgress({
             url,
@@ -420,26 +534,81 @@ window.toggleAccordion = function (section) {
 
     function getRequest() {
         return {
-            clientId: parseInt(els.clientId.value || '0', 10) || 0,
-            runId: state.currentRunId,
-            server: els.server?.value.trim() || '',
-            database: els.database?.value || '',
-            driver: els.driver?.value || 'ODBC Driver 17 for SQL Server',
-            studTable: els.cregTable?.value || 'dbo_CREG',
-            bridgeTable: els.crseTable?.value || defaultCrseTable,
-            cregTable: els.cregTable?.value || 'dbo_CREG',
-            crseTable: els.crseTable?.value || defaultCrseTable
+            clientId:        parseInt(els.clientId.value || '0', 10) || 0,
+            runId:           state.currentRunId,
+            server:          els.server?.value.trim() || '',
+            database:        els.database?.value || '',
+            driver:          els.driver?.value || 'ODBC Driver 17 for SQL Server',
+            cregTable:       els.cregTable?.value || 'dbo_CREG',
+            qualTable:       els.qualTable?.value || 'dbo_QUAL',
+            cresTable:       els.cresTable?.value || 'dbo_CRES',
+            cregStudentCol:  els.cregStudentCol?.value || '_007',
+            cregQualCol:     els.cregQualCol?.value || '_001',
+            cregCourseCol:   els.cregCourseCol?.value || '_030',
+            qualJoinCol:     els.qualJoinCol?.value || '_001',
+            qualDescCol:     els.qualDescCol?.value || '_003',
+            cresCourseCol:   els.cresCourseCol?.value || '_030',
+            cresStatusCol:   els.cresStatusCol?.value || '_031',
+            cresStatusFilter:(els.cresStatusFilter?.value || 'A').trim().toUpperCase()
         };
     }
+
+    function fillColSel(selEl, cols, preferredCol) {
+        if (!selEl) return;
+        const cur = selEl.value;
+        selEl.innerHTML = '';
+        (cols || []).forEach(function(c) {
+            const o = document.createElement('option');
+            o.value = o.textContent = c;
+            if (c === (preferredCol || cur)) o.selected = true;
+            selEl.appendChild(o);
+        });
+        if (!selEl.value && cols.length) selEl.value = cols[0];
+    }
+
+    async function loadColumnsForTable(role, tableName) {
+        const server = els.server?.value?.trim();
+        const db = els.database?.value;
+        if (!server || !db || !tableName) return;
+        try {
+            const data = await postJson(`/Rule12/GetColumns`, {
+                server, database: db,
+                driver: els.driver?.value || 'ODBC Driver 17 for SQL Server',
+                cregTable: tableName
+            });
+            if (!data.success || !data.columns) return;
+            const cols = data.columns || [];
+            if (role === 'creg') {
+                fillColSel(els.cregStudentCol, cols, '_007');
+                fillColSel(els.cregQualCol,    cols, '_001');
+                fillColSel(els.cregCourseCol,  cols, '_030');
+            } else if (role === 'qual') {
+                fillColSel(els.qualJoinCol,  cols, '_001');
+                fillColSel(els.qualDescCol,  cols, '_003');
+            } else if (role === 'cres') {
+                fillColSel(els.cresCourseCol, cols, '_030');
+                fillColSel(els.cresStatusCol, cols, '_031');
+            }
+            setAlert(els.configOutput, 'success', `Columns loaded for ${tableName}.`);
+        } catch (e) { /* silently ignore */ }
+    }
+
+    window.detectRule12Columns = async function() {
+        await Promise.all([
+            loadColumnsForTable('creg', els.cregTable?.value),
+            loadColumnsForTable('qual', els.qualTable?.value),
+            loadColumnsForTable('cres', els.cresTable?.value)
+        ]);
+    };
 
     function updateWorkspaceButtons() {
         const role = state.currentUserEngagementRole || currentSystemRole || '';
         const normalizedRole = normalizeRole(role);
         const normalizedSystemRole = normalizeRole(currentSystemRole);
-        const hasUnsavedValidation = !!state.summary &&
-            (!!state.hasPendingValidation || (!state.currentRunId && !state.isWorkspaceSaved));
+        const hasRanValidation = !!state.summary;
         const canEdit = !isResultsOnlyRole &&
-            (normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst' || hasUnsavedValidation);
+            (normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst');
+        const canSaveWorkspace = hasRanValidation && canEdit;
         const canSign = !state.hasPendingValidation && !!state.currentRunId &&
             !!state.isWorkspaceSaved &&
             (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
@@ -453,7 +622,7 @@ window.toggleAccordion = function (section) {
             { target: 'runBtn', disabled: !canEdit || signoffLocked },
             { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
             { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || state.hasPendingValidation },
-            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !hasUnsavedValidation },
+            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canSaveWorkspace },
             {
                 target: els.signoffBtn,
                 disabled: signoffLocked || !canSign,
@@ -681,7 +850,9 @@ window.toggleAccordion = function (section) {
         if (els.driver) els.driver.value = workspace.driver || 'ODBC Driver 17 for SQL Server';
         populateSelect(els.database, workspace.database ? [workspace.database] : [], workspace.database);
         populateSelect(els.cregTable, workspace.cregTable ? [workspace.cregTable] : [], workspace.cregTable);
-        populateSelect(els.crseTable, [workspace.crseTable || workspace.bridgeTable || defaultCrseTable], workspace.crseTable || workspace.bridgeTable || defaultCrseTable);
+        populateSelect(els.qualTable, [workspace.qualTable || 'dbo_QUAL'], workspace.qualTable || 'dbo_QUAL');
+        populateSelect(els.cresTable, [workspace.cresTable || 'dbo_CRES'], workspace.cresTable || 'dbo_CRES');
+        if (els.cresStatusFilter) els.cresStatusFilter.value = workspace.cresStatusFilter || 'A';
 
         els.workspaceRunState.textContent = workspace.runId ? `Run #${workspace.runId}` : 'No saved run loaded';
         els.workspaceRunLabel.textContent = workspace.runId ? `Rule 12 Run #${workspace.runId}` : 'No saved run yet';
@@ -702,7 +873,7 @@ window.toggleAccordion = function (section) {
 
         setWorkspaceState(workspace.summary
             ? 'Saved workspace loaded. The last analyst configuration and results are ready.'
-            : 'Rule 12 workspace loaded. Run the validation to generate results.',
+            : 'Saved workspace loaded. Loading the saved results in the background.',
             'success');
 
         if (workspace.summary) {
@@ -716,14 +887,32 @@ window.toggleAccordion = function (section) {
 
     async function loadWorkspace() {
         state.clientId = Number(els.clientId?.value || 0);
+        workspaceLoadToken += 1;
+        const loadToken = workspaceLoadToken;
         if (!state.clientId) {
             applyWorkspace(null, false);
             return;
         }
 
-        const data = await window.fetchJsonWithProgress(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`, { method: 'GET' });
-        if (!data.success) throw new Error(data.error || 'Failed to load workspace.');
+        const data = await fetchWorkspaceState(state.clientId, false);
+        if (loadToken !== workspaceLoadToken || state.clientId !== Number(els.clientId?.value || 0)) return;
         applyWorkspace(data.workspace, data.resultsVisible);
+
+        if (data.resultsVisible && data.workspace?.runId) {
+            void hydrateWorkspaceSummary(state.clientId, loadToken);
+        }
+    }
+
+    async function hydrateWorkspaceSummary(clientId, loadToken) {
+        try {
+            const data = await fetchWorkspaceState(clientId, true);
+            if (loadToken !== workspaceLoadToken || state.clientId !== clientId) return;
+            applyWorkspace(data.workspace, data.resultsVisible, true);
+        } catch (err) {
+            if (loadToken === workspaceLoadToken && state.clientId === clientId) {
+                console.warn('Rule 12 saved results could not be loaded in the background.', err);
+            }
+        }
     }
 
     async function connect() {
@@ -766,7 +955,8 @@ window.toggleAccordion = function (section) {
         if (!data.success) throw new Error(data.error || 'Could not load tables.');
 
         populateSelect(els.cregTable, data.tables || [], data.autoCregTable || data.autoStudTable);
-        populateSelect(els.crseTable, data.tables || [], data.autoCrseTable || data.autoBridgeTable);
+        populateSelect(els.qualTable, data.tables || [], data.autoQualTable);
+        populateSelect(els.cresTable, data.tables || [], data.autoCresTable);
         setAlert(els.configOutput, 'success', `Loaded ${data.tables.length} table(s).`);
     }
 
@@ -779,10 +969,11 @@ window.toggleAccordion = function (section) {
             els.configOutput.innerHTML = `
                 <div class="alert alert--success">
                     CREG rows: <strong>${formatNumber(data.cregRecordCount)}</strong> |
-                    CRSE rows: <strong>${formatNumber(data.crseRecordCount)}</strong> |
-                    Selected courses: <strong>${formatNumber(data.totalCoursesSelected)}</strong> |
-                    Matched courses: <strong>${formatNumber(data.matchedCourseCount)}</strong> |
-                    Missing courses: <strong>${formatNumber(data.missingCourseCount)}</strong>
+                    QUAL rows: <strong>${formatNumber(data.qualRecordCount)}</strong> |
+                    CRES active (${(els.cresStatusFilter?.value || 'A').toUpperCase()}): <strong>${formatNumber(data.cresActiveCount)}</strong> |
+                    Active students tested: <strong>${formatNumber(data.totalActiveStudents)}</strong> |
+                    Matched quals: <strong>${formatNumber(data.matchedQualCount)}</strong> |
+                    Missing quals: <strong>${formatNumber(data.missingQualCount)}</strong>
                 </div>`;
         } finally {
             hideSpinner();
@@ -812,7 +1003,7 @@ window.toggleAccordion = function (section) {
             applySummary(data);
 
             const control1 = (data.controlSummaries || []).find(item => item.controlType === 'Control_1');
-            setWorkspaceState(`Rule 12 validation completed. Selected courses tested: ${formatNumber(data.totalValidated)} | Matched courses: ${formatNumber(control1?.passCount || 0)} | Missing courses: ${formatNumber(control1?.failCount || 0)}. The current run is already in the system database. Click Save Workspace before signoff or visibility to other users.`, 'success');
+            setWorkspaceState(`Rule 12 validation completed. Active students tested: ${formatNumber(data.totalValidated)} | Matched qualifications: ${formatNumber(control1?.passCount || 0)} | Missing qualifications: ${formatNumber(control1?.failCount || 0)}. Click Save Workspace before signoff or visibility to other users.`, 'success');
         } finally {
             hideSpinner();
         }
@@ -920,23 +1111,26 @@ window.toggleAccordion = function (section) {
         els.analysisPane.innerHTML = `
             ${summary.isPreviewOnly ? `<div class="alert alert--warning Rule14-preview-note">The browser shows a preview of ${summary.previewLimit.toLocaleString()} rows to stay responsive. Excel and CSV keep the full Rule 12 result set.</div>` : ''}
             <div class="Rule14-summary-grid">
-                <div class="stat-card"><div class="stat-card__label">Selected Courses</div><div class="stat-card__value">${summary.totalValidated.toLocaleString()}</div></div>
-                <div class="stat-card"><div class="stat-card__label">Courses Tested</div><div class="stat-card__value">${summary.totalValidated.toLocaleString()}</div></div>
-                <div class="stat-card"><div class="stat-card__label">Matched Courses</div><div class="stat-card__value">${summary.passCount.toLocaleString()}</div></div>
-                <div class="stat-card stat-card--fail"><div class="stat-card__label">Missing Courses</div><div class="stat-card__value">${summary.failCount.toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">CREG Records</div><div class="stat-card__value">${(summary.cregRecordCount||0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">QUAL Records</div><div class="stat-card__value">${(summary.qualRecordCount||0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">CRES Active (${escapeHtml(summary.cresStatusFilter||'A')})</div><div class="stat-card__value">${(summary.cresActiveCount||0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">Active Students Tested</div><div class="stat-card__value">${summary.totalValidated.toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">Matched Qualifications</div><div class="stat-card__value">${summary.passCount.toLocaleString()}</div></div>
+                <div class="stat-card stat-card--fail"><div class="stat-card__label">Missing Qualifications</div><div class="stat-card__value">${summary.failCount.toLocaleString()}</div></div>
             </div>
             <div class="alert alert--info" style="margin-top:16px">
-                Selected courses tested: <strong>${formatNumber(control1?.totalCount || 0)}</strong> |
-                Courses found in CRSE: <strong>${formatNumber(control1?.passCount || 0)}</strong> |
-                Courses missing from CRSE: <strong>${formatNumber(control1?.failCount || 0)}</strong>
+                Active students tested: <strong>${formatNumber(control1?.totalCount || 0)}</strong> |
+                Qualifications found in QUAL: <strong>${formatNumber(control1?.passCount || 0)}</strong> |
+                Qualifications missing from QUAL: <strong>${formatNumber(control1?.failCount || 0)}</strong>
             </div>
             <div class="card" style="padding:20px;margin-top:20px">
                 <h3 class="section-title" style="margin-top:0">Run Summary</h3>
                 <div class="form-grid">
                     <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Database</div><div>${escapeHtml(summary.database)}</div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Linkage</div><div>${escapeHtml(summary.tableLinkageText)}</div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">CREG Records</div><div>${summary.cregRecordCount.toLocaleString()}</div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">CRSE Records</div><div>${summary.crseRecordCount.toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Linkage</div><div style="font-size:12px">${escapeHtml(summary.tableLinkageText)}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">CREG Records</div><div>${(summary.cregRecordCount||0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">QUAL Records</div><div>${(summary.qualRecordCount||0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">CRES Active</div><div>${(summary.cresActiveCount||0).toLocaleString()}</div></div>
                     <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Status</div><div>${escapeHtml(summary.status)}</div></div>
                 </div>
                 <div class="Rule14-control-summary">
@@ -975,18 +1169,28 @@ window.toggleAccordion = function (section) {
         }
 
         const criteriaText = controlMeta?.criteriaText || '';
-        const registrationTableName = summary.crseTable || summary.bridgeTable || defaultCrseTable;
+        const cregStudentCol  = summary.cregStudentCol  || '_007';
+        const cregQualCol     = summary.cregQualCol     || '_001';
+        const cregCourseCol   = summary.cregCourseCol   || '_030';
+        const qualJoinCol     = summary.qualJoinCol     || '_001';
+        const qualDescCol     = summary.qualDescCol     || '_003';
+        const cresCourseCol   = summary.cresCourseCol   || '_030';
+        const cresStatusCol   = summary.cresStatusCol   || '_031';
 
         const rowHtml = rows.map(row => {
-            const v = row.displayValues || {};
+            const rawV = row.displayValues || {}; const v = Object.fromEntries(Object.entries(rawV).map(([k, val]) => [k.toUpperCase(), val]));
             const resultText = String(row.validationResult || '').toUpperCase() === 'FAIL' ? 'FAIL' : 'PASS';
+            const isFail = resultText === 'FAIL';
             return `
                 <tr>
-                    <td>${escapeHtml(v.CREG__030 || '')}</td>
-                    <td class="criteria-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">${escapeHtml(v.CRSE_CRITERIA_MESSAGE || '')}</td>
-                    <td>${escapeHtml(v.CRSE__030 || '')}</td>
-                    <td class="mid-pass-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">${escapeHtml(v.CREG_LINK_MESSAGE || '')}</td>
-                    <td class="final-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">
+                    <td class="group-stud">${escapeHtml(v.CREG__007 || '')}</td>
+                    <td class="group-stud">${escapeHtml(v.CREG__001 || '')}</td>
+                    <td class="group-stud">${escapeHtml(v.CREG__030 || '')}</td>
+                    <td class="group-bridge">${escapeHtml(v.QUAL__001 || '')}</td>
+                    <td class="group-bridge">${escapeHtml(v.QUAL__003 || '')}</td>
+                    <td class="group-final">${escapeHtml(v.CRES__030 || '')}</td>
+                    <td class="group-final ${isFail ? 'is-fail' : 'is-pass'}">${escapeHtml(v.CRES__031 || '')}</td>
+                    <td class="final-cell ${isFail ? 'is-fail' : 'is-pass'}">
                         <div class="result-text">${escapeHtml(resultText)}</div>
                         <div class="message-text">${escapeHtml(v.FINAL_RESULT_MESSAGE || buildFinalMessage(resultText, criteriaText))}</div>
                     </td>
@@ -1001,17 +1205,19 @@ window.toggleAccordion = function (section) {
                     <table class="Rule14-grid">
                         <thead>
                             <tr>
-                                <th class="group-stud">${escapeHtml(summary.cregTable || 'dbo_CREG')}</th>
-                                <th class="criteria-head">Criteria:<br />dbo_CREG._030 = dbo_CRSE._030</th>
-                                <th class="group-bridge">${escapeHtml(registrationTableName)}</th>
-                                <th class="criteria-head"></th>
-                                <th class="group-final">Final results</th>
+                                <th class="group-stud" colspan="3">${escapeHtml(summary.cregTable || 'dbo_CREG')}</th>
+                                <th class="group-bridge" colspan="2">${escapeHtml(summary.qualTable || 'dbo_QUAL')}</th>
+                                <th class="group-final" colspan="2">${escapeHtml(summary.cresTable || 'dbo_CRES')}</th>
+                                <th class="group-final">Final Results</th>
                             </tr>
                             <tr>
-                                <th>_030</th>
-                                <th></th>
-                                <th>_030</th>
-                                <th></th>
+                                <th class="group-stud">${escapeHtml(cregStudentCol)}</th>
+                                <th class="group-stud">${escapeHtml(cregQualCol)}</th>
+                                <th class="group-stud">${escapeHtml(cregCourseCol)}</th>
+                                <th class="group-bridge">${escapeHtml(qualJoinCol)}</th>
+                                <th class="group-bridge">${escapeHtml(qualDescCol)}</th>
+                                <th class="group-final">${escapeHtml(cresCourseCol)}</th>
+                                <th class="group-final">${escapeHtml(cresStatusCol)}</th>
                                 <th class="final-head">pass/fail</th>
                             </tr>
                         </thead>
@@ -1139,7 +1345,6 @@ window.toggleAccordion = function (section) {
     }
 })();
 </script>
-
 
 
 

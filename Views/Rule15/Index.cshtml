@@ -989,7 +989,7 @@ window.toggleAccordion = function (section) {
         const registrationTableName = summary.crseTable || 'dbo_CREG';
 
         const rowHtml = rows.map(row => {
-            const v = row.displayValues || {};
+            const rawV = row.displayValues || {}; const v = Object.fromEntries(Object.entries(rawV).map(([k, val]) => [k.toUpperCase(), val]));
             const resultText = String(row.validationResult || '').toUpperCase() === 'FAIL' ? 'FAIL' : 'PASS';
             return `
                 <tr>

@@ -6,6 +6,7 @@ namespace HemisAudit.Services
     {
         Task<DatabaseListResult> GetDatabasesAsync(string server, string driver);
         Task<Rule20TableDiscoveryResult> GetTablesAsync(string server, string database, string driver);
+        Task<Rule20ColumnDiscoveryResult> GetColumnsAsync(string server, string database, string driver, string tableName);
         Task<Rule20VerifyResult> VerifyTablesAsync(Rule20VerifyRequest request);
         Task<Rule20ValidationSummary> RunValidationAsync(Rule20ValidationRequest request, string? userEmail = null, string? userName = null);
         Task<int?> GetClientIdForRunAsync(int runId);

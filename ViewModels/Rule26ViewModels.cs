@@ -76,6 +76,16 @@ namespace HemisAudit.ViewModels
         public bool Passed { get; set; }
     }
 
+    public class Rule26PassRowViewModel
+    {
+        public string DirectionKey { get; set; } = "";
+        public string DirectionLabel { get; set; } = "";
+        public string PersonnelNumber { get; set; } = "";
+        public string? PersonnelName { get; set; }
+        public string? EmploymentType { get; set; }
+        public string? Gender { get; set; }
+    }
+
     public class Rule26ExceptionRowViewModel
     {
         public string DirectionKey { get; set; } = "";
@@ -101,6 +111,7 @@ namespace HemisAudit.ViewModels
         public int TotalExceptions { get; set; }
         public List<Rule26ControlSummaryViewModel> Controls { get; set; } = new();
         public List<Rule26ExceptionRowViewModel> Exceptions { get; set; } = new();
+        public List<Rule26PassRowViewModel> PassRows { get; set; } = new();
     }
 
     public class Rule26ValidationSummary
@@ -134,6 +145,7 @@ namespace HemisAudit.ViewModels
         public int? SavedRunId { get; set; }
         public List<Rule26DirectionResultViewModel> Directions { get; set; } = new();
         public List<Rule26ExceptionRowViewModel> Exceptions { get; set; } = new();
+        public List<Rule26PassRowViewModel> PassRows { get; set; } = new();
         public string? Warning { get; set; }
         public string? Error { get; set; }
     }

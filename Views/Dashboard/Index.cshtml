@@ -561,6 +561,186 @@
                     <a href="/Rule36" class="btn btn-success">Open Rule 36</a>
                 </div>
             </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 37</div>
+                <h4 class="module-card__title">CESM vs PQM Validation</h4>
+                <p class="module-card__text">Cross-validate HEMIS CESM codes and qualification names against the PQM reference table, flagging records where the code prefix or authorised qualification name does not match.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule37" class="btn btn-success">Open Rule 37</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 38</div>
+                <h4 class="module-card__title">Enhanced QUAL vs PQM Validation</h4>
+                <p class="module-card__text">Left-join approved QUAL records to the PQM register and validate qualification type, minimum contact time, WIL hours, HEQF indicator, and total subsidy across controls 5.1.1–5.1.6.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule38" class="btn btn-success">Open Rule 38</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 39</div>
+                <h4 class="module-card__title">First-Time Entering vs Non-Aligned Qualifications</h4>
+                <p class="module-card__text">Cross-match first-time entering students against the Non-Aligned Qualifications (NAL) register, flagging students enrolled in qualifications that are not aligned to a recognised HEQSF qualification.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule39" class="btn btn-success">Open Rule 39</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 40</div>
+                <h4 class="module-card__title">PROF ASCII Staff Agreement</h4>
+                <p class="module-card__text">Reconcile common columns between the HEMIS ASCII PROF file and the VALPAC PROF and SFTE tables, identifying AGREE, DISAGREE, and MISSING staff records per Procedure 4.5.2.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule40" class="btn btn-success">Open Rule 40</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 41</div>
+                <h4 class="module-card__title">Student ASCII Agreement</h4>
+                <p class="module-card__text">Full outer reconciliation of dbo_STUD against MT-Audit-prod-std on student number (_007 ↔ IAGSTNO), comparing birth date and qualification columns and flagging AGREE, DISAGREE, and MISSING records.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule41" class="btn btn-success">Open Rule 41</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 44</div>
+                <h4 class="module-card__title">Masters &amp; PhD Research Time Validation</h4>
+                <p class="module-card__text">Validate Masters and PhD student research time compliance, flagging records where research registration exceeds the permitted duration thresholds for full-time and part-time students.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule44" class="btn btn-success">Open Rule 44</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 45</div>
+                <h4 class="module-card__title">STU vs H16STU Agreement</h4>
+                <p class="module-card__text">Full outer reconciliation of the STU table against H16STU on student number (_007 ↔ _007), comparing birth date and qualification columns and flagging AGREE, DISAGREE, and MISSING records.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule45" class="btn btn-success">Open Rule 45</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 46</div>
+                <h4 class="module-card__title">Foundation Student PQM Validation</h4>
+                <p class="module-card__text">Validate foundation students (_106='Y') through a full QUAL→CRED→CRSE→PQM path and a short QUAL→PQM path, flagging students whose qualifications do not appear in the PQM register.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule46" class="btn btn-success">Open Rule 46</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 47</div>
+                <h4 class="module-card__title">QUAL vs H16QUAL Agreement</h4>
+                <p class="module-card__text">Full outer reconciliation of the QUAL table against H16QUAL on qualification code (_001 ↔ _001), comparing qualification fields and flagging AGREE, DISAGREE, and MISSING records.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule47" class="btn btn-success">Open Rule 47</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 48</div>
+                <h4 class="module-card__title">CRED vs H16CRED Agreement</h4>
+                <p class="module-card__text">Full outer reconciliation of CRED against H16CRED on credential code (_001 ↔ _001), comparing fields _001, _030, _036, _065 and flagging AGREE, DISAGREE, and MISSING records.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule48" class="btn btn-success">Open Rule 48</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 51</div>
+                <h4 class="module-card__title">VALPAC Data in Production</h4>
+                <p class="module-card__text">Checks that every record in STUD VALPAC exists in STUD PRODUCTION using 4 mapped columns: _007↔IAGSTNO, _008↔IADIDNO, _001↔IAGQUAL, ColYear↔IAGCYR. PASS when all 4 columns match; FAIL when the record is missing from Production.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule51" class="btn btn-success">Open Rule 51</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 52</div>
+                <h4 class="module-card__title">QUAL VALPAC Data in Production</h4>
+                <p class="module-card__text">Checks that every record in QUAL VALPAC exists in QUAL PRODUCTION using configurable mapped columns (default: _001↔IAIQUAL). PASS when all mapped columns match; FAIL when the record is missing from Production.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule52" class="btn btn-success">Open Rule 52</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 53</div>
+                <h4 class="module-card__title">CRSE VALPAC Data in Production</h4>
+                <p class="module-card__text">Checks that every distinct <code>_030</code> (subject code) value in <code>dbo_CRSE</code> exists as <code>IALSUBJ</code> in <code>MT-audit-prod-CRSE</code>. PASS when the subject code is found; FAIL when it is missing from the production table.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule53" class="btn btn-success">Open Rule 53</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 54</div>
+                <h4 class="module-card__title">CRED vs QUAL vs PQM Validation</h4>
+                <p class="module-card__text">Joins <code>dbo_CRED</code> and <code>dbo_QUAL</code> on <code>_001</code>, then validates the qualification name (<code>QUAL._003</code> vs PQM) and Research_1 flag (<code>CRED._050</code> vs PQM <code>Research_1</code>). PASS when both fields match; credit value (<code>_036</code>) is captured for manual prospectus verification.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule54" class="btn btn-success">Open Rule 54</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 55</div>
+                <h4 class="module-card__title">Graduate W-Code Validation</h4>
+                <p class="module-card__text">Identifies all students where Element 025='W' (certificate withheld) in <code>dbo_STUD</code> and validates their qualification is approved in <code>dbo_QUAL</code> (<code>_004='A'</code>). Per DHET §1.5, W-coded students must be treated identically to 'F' graduates. PASS when found and approved; FAIL when missing or not approved.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule55" class="btn btn-success">Open Rule 55</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 57</div>
+                <h4 class="module-card__title">Registration Documentation Agreement</h4>
+                <p class="module-card__text">Selects <code>dbo_CREG</code> records filtered by <code>_064</code>, joins to <code>dbo_STUD</code> on student ID (<code>_007</code>), and validates that <code>STUD._024</code> agrees with <code>CREG._064</code>. Agrees to the student's signed application and/or registration documentation.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule57" class="btn btn-success">Open Rule 57</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 58</div>
+                <h4 class="module-card__title">STAFF VALPAC Data in STAFF PRODUCTION</h4>
+                <p class="module-card__text">Checks that every record in <code>STAFF VALPAC</code> exists in <code>STAFF PRODUCTION</code> using <code>_037 ↔ PERSONEL_NUMBER</code>. PASS when the staff record is found in Production; FAIL when it is missing.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule58" class="btn btn-success">Open Rule 58</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 59</div>
+                <h4 class="module-card__title">SFTE VALPAC Data in STAFF PRODUCTION</h4>
+                <p class="module-card__text">Checks that every record in <code>SFTE VALPAC</code> exists in <code>STAFF PRODUCTION</code> using <code>_037 ↔ PERSONEL_NUMBER</code>. PASS when the SFTE record is found in Production; FAIL when it is missing.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule59" class="btn btn-success">Open Rule 59</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 60</div>
+                <h4 class="module-card__title">CRSE vs H16CRSE Agreement</h4>
+                <p class="module-card__text">Reconciles <code>dbo_CRSE</code> with <code>H16CRSE</code> using configurable column pairs. PASS when the configured CRSE and H16CRSE values match for each pair; FAIL when any mapped pair disagrees or is missing.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule60" class="btn btn-success">Open Rule 60</a>
+                </div>
+            </article>
+
+            <article class="module-card">
+                <div class="module-card__eyebrow">Rule 61</div>
+                <h4 class="module-card__title">Masters / Doctoral Research Time Validation</h4>
+                <p class="module-card__text">Starts from <code>dbo_STUD</code>, bridges to <code>dbo_QUAL</code> on <code>_001</code>, filters the configured <code>QUAL._005</code> codes, then matches <code>QUAL._003</code> to <code>PQM.Authorised_Qualification_Name</code> and compares <code>STUD._073</code> to <code>PQM.Research_1</code>.</p>
+                <div class="module-card__actions">
+                    <a href="/Rule61" class="btn btn-success">Open Rule 61</a>
+                </div>
+            </article>
         </div>
 
         <div class="empty-card" style="margin-top:16px">

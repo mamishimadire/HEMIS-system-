@@ -113,6 +113,87 @@
             </div>
 
             <div class="accordion-item">
+                <button class="accordion-toggle" type="button" onclick="toggleAccordion('colmap')">
+                    <span class="acc-icon">CM</span>
+                    <span>Column Mapping</span>
+                    <span class="acc-chevron">v</span>
+                </button>
+                <div class="accordion-body" id="body-colmap" style="display:none">
+                    <div class="alert alert--info" style="margin-bottom:16px">
+                        Map each table's actual column names to the roles Rule 20 requires. Defaults match the standard HEMIS layout. Connect and select tables to load available column names automatically.
+                    </div>
+                    <div style="font-weight:700;margin:0 0 8px;font-size:13px;text-transform:uppercase;color:#555">STUD Table</div>
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="cm_studFoundationFlag">Foundation flag column <small>(filter, default <code>_106</code>)</small></label>
+                            <select id="cm_studFoundationFlag"><option value="_106">_106</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studFoundationValue">Foundation flag value <small>(default <code>Y</code>)</small></label>
+                            <input id="cm_studFoundationValue" type="text" value="Y" maxlength="20" />
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studQualCode">Qualification code column <small>(join key, default <code>_001</code>)</small></label>
+                            <select id="cm_studQualCode"><option value="_001">_001</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studStudentNo">Student number column <small>(display, default <code>_007</code>)</small></label>
+                            <select id="cm_studStudentNo"><option value="_007">_007</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studName">Name column <small>(display, default <code>_019</code>)</small></label>
+                            <select id="cm_studName"><option value="_019">_019</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studIdNo">ID number column <small>(display, default <code>_024</code>)</small></label>
+                            <select id="cm_studIdNo"><option value="_024">_024</option></select>
+                        </div>
+                    </div>
+                    <div style="font-weight:700;margin:16px 0 8px;font-size:13px;text-transform:uppercase;color:#555">QUAL Table</div>
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="cm_qualQualCode">Qualification code column <small>(join key, default <code>_001</code>)</small></label>
+                            <select id="cm_qualQualCode"><option value="_001">_001</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_qualDescription">Description column <small>(display, default <code>_003</code>)</small></label>
+                            <select id="cm_qualDescription"><option value="_003">_003</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_qualType">Type column <small>(display, default <code>_005</code>)</small></label>
+                            <select id="cm_qualType"><option value="_005">_005</option></select>
+                        </div>
+                    </div>
+                    <div style="font-weight:700;margin:16px 0 8px;font-size:13px;text-transform:uppercase;color:#555">CRED (Bridge) Table</div>
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="cm_cregQualCode">Qualification code column <small>(join key, default <code>_001</code>)</small></label>
+                            <select id="cm_cregQualCode"><option value="_001">_001</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_cregCourseCode">Course code column <small>(join key, default <code>_030</code>)</small></label>
+                            <select id="cm_cregCourseCode"><option value="_030">_030</option></select>
+                        </div>
+                    </div>
+                    <div style="font-weight:700;margin:16px 0 8px;font-size:13px;text-transform:uppercase;color:#555">CRSE Table</div>
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="cm_crseCourseCode">Course code column <small>(join key, default <code>_030</code>)</small></label>
+                            <select id="cm_crseCourseCode"><option value="_030">_030</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_crseFoundationFlag">Foundation course flag column <small>(filter, default <code>_091</code>)</small></label>
+                            <select id="cm_crseFoundationFlag"><option value="_091">_091</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_crseFoundationValue">Foundation flag value <small>(default <code>Y</code>)</small></label>
+                            <input id="cm_crseFoundationValue" type="text" value="Y" maxlength="20" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
                 <button class="accordion-toggle" type="button" onclick="toggleAccordion('downloads')">
                     <span class="acc-icon">DL</span>
                     <span>Export Options</span>
@@ -282,7 +363,21 @@ window.toggleAccordion = function (section) {
         removeSignoffBtn: document.getElementById('removeSignoffBtn'),
         statusBadge: document.getElementById('statusBadge'),
         spinner: document.getElementById('spinner'),
-        spinnerMsg: document.getElementById('spinnerMsg')
+        spinnerMsg: document.getElementById('spinnerMsg'),
+        cm_studFoundationFlag: document.getElementById('cm_studFoundationFlag'),
+        cm_studFoundationValue: document.getElementById('cm_studFoundationValue'),
+        cm_studQualCode: document.getElementById('cm_studQualCode'),
+        cm_studStudentNo: document.getElementById('cm_studStudentNo'),
+        cm_studName: document.getElementById('cm_studName'),
+        cm_studIdNo: document.getElementById('cm_studIdNo'),
+        cm_qualQualCode: document.getElementById('cm_qualQualCode'),
+        cm_qualDescription: document.getElementById('cm_qualDescription'),
+        cm_qualType: document.getElementById('cm_qualType'),
+        cm_cregQualCode: document.getElementById('cm_cregQualCode'),
+        cm_cregCourseCode: document.getElementById('cm_cregCourseCode'),
+        cm_crseCourseCode: document.getElementById('cm_crseCourseCode'),
+        cm_crseFoundationFlag: document.getElementById('cm_crseFoundationFlag'),
+        cm_crseFoundationValue: document.getElementById('cm_crseFoundationValue')
     };
 
     const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
@@ -509,6 +604,80 @@ window.toggleAccordion = function (section) {
         window.showWorkspaceActionToast?.(message, type);
     }
 
+    function getColumnMapping() {
+        return {
+            studStudentNo: els.cm_studStudentNo?.value || '_007',
+            studQualCode: els.cm_studQualCode?.value || '_001',
+            studName: els.cm_studName?.value || '_019',
+            studIdNo: els.cm_studIdNo?.value || '_024',
+            studFoundationFlag: els.cm_studFoundationFlag?.value || '_106',
+            studFoundationValue: els.cm_studFoundationValue?.value?.trim() || 'Y',
+            qualQualCode: els.cm_qualQualCode?.value || '_001',
+            qualDescription: els.cm_qualDescription?.value || '_003',
+            qualType: els.cm_qualType?.value || '_005',
+            cregQualCode: els.cm_cregQualCode?.value || '_001',
+            cregCourseCode: els.cm_cregCourseCode?.value || '_030',
+            crseCourseCode: els.cm_crseCourseCode?.value || '_030',
+            crseFoundationFlag: els.cm_crseFoundationFlag?.value || '_091',
+            crseFoundationValue: els.cm_crseFoundationValue?.value?.trim() || 'Y'
+        };
+    }
+
+    function restoreColumnMapping(cm) {
+        if (!cm) return;
+        const set = (el, val, def) => { if (el) el.value = val || def; };
+        set(els.cm_studStudentNo, cm.studStudentNo, '_007');
+        set(els.cm_studQualCode, cm.studQualCode, '_001');
+        set(els.cm_studName, cm.studName, '_019');
+        set(els.cm_studIdNo, cm.studIdNo, '_024');
+        set(els.cm_studFoundationFlag, cm.studFoundationFlag, '_106');
+        set(els.cm_studFoundationValue, cm.studFoundationValue, 'Y');
+        set(els.cm_qualQualCode, cm.qualQualCode, '_001');
+        set(els.cm_qualDescription, cm.qualDescription, '_003');
+        set(els.cm_qualType, cm.qualType, '_005');
+        set(els.cm_cregQualCode, cm.cregQualCode, '_001');
+        set(els.cm_cregCourseCode, cm.cregCourseCode, '_030');
+        set(els.cm_crseCourseCode, cm.crseCourseCode, '_030');
+        set(els.cm_crseFoundationFlag, cm.crseFoundationFlag, '_091');
+        set(els.cm_crseFoundationValue, cm.crseFoundationValue, 'Y');
+    }
+
+    function populateColumnSelect(selectEl, columns, currentValue, defaultValue) {
+        if (!selectEl) return;
+        const val = currentValue || selectEl.value || defaultValue;
+        const allCols = [...new Set([defaultValue, ...(columns || [])])].filter(Boolean);
+        selectEl.innerHTML = '';
+        allCols.forEach(col => {
+            const opt = document.createElement('option');
+            opt.value = col;
+            opt.textContent = col;
+            if (col === val) opt.selected = true;
+            selectEl.appendChild(opt);
+        });
+        if (!allCols.includes(val)) {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = val;
+            opt.selected = true;
+            selectEl.insertBefore(opt, selectEl.firstChild);
+        }
+    }
+
+    async function loadColumnsForTable(tableName, selectGroups) {
+        if (!tableName || !els.server?.value?.trim() || !els.database?.value) return;
+        try {
+            const data = await postJson(`${apiBasePath}/GetColumns`, {
+                server: els.server.value.trim(),
+                database: els.database.value,
+                driver: els.driver?.value || 'ODBC Driver 17 for SQL Server',
+                tableName
+            });
+            if (!data || !data.success || !Array.isArray(data.columns)) return;
+            selectGroups.forEach(({ selectEl, defaultValue }) =>
+                populateColumnSelect(selectEl, data.columns, null, defaultValue));
+        } catch {}
+    }
+
     function getRequest() {
         return {
             clientId: Number(els.clientId?.value || state.clientId || 0),
@@ -521,7 +690,8 @@ window.toggleAccordion = function (section) {
             cregTable: els.cregTable?.value || '',
             crseTable: els.crseTable?.value || '',
             pgTypesText: els.pgTypesText?.value || defaultPgTypesText,
-            governingPartCodes: [...defaultGoverningPartCodes]
+            governingPartCodes: [...defaultGoverningPartCodes],
+            columnMapping: getColumnMapping()
         };
     }
 
@@ -845,6 +1015,7 @@ window.toggleAccordion = function (section) {
         if (els.cregTable) populateSelect(els.cregTable, workspace.cregTable ? [workspace.cregTable] : [], workspace.cregTable);
         if (els.crseTable) populateSelect(els.crseTable, workspace.crseTable ? [workspace.crseTable] : [], workspace.crseTable);
         if (els.pgTypesText) els.pgTypesText.value = workspace.pgTypesText || defaultPgTypesText;
+        if (workspace.columnMapping) restoreColumnMapping(workspace.columnMapping);
         els.workspaceRunState.textContent = workspace.runId ? `Run #${workspace.runId}` : 'No saved run loaded';
         els.workspaceRunLabel.textContent = workspace.runId ? `Rule 20 Run #${workspace.runId}` : 'No saved run yet';
         els.workspaceStatusLabel.textContent = workspace.currentStatus || '-';
@@ -917,6 +1088,29 @@ window.toggleAccordion = function (section) {
         populateSelect(els.cregTable, data.tables || [], data.autoCregTable);
         populateSelect(els.crseTable, data.tables || [], data.autoCrseTable);
         els.configOutput.innerHTML = `<div class="alert alert--success">Loaded ${(data.tables || []).length} table(s).</div>`;
+
+        await Promise.all([
+            loadColumnsForTable(els.studTable?.value, [
+                { selectEl: els.cm_studFoundationFlag, defaultValue: '_106' },
+                { selectEl: els.cm_studQualCode, defaultValue: '_001' },
+                { selectEl: els.cm_studStudentNo, defaultValue: '_007' },
+                { selectEl: els.cm_studName, defaultValue: '_019' },
+                { selectEl: els.cm_studIdNo, defaultValue: '_024' }
+            ]),
+            loadColumnsForTable(els.qualTable?.value || defaultQualTable, [
+                { selectEl: els.cm_qualQualCode, defaultValue: '_001' },
+                { selectEl: els.cm_qualDescription, defaultValue: '_003' },
+                { selectEl: els.cm_qualType, defaultValue: '_005' }
+            ]),
+            loadColumnsForTable(els.cregTable?.value, [
+                { selectEl: els.cm_cregQualCode, defaultValue: '_001' },
+                { selectEl: els.cm_cregCourseCode, defaultValue: '_030' }
+            ]),
+            loadColumnsForTable(els.crseTable?.value, [
+                { selectEl: els.cm_crseCourseCode, defaultValue: '_030' },
+                { selectEl: els.cm_crseFoundationFlag, defaultValue: '_091' }
+            ])
+        ]);
     }
 
     async function verifyTables() {

@@ -16,6 +16,7 @@ namespace HemisAudit.ViewModels
         public List<string> Tables { get; set; } = new();
         public string? AutoStudTable { get; set; }
         public string? AutoQualTable { get; set; }
+        public string? AutoPqmTable { get; set; }
         public string? Error { get; set; }
     }
 
@@ -26,6 +27,9 @@ namespace HemisAudit.ViewModels
         public string? AutoQualCodeColumn { get; set; }
         public string? AutoFulfilledColumn { get; set; }
         public string? AutoQualTypeColumn { get; set; }
+        public string? AutoQualNameColumn { get; set; }
+        public string? AutoPqmQualNameColumn { get; set; }
+        public string? AutoPqmQualTypeColumn { get; set; }
         public string? Error { get; set; }
     }
 
@@ -65,6 +69,10 @@ namespace HemisAudit.ViewModels
         public string FulfilledValue { get; set; } = "F";
         public string QualTypeColumn { get; set; } = "_005";
         public string MdTypesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
+        public string QualNameColumn { get; set; } = "_003";
+        public string PqmTable { get; set; } = "";
+        public string PqmQualNameColumn { get; set; } = "";
+        public string PqmQualTypeColumn { get; set; } = "";
     }
 
     public class Rule19VerifyResult
@@ -91,7 +99,11 @@ namespace HemisAudit.ViewModels
         public string FulfilledValue { get; set; } = "F";
         public string QualTypeColumn { get; set; } = "_005";
         public string MdTypesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
+        public string QualNameColumn { get; set; } = "_003";
         public bool ShowAllRecords { get; set; } = true;
+        public string PqmTable { get; set; } = "";
+        public string PqmQualNameColumn { get; set; } = "";
+        public string PqmQualTypeColumn { get; set; } = "";
     }
 
     public class Rule19BreakdownItemViewModel
@@ -107,6 +119,10 @@ namespace HemisAudit.ViewModels
         public string FulfilledValue { get; set; } = "";
         public string QualTypeValue { get; set; } = "";
         public string ValidationResult { get; set; } = "";
+        public string? PqmQualName { get; set; }
+        public string? PqmQualType { get; set; }
+        public bool PqmNameMatch { get; set; }
+        public bool PqmTypeMatch { get; set; }
         public Dictionary<string, string?> DisplayValues { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
@@ -133,12 +149,16 @@ namespace HemisAudit.ViewModels
         public string FulfilledValue { get; set; } = "F";
         public string QualTypeColumn { get; set; } = "_005";
         public string MdTypesText { get; set; } = "";
+        public string QualNameColumn { get; set; } = "_003";
         public List<string> MdTypes { get; set; } = new();
         public string TableLinkageText { get; set; } = "";
         public List<string> ProcedureSteps { get; set; } = new();
         public bool ShowAllRecords { get; set; } = true;
         public int ClientId { get; set; }
         public int? SavedRunId { get; set; }
+        public string PqmTable { get; set; } = "";
+        public string PqmQualNameColumn { get; set; } = "";
+        public string PqmQualTypeColumn { get; set; } = "";
         public List<Rule19BreakdownItemViewModel> Breakdown { get; set; } = new();
         public List<Rule19ValidationRowRecord> MatchingRows { get; set; } = new();
         public string? Warning { get; set; }
@@ -180,6 +200,10 @@ namespace HemisAudit.ViewModels
         public string FulfilledValue { get; set; } = "F";
         public string QualTypeColumn { get; set; } = "_005";
         public string MdTypesText { get; set; } = "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75";
+        public string QualNameColumn { get; set; } = "_003";
+        public string PqmTable { get; set; } = "";
+        public string PqmQualNameColumn { get; set; } = "";
+        public string PqmQualTypeColumn { get; set; } = "";
         public string CurrentUserEngagementRole { get; set; } = "";
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff { get; set; }

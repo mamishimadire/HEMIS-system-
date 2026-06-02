@@ -1,3 +1,4 @@
+﻿using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -16,22 +17,29 @@ namespace HemisAudit.Controllers
         private readonly IAuditLogService              _audit;
         private readonly IPasswordPolicyService        _passwordPolicy;
         private readonly IEmailService                 _email;
+        private readonly IAntiforgery                  _antiforgery;
 
         public AccountController(SignInManager<ApplicationUser> signIn,
             UserManager<ApplicationUser> users, IAuditLogService audit,
-            IPasswordPolicyService passwordPolicy, IEmailService email)
+            IPasswordPolicyService passwordPolicy, IEmailService email,
+            IAntiforgery antiforgery)
         {
             _signIn        = signIn;
             _users         = users;
             _audit         = audit;
             _passwordPolicy = passwordPolicy;
             _email         = email;
+            _antiforgery   = antiforgery;
         }
 
         // ── Login GET ──────────────────────────────────────────────────────────
         [HttpGet, AllowAnonymous]
         public async Task<IActionResult> Login(string? returnUrl = null, bool force = false)
         {
+            Response.Headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate";
+            Response.Headers["Pragma"] = "no-cache";
+            Response.Headers["Expires"] = "0";
+
             if (force)
             {
                 ClearLegacyBrowserState();
@@ -46,7 +54,7 @@ namespace HemisAudit.Controllers
                 await _signIn.SignOutAsync();
             }
 
-            if (!force && User.Identity?.IsAuthenticated == true)
+            if (!force && User.Identity?.IsAuthenticated == true && string.IsNullOrWhiteSpace(returnUrl))
                 return RedirectToAction("Index", "Dashboard");
             ViewData["ReturnUrl"] = returnUrl;
             return View();
@@ -84,9 +92,19 @@ namespace HemisAudit.Controllers
         }
 
         // ── Login POST ─────────────────────────────────────────────────────────
-        [HttpPost, AllowAnonymous, ValidateAntiForgeryToken]
+        [HttpPost, AllowAnonymous]
         public async Task<IActionResult> Login(LoginViewModel model, string? returnUrl = null)
         {
+            // Validate CSRF manually so a stale token redirects to a fresh page instead of returning 400.
+            try
+            {
+                await _antiforgery.ValidateRequestAsync(HttpContext);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return RedirectToAction(nameof(Login), new { force = true });
+            }
+
             if (!ModelState.IsValid) return View(model);
 
             // Force a session cookie so reopening the browser requires login again.
@@ -204,7 +222,7 @@ namespace HemisAudit.Controllers
             return View(model);
         }
 
-        // â”€â”€ Forgot Password â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ Forgot Password â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         [HttpGet, AllowAnonymous]
         public IActionResult ForgotPassword() => View(new ForgotPasswordViewModel());
 
@@ -225,18 +243,29 @@ namespace HemisAudit.Controllers
             return View(model);
         }
 
-        // â”€â”€ Password Expired â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Password Expired ───────────────────────────────────────────────────
         [HttpGet, AllowAnonymous]
-        public IActionResult PasswordExpired(string? email = null)
+        public async Task<IActionResult> PasswordExpired(string? email = null)
         {
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                var user = await _users.FindByEmailAsync(email);
+                if (user != null)
+                {
+                    var token = await _users.GeneratePasswordResetTokenAsync(user);
+                    var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
+                    return RedirectToAction(nameof(ResetPassword), new { email = user.Email, token = encodedToken });
+                }
+            }
+
             return View(new PasswordExpiredViewModel
             {
                 Email = email ?? "",
-                Message = "Your password has expired. A reset link has been sent to your email."
+                Message = "Your password has expired. Please use the form below to reset it."
             });
         }
 
-        // â”€â”€ Reset Password â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // â"€â"€ Reset Password â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         [HttpGet, AllowAnonymous]
         public IActionResult ResetPassword(string email, string token)
         {

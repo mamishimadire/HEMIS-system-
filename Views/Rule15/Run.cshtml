@@ -276,7 +276,7 @@
         const registrationTableName = summary.crseTable || 'dbo_CREG';
 
         const rowHtml = rows.map(row => {
-            const v = row.displayValues || {};
+            const rawV = row.displayValues || {}; const v = Object.fromEntries(Object.entries(rawV).map(([k, val]) => [k.toUpperCase(), val]));
             const resultText = row.validationResult === 'FAIL' ? 'Fail' : 'Pass';
             const qualCriteriaMessage = v.QUAL_CRITERIA_MESSAGE || `${resultText} this criteria on dbo_QUAL: ${criteriaText}`;
             const credMessage = v.CRED_LINK_MESSAGE || `${resultText} credential selection check`;

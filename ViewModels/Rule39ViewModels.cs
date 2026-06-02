@@ -1,0 +1,239 @@
+using HemisAudit.Helpers;
+
+namespace HemisAudit.ViewModels
+{
+    public class Rule39TableDiscoveryResult
+    {
+        public bool Success { get; set; }
+        public List<string> Tables { get; set; } = new();
+        public string? AutoStudTable { get; set; }
+        public string? AutoNalTable { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule39ColumnDiscoveryResult
+    {
+        public bool Success { get; set; }
+        public List<string> Columns { get; set; } = new();
+        public string? AutoQualRefColumn { get; set; }
+        public string? AutoFirstTimeColumn { get; set; }
+        public string? AutoNalRefColumn { get; set; }
+        public string? AutoNalNameColumn { get; set; }
+        public string? AutoNalAlignedColumn { get; set; }
+        public string? AutoNalCategoryColumn { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule39DistinctValuesResult
+    {
+        public bool Success { get; set; }
+        public List<string> Values { get; set; } = new();
+        public string? AutoValue { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule39VerifyRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string StudTable { get; set; } = "";
+        public string NalTable { get; set; } = "";
+        public string StudQualRefColumn { get; set; } = "_001";
+        public string StudFirstTimeColumn { get; set; } = "_010";
+        public string StudFirstTimeValue { get; set; } = "F";
+        public string NalCategoryColumn { get; set; } = "Category";
+        public string NalCategoryValue { get; set; } = "C";
+    }
+
+    public class Rule39VerifyResult
+    {
+        public bool Success { get; set; }
+        public int StudTotalCount { get; set; }
+        public int StudFilteredCount { get; set; }
+        public int NalTotalCount { get; set; }
+        public int NalFilteredCount { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule39ValidationRequest
+    {
+        public int ClientId { get; set; }
+        public int? RunId { get; set; }
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string StudTable { get; set; } = "dbo_STUD";
+        public string NalTable { get; set; } = "Non_Aligned_Qualifications";
+        public string StudQualRefColumn { get; set; } = "_001";
+        public string StudFirstTimeColumn { get; set; } = "_010";
+        public string StudFirstTimeValue { get; set; } = "F";
+        public string NalRefColumn { get; set; } = "Qualification_reference_number";
+        public string NalNameColumn { get; set; } = "Existing_qualification_name";
+        public string NalAlignedColumn { get; set; } = "Aligned_qualification_name";
+        public string NalCategoryColumn { get; set; } = "Category";
+        public string NalCategoryValue { get; set; } = "C";
+        public string NalHeqsfRefColumn { get; set; } = "";
+        public string NalSaqaIdColumn { get; set; } = "";
+        public string NalNqfColumn { get; set; } = "";
+        public string NalCreditsColumn { get; set; } = "";
+        public string NalOutcomeColumn { get; set; } = "";
+    }
+
+    public class Rule39ValidationRowViewModel
+    {
+        public int RowNumber { get; set; }
+        public string StudQualRef { get; set; } = "";
+        public string Stud010Value { get; set; } = "";
+        public string? NalQualName { get; set; }
+        public string? NalAlignedName { get; set; }
+        public string? NalCategory { get; set; }
+        public string? NalHeqsfRef { get; set; }
+        public string? NalSaqaId { get; set; }
+        public string? NalNqf { get; set; }
+        public string? NalCredits { get; set; }
+        public string? NalOutcome { get; set; }
+        public string Result { get; set; } = "CLEAR";
+        public string? ExceptionReason { get; set; }
+    }
+
+    public class Rule39ValidationSummary
+    {
+        public bool Success { get; set; }
+        public int TotalValidated { get; set; }
+        public int FlaggedCount { get; set; }
+        public int ClearCount { get; set; }
+        public decimal ExceptionRate { get; set; }
+        public string Status { get; set; } = "";
+        public string Timestamp { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string StudTable { get; set; } = "";
+        public string NalTable { get; set; } = "";
+        public string StudQualRefColumn { get; set; } = "";
+        public string StudFirstTimeColumn { get; set; } = "";
+        public string StudFirstTimeValue { get; set; } = "";
+        public string NalRefColumn { get; set; } = "";
+        public string NalNameColumn { get; set; } = "";
+        public string NalAlignedColumn { get; set; } = "";
+        public string NalCategoryColumn { get; set; } = "";
+        public string NalCategoryValue { get; set; } = "";
+        public string NalHeqsfRefColumn { get; set; } = "";
+        public string NalSaqaIdColumn { get; set; } = "";
+        public string NalNqfColumn { get; set; } = "";
+        public string NalCreditsColumn { get; set; } = "";
+        public string NalOutcomeColumn { get; set; } = "";
+        public int StudTotalCount { get; set; }
+        public int NalCategoryCount { get; set; }
+        public int ClientId { get; set; }
+        public int? SavedRunId { get; set; }
+        public bool IsPreviewOnly { get; set; }
+        public int PreviewLimit { get; set; }
+        public List<Rule39ValidationRowViewModel> FlaggedRows { get; set; } = new();
+        public List<Rule39ValidationRowViewModel> ClearSampleRows { get; set; } = new();
+        public string? Warning { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule39WorkspaceStateViewModel
+    {
+        public int ClientId { get; set; }
+        public int? RunId { get; set; }
+        public bool ResultsVisible { get; set; }
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string StudTable { get; set; } = "";
+        public string NalTable { get; set; } = "";
+        public string StudQualRefColumn { get; set; } = "_001";
+        public string StudFirstTimeColumn { get; set; } = "_010";
+        public string StudFirstTimeValue { get; set; } = "F";
+        public string NalRefColumn { get; set; } = "Qualification_reference_number";
+        public string NalNameColumn { get; set; } = "Existing_qualification_name";
+        public string NalAlignedColumn { get; set; } = "Aligned_qualification_name";
+        public string NalCategoryColumn { get; set; } = "Category";
+        public string NalCategoryValue { get; set; } = "C";
+        public string NalHeqsfRefColumn { get; set; } = "";
+        public string NalSaqaIdColumn { get; set; } = "";
+        public string NalNqfColumn { get; set; } = "";
+        public string NalCreditsColumn { get; set; } = "";
+        public string NalOutcomeColumn { get; set; } = "";
+        public string CurrentUserEngagementRole { get; set; } = "";
+        public bool HasDataAnalystSignoff { get; set; }
+        public bool CurrentUserHasSignedOff { get; set; }
+        public string CurrentUserSignoffComment { get; set; } = "";
+        public string CurrentStatus { get; set; } = "";
+        public string? LastEditedByUserName { get; set; }
+        public DateTime? LastEditedAt { get; set; }
+        public bool IsWorkspaceSaved { get; set; }
+        public Rule39ValidationSummary? Summary { get; set; }
+    }
+
+    public class Rule39WorkspaceSaveResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+        public bool SignoffsCleared { get; set; }
+        public int? ClearedSignoffCount { get; set; }
+        public Rule39WorkspaceStateViewModel? Workspace { get; set; }
+        public string? Error { get; set; }
+    }
+
+    public class Rule39RunReviewViewModel
+    {
+        public int RunId { get; set; }
+        public int ClientId { get; set; }
+        public bool IsCurrentRun { get; set; }
+        public string EngagementName { get; set; } = "";
+        public string MaconomyNumber { get; set; } = "";
+        public string SourceServer { get; set; } = "";
+        public string GeneratedSql { get; set; } = "";
+        public Rule39ValidationSummary Summary { get; set; } = new();
+        public List<RunSignoffViewModel> Signoffs { get; set; } = new();
+        public string CurrentUserEngagementRole { get; set; } = "";
+        public bool HasDataAnalystSignoff { get; set; }
+        public bool CurrentUserHasSignedOff =>
+            Signoffs.Any(s => ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, CurrentUserEngagementRole));
+        public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
+        public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
+    }
+
+    public class Rule39RunSignoffInputModel
+    {
+        public int RunId { get; set; }
+        public string Comment { get; set; } = "";
+    }
+
+    public class Rule39WorkspaceSignoffInputModel
+    {
+        public int ClientId { get; set; }
+        public int? RunId { get; set; }
+        public string Comment { get; set; } = "";
+    }
+
+    public class Rule39SqlResult
+    {
+        public bool Success { get; set; }
+        public string Sql { get; set; } = "";
+        public string? Error { get; set; }
+    }
+
+    public class Rule39GetColumnsRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string TableName { get; set; } = "";
+        public string TableRole { get; set; } = "";  // "stud" | "nal"
+    }
+
+    public class Rule39GetDistinctValuesRequest
+    {
+        public string Server { get; set; } = "";
+        public string Database { get; set; } = "";
+        public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string TableName { get; set; } = "";
+        public string ColumnName { get; set; } = "";
+        public string? PreferredValue { get; set; }
+    }
+}

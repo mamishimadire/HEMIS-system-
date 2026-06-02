@@ -88,6 +88,10 @@
                         <span class="badge @(u.IsActive ? "badge--pass" : "badge--fail")">
                             @(u.IsActive ? "Active" : "Inactive")
                         </span>
+                        @if (u.IsLockedOut)
+                        {
+                            <span class="badge badge--fail" title="Locked until @(u.LockoutEnd?.ToLocalTime().ToString("HH:mm") ?? "unknown")">Locked</span>
+                        }
                     </td>
                     <td>@(u.LastLoginAt.HasValue ? u.LastLoginAt.Value.ToString("dd MMM HH:mm") : "Never")</td>
                     <td>
@@ -104,6 +108,15 @@
 
                             <button class="btn btn-sm btn-secondary"
                                 onclick="showResetPwd('@u.Id', '@u.FullName')">Reset Pwd</button>
+
+                            @if (u.IsLockedOut)
+                            {
+                                <form asp-action="UnlockUser" method="post" style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@u.Id" />
+                                    <button type="submit" class="btn btn-sm btn-warning">Unlock</button>
+                                </form>
+                            }
 
                             @if (!u.IsActive && !string.Equals(u.Email, currentUserEmail, StringComparison.OrdinalIgnoreCase))
                             {

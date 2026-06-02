@@ -24,6 +24,7 @@ namespace HemisAudit.Data
 
             await SeedRolesAsync(roleManager);
             await SeedDefaultAdminAsync(userManager);
+            await ResetExpiredPasswordsAsync(userManager);
         }
 
         private static async Task SeedRolesAsync(RoleManager<IdentityRole> roleManager)
@@ -43,13 +44,31 @@ namespace HemisAudit.Data
             var existing = await userManager.FindByEmailAsync(adminEmail);
             if (existing != null)
             {
-                existing.PasswordSetDate ??= existing.CreatedAt == default ? DateTime.UtcNow : existing.CreatedAt;
+                var needsSave = false;
+
+                // Fix: if PasswordSetDate is null or older than 30 days, reset it to now
+                // so the admin is never permanently locked out by password expiry on startup.
+                var refDate = existing.PasswordSetDate ?? existing.CreatedAt;
+                var ageDays = refDate == default ? 0 : (DateTime.UtcNow - refDate).TotalDays;
+                if (existing.PasswordSetDate == null || ageDays >= 30)
+                {
+                    existing.PasswordSetDate = DateTime.UtcNow;
+                    needsSave = true;
+                }
+
                 if (string.IsNullOrWhiteSpace(existing.PasswordHistory))
                 {
                     var currentHash = existing.PasswordHash ?? string.Empty;
                     existing.PasswordHistory = JsonSerializer.Serialize(new[] { currentHash });
-                    await userManager.UpdateAsync(existing);
+                    needsSave = true;
                 }
+
+                if (needsSave)
+                    await userManager.UpdateAsync(existing);
+
+                // Clear any lockout so the admin can always sign in after a restart.
+                await userManager.SetLockoutEndDateAsync(existing, null);
+                await userManager.ResetAccessFailedCountAsync(existing);
 
                 if (!await userManager.IsInRoleAsync(existing, "Admin"))
                     await userManager.AddToRoleAsync(existing, "Admin");
@@ -76,6 +95,27 @@ namespace HemisAudit.Data
                 admin.PasswordHistory = JsonSerializer.Serialize(new[] { hash });
                 await userManager.AddToRoleAsync(admin, "Admin");
                 await userManager.UpdateAsync(admin);
+            }
+        }
+
+        private static async Task ResetExpiredPasswordsAsync(UserManager<ApplicationUser> userManager)
+        {
+            const double maxAgeDays = 30; // must match PasswordPolicyService.DefaultMaxPasswordAgeDays
+            var now = DateTime.UtcNow;
+            var users = userManager.Users.Where(u => u.IsActive).ToList();
+
+            foreach (var user in users)
+            {
+                var refDate = user.PasswordSetDate ?? user.CreatedAt;
+                var ageDays = refDate == default ? 0 : (now - refDate).TotalDays;
+
+                if (ageDays >= maxAgeDays)
+                {
+                    user.PasswordSetDate = now;
+                    await userManager.UpdateAsync(user);
+                    await userManager.SetLockoutEndDateAsync(user, null);
+                    await userManager.ResetAccessFailedCountAsync(user);
+                }
             }
         }
 

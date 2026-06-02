@@ -35,6 +35,8 @@ namespace HemisAudit.ViewModels
         public string ProfTable { get; set; } = "";
         public string Column041 { get; set; } = "_041";
         public string Column039 { get; set; } = "_039";
+        public string FilterValue041 { get; set; } = "PE";
+        public string FilterValue039 { get; set; } = "01";
         public int Control1SampleSize { get; set; }
         public int Control2SampleSize { get; set; }
         public int Control3SampleSize { get; set; }
@@ -61,6 +63,8 @@ namespace HemisAudit.ViewModels
         public string ProfTable { get; set; } = "";
         public string Column041 { get; set; } = "_041";
         public string Column039 { get; set; } = "_039";
+        public string FilterValue041 { get; set; } = "PE";
+        public string FilterValue039 { get; set; } = "01";
         public int Control1SampleSize { get; set; }
         public int Control2SampleSize { get; set; }
         public int Control3SampleSize { get; set; }
@@ -110,6 +114,8 @@ namespace HemisAudit.ViewModels
         public string ProfTable { get; set; } = "";
         public string Column041 { get; set; } = "_041";
         public string Column039 { get; set; } = "_039";
+        public string FilterValue041 { get; set; } = "PE";
+        public string FilterValue039 { get; set; } = "01";
         public int Control1SampleSize { get; set; }
         public int Control2SampleSize { get; set; }
         public int Control3SampleSize { get; set; }
@@ -156,6 +162,8 @@ namespace HemisAudit.ViewModels
         public string ProfTable { get; set; } = "";
         public string Column041 { get; set; } = "_041";
         public string Column039 { get; set; } = "_039";
+        public string FilterValue041 { get; set; } = "PE";
+        public string FilterValue039 { get; set; } = "01";
         public int Control1SampleSize { get; set; }
         public int Control2SampleSize { get; set; }
         public int Control3SampleSize { get; set; }

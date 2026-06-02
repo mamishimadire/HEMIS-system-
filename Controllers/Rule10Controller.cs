@@ -99,47 +99,7 @@ namespace HemisAudit.Controllers
             if (workspace != null)
                 workspace.ResultsVisible = resultsVisible;
 
-            if (workspace != null && !resultsVisible)
-            {
-                workspace.Server = "";
-                workspace.Database = "";
-                workspace.Driver = "ODBC Driver 17 for SQL Server";
-                workspace.RuleNumber = ruleNumber;
-                workspace.QualTable = "dbo_QUAL";
-                workspace.StudTable = "dbo_STUD";
-                workspace.CregTable = "dbo_CREG";
-                workspace.CrseTable = "dbo_CRSE";
-                workspace.QualColumn = ruleNumber switch
-                {
-                    1 => "_005",
-                    2 => "_004",
-                    3 => "_001",
-                    7 => "_001",
-                    _ => "_005"
-                };
-                workspace.StudColumn = ruleNumber switch
-                {
-                    5 => "_007",
-                    6 => "_106",
-                    7 => "_001",
-                    9 => "_007",
-                    _ => "_007"
-                };
-                workspace.CregColumn = ruleNumber switch
-                {
-                    8 => "_030",
-                    9 => "_007",
-                    _ => "_030"
-                };
-                workspace.CrseColumn = "_030";
-                workspace.RuleParameterJson = ruleNumber switch
-                {
-                    5 => "{\"matchValue\":\"9999999\"}",
-                    _ => ""
-                };
-                workspace.Rule10JoinConfigJson = "";
-                workspace.Summary = null;
-            }
+            if (workspace != null && !resultsVisible) workspace.Summary = null;
 
             return Json(new
             {

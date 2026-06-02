@@ -64,7 +64,8 @@ namespace HemisAudit.Services
                     Success = true,
                     Tables = tables,
                     AutoStudTable = FindFirst(tables, ["dbo_STUD", "STUD"], ["stud"]),
-                    AutoQualTable = FindFirst(tables, ["dbo_QUAL", "QUAL"], ["qual"])
+                    AutoQualTable = FindFirst(tables, ["dbo_QUAL", "QUAL"], ["qual"]),
+                    AutoPqmTable = FindFirst(tables, ["PQM"], ["pqm"])
                 };
             }
             catch (Exception ex)
@@ -88,7 +89,10 @@ namespace HemisAudit.Services
                     Columns = columns,
                     AutoQualCodeColumn = FindFirst(columns, ["_001"], ["qual", "code"]),
                     AutoFulfilledColumn = FindFirst(columns, ["_025"], ["fulfill"]),
-                    AutoQualTypeColumn = FindFirst(columns, ["_005"], ["type"])
+                    AutoQualTypeColumn = FindFirst(columns, ["_005"], ["type"]),
+                    AutoQualNameColumn = FindFirst(columns, ["_003"], ["name", "qualification_name"]),
+                    AutoPqmQualNameColumn = FindFirst(columns, ["Authorised_Qualification_Name"], ["authorised", "qualification"]),
+                    AutoPqmQualTypeColumn = FindFirst(columns, ["HEQF_Qual_Type"], ["heqf", "qual_type"])
                 };
             }
             catch (Exception ex)
@@ -281,6 +285,10 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                     ? string.Join(", ", deserializedSummary.MdTypes)
                     : deserializedSummary.MdTypesText;
                 workspace.CurrentStatus = deserializedSummary.Status;
+                workspace.QualNameColumn = deserializedSummary.QualNameColumn;
+                workspace.PqmTable = deserializedSummary.PqmTable;
+                workspace.PqmQualNameColumn = deserializedSummary.PqmQualNameColumn;
+                workspace.PqmQualTypeColumn = deserializedSummary.PqmQualTypeColumn;
             }
 
             await reader.CloseAsync();
@@ -587,9 +595,14 @@ END";
             var safeQualCodeColumn = Sanitise(request.QualCodeColumn);
             var safeFulfilledColumn = Sanitise(request.FulfilledColumn);
             var safeQualTypeColumn = Sanitise(request.QualTypeColumn);
+            var safeQualNameColumn = Sanitise(string.IsNullOrWhiteSpace(request.QualNameColumn) ? "_003" : request.QualNameColumn);
             var fulfilledValue = EscapeSqlString(request.FulfilledValue);
             var mdTypes = ParseMdTypes(request.MdTypesText);
             var mdTypeSql = string.Join(", ", mdTypes.Select(value => $"'{EscapeSqlString(value)}'"));
+            var hasPqm = !string.IsNullOrWhiteSpace(request.PqmTable) && !string.IsNullOrWhiteSpace(request.PqmQualNameColumn) && !string.IsNullOrWhiteSpace(request.PqmQualTypeColumn);
+            var safePqmTable = hasPqm ? Sanitise(request.PqmTable) : "";
+            var safePqmName = hasPqm ? Sanitise(request.PqmQualNameColumn) : "";
+            var safePqmType = hasPqm ? Sanitise(request.PqmQualTypeColumn) : "";
 
             var sql = $@"-- ============================================================================
 -- HEMIS RULE 19: MASTERS AND PhD STUDENT POPULATION VALIDATION
@@ -633,12 +646,22 @@ SELECT
     ISNULL(CAST(QUAL.[{safeQualCodeColumn}] AS nvarchar(255)), '') AS QUAL_Qual_Code_001,
     ISNULL(CAST(STUD.[{safeFulfilledColumn}] AS nvarchar(255)), '') AS STUD_Fulfilled_025,
     ISNULL(CAST(QUAL.[{safeQualTypeColumn}] AS nvarchar(255)), '') AS QUAL_Type_005,
+    ISNULL(CAST(QUAL.[{safeQualNameColumn}] AS nvarchar(500)), '') AS QUAL_Name_003,
     CASE
         WHEN ISNULL(CAST(STUD.[{safeQualCodeColumn}] AS nvarchar(255)), '') = ISNULL(CAST(QUAL.[{safeQualCodeColumn}] AS nvarchar(255)), '')
         THEN 'MATCH'
         ELSE 'NO MATCH'
     END AS STUD_QUAL_Link,
-    'PASS' AS Validation_Result
+    {(hasPqm
+        ? $@"CASE
+        WHEN EXISTS (
+            SELECT 1 FROM [{safePqmTable}] PQM
+            WHERE UPPER(LTRIM(RTRIM(CAST(PQM.[{safePqmName}] AS nvarchar(500))))) = UPPER(LTRIM(RTRIM(CAST(QUAL.[{safeQualNameColumn}] AS nvarchar(500)))))
+              AND UPPER(LTRIM(RTRIM(CAST(PQM.[{safePqmType}] AS nvarchar(255))))) = UPPER(LTRIM(RTRIM(CAST(QUAL.[{safeQualTypeColumn}] AS nvarchar(255)))))
+        ) THEN 'PASS'
+        ELSE 'FAIL'
+    END AS Validation_Result"
+        : "'PASS' AS Validation_Result")}
 FROM [{safeStudTable}] STUD
 INNER JOIN [{safeQualTable}] QUAL
     ON STUD.[{safeQualCodeColumn}] = QUAL.[{safeQualCodeColumn}]
@@ -664,6 +687,23 @@ ORDER BY STUD.[{safeQualCodeColumn}] ASC;";
             var configuredMdTypes = mdTypes
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            // Load PQM for name+type matching
+            var pqm = new List<(string? Name, string? Type)>();
+            if (!string.IsNullOrWhiteSpace(request.PqmTable) &&
+                !string.IsNullOrWhiteSpace(request.PqmQualNameColumn) &&
+                !string.IsNullOrWhiteSpace(request.PqmQualTypeColumn))
+            {
+                var pt  = Sanitise(request.PqmTable);
+                var pn  = Sanitise(request.PqmQualNameColumn);
+                var pht = Sanitise(request.PqmQualTypeColumn);
+                await using var pqmCmd = conn.CreateConfiguredCommand();
+                pqmCmd.CommandText = $"SELECT [{pn}], [{pht}] FROM [{pt}]";
+                await using var pqmR = await pqmCmd.ExecuteReaderAsync();
+                while (await pqmR.ReadAsync())
+                    pqm.Add((pqmR.IsDBNull(0) ? null : pqmR.GetValue(0)?.ToString(),
+                             pqmR.IsDBNull(1) ? null : pqmR.GetValue(1)?.ToString()));
+            }
 
             var studRecordCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{safeStudTable}];");
             var qualRecordCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{safeQualTable}];");
@@ -716,6 +756,7 @@ ORDER BY COUNT(*) DESC, QualificationType ASC;";
                 }
             }
 
+            var safeQualNameColumn = Sanitise(string.IsNullOrWhiteSpace(request.QualNameColumn) ? "_003" : request.QualNameColumn);
             var rows = eligibleCount > 0
                 ? await LoadPopulationRowsAsync(
                     conn,
@@ -724,9 +765,20 @@ ORDER BY COUNT(*) DESC, QualificationType ASC;";
                     safeQualCodeColumn,
                     safeFulfilledColumn,
                     safeQualTypeColumn,
+                    safeQualNameColumn,
                     request.FulfilledValue,
-                    configuredMdTypes)
+                    configuredMdTypes,
+                    pqm)
                 : new List<Rule19ValidationRowRecord>();
+
+            var passCount = pqm.Count > 0 ? rows.Count(r => r.ValidationResult == "PASS") : eligibleCount;
+            var failCount = pqm.Count > 0 ? rows.Count(r => r.ValidationResult == "FAIL") : 0;
+            var status = pqm.Count > 0
+                ? (passCount == eligibleCount ? "PASS" : (eligibleCount > 0 ? "FAIL" : "NO MATCHING DATA"))
+                : (eligibleCount > 0 ? "COMPLETE" : "NO MATCHING DATA");
+            var exceptionRate = pqm.Count > 0
+                ? (eligibleCount > 0 ? Math.Round((decimal)failCount / eligibleCount * 100, 2) : 0m)
+                : (eligibleCount > 0 ? 100m : 0m);
 
             return new Rule19ValidationSummary
             {
@@ -736,10 +788,10 @@ ORDER BY COUNT(*) DESC, QualificationType ASC;";
                 TotalValidated = eligibleCount,
                 MatchingCount = eligibleCount,
                 DisplayedCount = rows.Count,
-                PassCount = eligibleCount,
-                FailCount = 0,
-                ExceptionRate = eligibleCount > 0 ? 100m : 0m,
-                Status = eligibleCount > 0 ? "COMPLETE" : "NO MATCHING DATA",
+                PassCount = passCount,
+                FailCount = failCount,
+                ExceptionRate = exceptionRate,
+                Status = status,
                 Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 Database = request.Database,
                 StudTable = request.StudTable,
@@ -750,6 +802,10 @@ ORDER BY COUNT(*) DESC, QualificationType ASC;";
                 QualTypeColumn = request.QualTypeColumn,
                 MdTypesText = string.Join(", ", mdTypes),
                 MdTypes = mdTypes,
+                QualNameColumn = request.QualNameColumn,
+                PqmTable = request.PqmTable,
+                PqmQualNameColumn = request.PqmQualNameColumn,
+                PqmQualTypeColumn = request.PqmQualTypeColumn,
                 TableLinkageText = $"{request.StudTable}.{request.QualCodeColumn} -> {request.QualTable}.{request.QualCodeColumn}",
                 ProcedureSteps = BuildProcedureSteps(request),
                 ShowAllRecords = true,
@@ -812,7 +868,7 @@ UPDATE dbo.ValidationRuns
 SET RecordHash = @RecordHash
 WHERE RunID = @RunID;";
             hashCommand.Parameters.AddWithValue("@RunID", runId);
-            hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash($@"RunValidation|Rule19|{runId}|{request.ClientId}|{request.Server}|{request.Database}|{request.StudTable}|{request.QualTable}|{request.QualCodeColumn}|{request.FulfilledColumn}|{request.FulfilledValue}|{request.QualTypeColumn}|{request.MdTypesText}|{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{DateTime.UtcNow:o}|{previousHash}"));
+            hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash($@"RunValidation|Rule19|{runId}|{request.ClientId}|{request.Server}|{request.Database}|{request.StudTable}|{request.QualTable}|{request.QualCodeColumn}|{request.FulfilledColumn}|{request.FulfilledValue}|{request.QualTypeColumn}|{request.MdTypesText}|{request.PqmTable}|{request.PqmQualNameColumn}|{request.PqmQualTypeColumn}|{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{DateTime.UtcNow:o}|{previousHash}"));
             await hashCommand.ExecuteNonQueryAsync();
 
             return runId;
@@ -831,6 +887,10 @@ WHERE RunID = @RunID;";
                 FulfilledValue = request.FulfilledValue,
                 QualTypeColumn = request.QualTypeColumn,
                 MdTypesText = request.MdTypesText,
+                QualNameColumn = request.QualNameColumn,
+                PqmTable = request.PqmTable,
+                PqmQualNameColumn = request.PqmQualNameColumn,
+                PqmQualTypeColumn = request.PqmQualTypeColumn,
                 ShowAllRecords = true
             };
 
@@ -840,7 +900,10 @@ WHERE RunID = @RunID;";
             $"Link {request.StudTable}.{request.QualCodeColumn} to {request.QualTable}.{request.QualCodeColumn}.",
             $"Keep rows where {request.StudTable}.{request.FulfilledColumn} = '{request.FulfilledValue}'.",
             $"Keep rows where {request.QualTable}.{request.QualTypeColumn} is in the configured Masters/Doctoral list.",
-            "Return the full linked population as PASS rows for review and export."
+            "Return the full linked population as PASS rows for review and export.",
+            string.IsNullOrWhiteSpace(request.PqmTable)
+                ? "No PQM table configured — all qualifying population rows are PASS."
+                : $"Match QUAL.{request.QualNameColumn} → PQM.{request.PqmQualNameColumn} AND QUAL.{request.QualTypeColumn} → PQM.{request.PqmQualTypeColumn} (PASS if both match on same PQM row)."
         ];
 
         private static List<string> ParseMdTypes(string? text)
@@ -889,8 +952,10 @@ WHERE RunID = @RunID;";
             string safeQualCodeColumn,
             string safeFulfilledColumn,
             string safeQualTypeColumn,
+            string safeQualNameColumn,
             string fulfilledValue,
-            IReadOnlyList<string> configuredMdTypes)
+            IReadOnlyList<string> configuredMdTypes,
+            IReadOnlyList<(string? Name, string? Type)> pqm)
         {
             await using var dataCommand = conn.CreateConfiguredCommand();
             var dataPredicate = BuildEligiblePredicate(
@@ -909,6 +974,7 @@ SELECT
     ISNULL(CAST(QUAL.[{safeQualCodeColumn}] AS nvarchar(255)), '') AS QUAL_Qual_Code_001,
     ISNULL(CAST(STUD.[{safeFulfilledColumn}] AS nvarchar(255)), '') AS STUD_Fulfilled_025,
     ISNULL(CAST(QUAL.[{safeQualTypeColumn}] AS nvarchar(255)), '') AS QUAL_Type_005,
+    ISNULL(CAST(QUAL.[{safeQualNameColumn}] AS nvarchar(500)), '') AS QUAL_Name_003,
     CASE
         WHEN ISNULL(CAST(STUD.[{safeQualCodeColumn}] AS nvarchar(255)), '') = ISNULL(CAST(QUAL.[{safeQualCodeColumn}] AS nvarchar(255)), '')
         THEN 'MATCH'
@@ -940,13 +1006,57 @@ ORDER BY STUD.[{safeQualCodeColumn}] ASC;";
                 displayValues.TryGetValue("QUAL_Type_005", out var qualTypeValue);
                 displayValues.TryGetValue("Validation_Result", out var validationResult);
 
+                // PQM matching
+                string? pqmName = null;
+                string? pqmType = null;
+                bool pqmNameMatch = false;
+                bool pqmTypeMatch = false;
+                string pqmResult = "PASS";
+
+                if (pqm.Count > 0)
+                {
+                    displayValues.TryGetValue("QUAL_Name_003", out var qualName003);
+                    var nameNorm = (qualName003 ?? "").Trim().ToUpperInvariant();
+                    var typeNorm = (qualTypeValue ?? "").Trim().ToUpperInvariant();
+
+                    var tripleMatch = pqm.FirstOrDefault(p =>
+                        string.Equals((p.Name ?? "").Trim().ToUpperInvariant(), nameNorm, StringComparison.Ordinal) &&
+                        string.Equals((p.Type ?? "").Trim().ToUpperInvariant(), typeNorm, StringComparison.Ordinal));
+
+                    if (tripleMatch != default)
+                    {
+                        pqmName = tripleMatch.Name?.Trim();
+                        pqmType = tripleMatch.Type?.Trim();
+                        pqmNameMatch = true;
+                        pqmTypeMatch = true;
+                        pqmResult = "PASS";
+                    }
+                    else
+                    {
+                        var nameOnlyMatch = pqm.FirstOrDefault(p =>
+                            string.Equals((p.Name ?? "").Trim().ToUpperInvariant(), nameNorm, StringComparison.Ordinal));
+                        if (nameOnlyMatch != default)
+                        {
+                            pqmName = nameOnlyMatch.Name?.Trim();
+                            pqmType = nameOnlyMatch.Type?.Trim();
+                            pqmNameMatch = true;
+                            pqmTypeMatch = false;
+                        }
+                        pqmResult = "FAIL";
+                    }
+                }
+
                 rows.Add(new Rule19ValidationRowRecord
                 {
                     ValidationNumber = validationNumber,
                     QualCodeValue = qualCodeValue ?? "",
                     FulfilledValue = fulfilledColumnValue ?? "",
                     QualTypeValue = qualTypeValue ?? "",
-                    ValidationResult = validationResult ?? "PASS",
+                    ValidationResult = pqm.Count > 0 ? pqmResult : (validationResult ?? "PASS"),
+                    PqmQualName = pqmName,
+                    PqmQualType = pqmType,
+                    PqmNameMatch = pqmNameMatch,
+                    PqmTypeMatch = pqmTypeMatch,
                     DisplayValues = displayValues
                 });
             }
@@ -984,12 +1094,16 @@ ORDER BY STUD.[{safeQualCodeColumn}] ASC;";
                 FulfilledValue = summary.FulfilledValue,
                 QualTypeColumn = summary.QualTypeColumn,
                 MdTypesText = summary.MdTypesText,
+                QualNameColumn = summary.QualNameColumn,
                 MdTypes = summary.MdTypes.ToList(),
                 TableLinkageText = summary.TableLinkageText,
                 ProcedureSteps = summary.ProcedureSteps.ToList(),
                 ShowAllRecords = summary.ShowAllRecords,
                 ClientId = summary.ClientId,
                 SavedRunId = summary.SavedRunId,
+                PqmTable = summary.PqmTable,
+                PqmQualNameColumn = summary.PqmQualNameColumn,
+                PqmQualTypeColumn = summary.PqmQualTypeColumn,
                 Breakdown = summary.Breakdown
                     .Select(item => new Rule19BreakdownItemViewModel
                     {
@@ -1005,6 +1119,10 @@ ORDER BY STUD.[{safeQualCodeColumn}] ASC;";
                         FulfilledValue = row.FulfilledValue,
                         QualTypeValue = row.QualTypeValue,
                         ValidationResult = row.ValidationResult,
+                        PqmQualName = row.PqmQualName,
+                        PqmQualType = row.PqmQualType,
+                        PqmNameMatch = row.PqmNameMatch,
+                        PqmTypeMatch = row.PqmTypeMatch,
                         DisplayValues = new Dictionary<string, string?>(row.DisplayValues, StringComparer.OrdinalIgnoreCase)
                     })
                     .ToList(),
@@ -1172,11 +1290,10 @@ ORDER BY ORDINAL_POSITION;";
             if (string.IsNullOrWhiteSpace(name))
                 throw new InvalidOperationException("Object name cannot be blank.");
 
-            foreach (var ch in name)
-            {
-                if (!(char.IsLetterOrDigit(ch) || ch is '_' or '.' or '#'))
-                    throw new InvalidOperationException($"Invalid object name: {name}");
-            }
+            // SQL injection is handled by Sanitise (strips ], ', ;) + bracket quoting in all queries.
+            // Only reject characters that can escape bracket quoting or terminate statements.
+            if (name.Contains(']') || name.Contains('\'') || name.Contains(';') || name.Contains("--"))
+                throw new InvalidOperationException($"Invalid object name: {name}");
         }
 
         private static string NormalizeComparableValue(string value) =>

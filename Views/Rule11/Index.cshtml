@@ -1,39 +1,26 @@
 @using HemisAudit.Models
-@using HemisAudit.ViewModels
 @{
-    ViewData["Title"] = "Rule 11 - Qualification Selection from dbo_QUAL";
+    ViewData["Title"] = "Rule 11 - QUAL vs CESM vs PQM Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
-    var clients = ViewBag.Clients as List<Client> ?? new();
-    var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
+    var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
+    var selectedClientId = (int)(ViewBag.ClientId ?? 0);
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
     var isResultsOnlyRole =
         string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
-    var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
 }
 
-<style>
-    .rule11-results-wrap { display:grid; gap:24px; }
-    .rule11-filterbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:18px; }
-    .rule11-filterbar label { font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); display:block; margin-bottom:6px; }
-    .rule11-table-wrap { overflow-x:auto; border:1px solid var(--rule15-table-border); border-radius:14px; background:var(--rule15-card-alt); }
-    .rule11-grid { width:100%; min-width:980px; border-collapse:collapse; table-layout:fixed; }
-    .rule11-grid th, .rule11-grid td { border:1px solid var(--rule15-table-border); padding:8px 10px; text-align:left; white-space:normal; word-break:normal; overflow-wrap:anywhere; vertical-align:top; font-family:Consolas, "Courier New", monospace; font-size:12px; color:var(--text); }
-    .rule11-grid .group-qual { background:var(--rule15-group-stud); }
-    .rule11-grid .group-final { background:var(--rule15-group-final); }
-    .rule11-grid .criteria-head, .rule11-grid .criteria-cell { background:var(--rule15-criteria); width:220px; }
-    .rule11-grid .final-head { width:220px; }
-    .rule11-grid .final-cell { width:220px; line-height:1.25; }
-    .rule11-grid .is-pass { color:var(--rule15-pass); font-weight:800; }
-    .rule11-grid .is-fail { color:var(--rule15-fail); font-weight:800; }
-    .rule11-grid .result-text { font-weight:800; margin-bottom:4px; display:block; }
-    .rule11-grid .message-text { display:block; }
-    .rule11-summary-grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }
-    .rule11-control-summary { margin-top:18px; }
-    .rule11-control-summary table { width:100%; }
-    .rule11-control-summary th { background:var(--rule15-summary-head); color:#fff; }
-</style>
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+3),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
+}
 
 <div id="app" class="rule-page-shell">
     @if (moduleNavigation != null)
@@ -42,199 +29,258 @@
     }
 
     <div class="engagement-selector">
-        <label for="clientId">Engagement</label>
-        <select id="clientId">
-            <option value="">Select engagement (results saved here)</option>
-            @foreach (var client in clients)
+        <label>Engagement</label>
+        <select id="clientIdSelect" onchange="handleClientChange(this.value)">
+            <option value="0">Select engagement (results saved here)</option>
+            @foreach (var c in clients)
             {
-                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
-                    @client.Name (@client.FiscalYear)
-                </option>
+                <option value="@c.Id" selected="@(c.Id == selectedClientId ? "selected" : null)">@c.Name - @c.FiscalYear</option>
             }
         </select>
-        <small>
-            Rule 11 tests 100% of the approved qualification population from <code>dbo_QUAL</code>.
-            Control 1 selects approved undergraduate qualifications and excludes <code>M_____</code>.
-            Control 2 selects approved postgraduate qualifications using the configured qualification types.
-        </small>
+        <small id="workspaceSavedHint">Saved runs reload the last analyst configuration for this engagement.</small>
     </div>
 
     <div class="rule-header">
         <div class="rule-header__icon">R11</div>
         <div>
-            <h1 class="rule-header__title">HEMIS Rule 11: Qualification Selection from dbo_QUAL</h1>
-            <p class="rule-header__sub">100% population testing of approved undergraduate and postgraduate qualifications from <code>dbo_QUAL</code>.</p>
+            <h1 class="rule-header__title">HEMIS RULE 11: QUAL vs CESM vs PQM Validation</h1>
+            <p class="rule-header__sub">Three-table join | Qualification name + HEQF type matching | 100% population test</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
 
-    @if (!isResultsOnlyRole)
-    {
-        <div class="accordion-stack">
-            <div class="accordion-item">
-                <button class="accordion-toggle" type="button" onclick="toggleAccordion('connection')">
-                    <span class="acc-icon">DB</span>
-                    <span>Database Connection</span>
-                    <span class="acc-chevron">v</span>
-                </button>
-                <div class="accordion-body" id="body-connection">
-                    <div class="form-grid">
-                        <div class="field-group">
-                            <label for="server">Server Name</label>
-                            <input id="server" type="text" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
-                        </div>
-                        <div class="field-group">
-                            <label for="driver">Driver</label>
-                            <select id="driver">
-                                <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
-                                <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
-                                <option value="SQL Server">SQL Server</option>
-                            </select>
-                        </div>
-                        <div class="field-group">
-                            <label for="database">Database</label>
-                            <select id="database"></select>
-                        </div>
-                    </div>
-                    <div class="action-bar" style="justify-content:flex-start;margin:12px 0 0">
-                        <button type="button" class="btn btn-primary" id="connectBtn">Connect</button>
-                    </div>
-                    <div id="connectionOutput" class="status-output"></div>
-                </div>
-            </div>
+    <div class="accordion-stack">
 
-            <div class="accordion-item">
-                <button class="accordion-toggle" type="button" onclick="toggleAccordion('config')">
-                    <span class="acc-icon">CF</span>
-                    <span>Rule Configuration</span>
-                    <span class="acc-chevron">v</span>
-                </button>
-                <div class="accordion-body" id="body-config" style="display:none">
-                    <div class="info-box info-box--red">
-                        <strong>Rule 11 Logic:</strong><br />
-                        <span>Control 1: select approved undergraduate qualifications where <strong>dbo_QUAL._004 = 'A'</strong>, <strong>dbo_QUAL._005</strong> is not postgraduate, and <strong>dbo_QUAL._001</strong> does not match <strong>M_____</strong>.</span><br />
-                        <span>Control 2: select approved postgraduate qualifications where <strong>dbo_QUAL._004 = 'A'</strong> and <strong>dbo_QUAL._005</strong> is one of the configured postgraduate types.</span><br />
-                        <span>The rule tests 100% of the qualifying population. No sampling is used.</span>
+        <!-- 1. Database Connection -->
+        <div class="accordion-item" id="acc-connection">
+            <button class="accordion-toggle" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Server Name</label>
+                        <input type="text" id="serverInput" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
                     </div>
-                    <div class="form-grid">
-                        <div class="field-group">
-                            <label for="qualTable">QUAL Table</label>
-                            <select id="qualTable"></select>
-                        </div>
-                        <div class="field-group">
-                            <label for="excludeMPrefixPattern">Control 1 M Prefix Filter</label>
-                            <label class="checkbox-label" style="margin-top:10px">
-                                <input id="excludeMPrefixPattern" type="checkbox" checked />
-                                Exclude qualification codes matching <code>M_____</code>
-                            </label>
-                        </div>
+                    <div class="field-group">
+                        <label>Driver</label>
+                        <select id="driverSelect">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
                     </div>
-                    <div class="field-group" style="margin-top:16px">
-                        <label for="postgraduateTypesCsv">Postgraduate Types</label>
-                        <textarea id="postgraduateTypesCsv" rows="3">07,27,28,49,72,73,08,30,50,74,75</textarea>
+                    <div class="field-group" id="dbFieldGroup" style="display:none">
+                        <label>Database</label>
+                        <select id="databaseSelect">
+                            <option value="">Select database</option>
+                        </select>
                     </div>
-                    <div class="alert alert--info" style="margin-top:16px">
-                        <strong>Control 1:</strong> <code>dbo_QUAL._004 = 'A'</code>, <code>dbo_QUAL._005 NOT IN (PG types)</code>, and <code>NOT MATCH(dbo_QUAL._001, 'M_____')</code><br />
-                        <strong>Control 2:</strong> <code>dbo_QUAL._004 = 'A'</code> and <code>dbo_QUAL._005 IN (PG types)</code>
-                    </div>
-                    <div id="configOutput" class="status-output"></div>
                 </div>
+                <button class="btn btn-primary" id="connectBtn" onclick="connectServer()">Connect</button>
+                <div class="status-output" id="connectionStatus"></div>
             </div>
+        </div>
 
-            <div class="accordion-item">
-                <button class="accordion-toggle" type="button" onclick="toggleAccordion('downloads')">
-                    <span class="acc-icon">DL</span>
-                    <span>Export Options</span>
-                    <span class="acc-chevron">v</span>
-                </button>
-                <div class="accordion-body" id="body-downloads" style="display:none">
-                    <div class="checkbox-row">
-                        <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel</label>
-                        <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV</label>
-                        <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL</label>
+        <!-- 2. Table Configuration -->
+        <div class="accordion-item" id="acc-tables">
+            <button class="accordion-toggle" onclick="toggleAccordion('tables')">
+                <span class="acc-icon">TB</span>
+                <span>Table Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-tables" style="display:none">
+                <div class="info-box info-box--red">
+                    <strong>Rule 11 Requirement:</strong> Rule 11 joins <code>dbo_QUAL</code> and <code>dbo_CESM</code> on qualification code (<code>_001</code>), then validates
+                    each qualification against the PQM register. Both the qualification name
+                    (<code>QUAL._003</code> vs PQM <code>Authorised_Qualification_Name</code>) AND the HEQF qualification type
+                    (<code>QUAL._005</code> vs PQM <code>HEQF_Qual_Type</code>) must match on the same PQM row to PASS.
+                    Only QUAL rows with the configured approval status are evaluated. The HEQF type list below labels rows as Postgraduate or Undergraduate.
+                    <code>CESM._006</code> (CESM code) is captured for reference.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>QUAL Table <span class="auto-tag" id="qualAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="qualTableSelect" onchange="onTableChange('qual')">
+                            <option value="">Select table (e.g. dbo_QUAL)</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>CESM Table <span class="auto-tag" id="cesmAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="cesmTableSelect" onchange="onTableChange('cesm')">
+                            <option value="">Select table (e.g. dbo_CESM)</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>PQM Table <span class="auto-tag" id="pqmAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="pqmTableSelect" onchange="onTableChange('pqm')">
+                            <option value="">Select PQM register table</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="status-output" id="tableStatus"></div>
+            </div>
+        </div>
+
+        <!-- 3. Column Mapping -->
+        <div class="accordion-item" id="acc-columns">
+            <button class="accordion-toggle" onclick="toggleAccordion('columns')">
+                <span class="acc-icon">CL</span>
+                <span>Column Mapping</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-columns" style="display:none">
+                <div class="info-box info-box--dark">
+                    <strong>Matching Logic:</strong>
+                    QUAL <code>[_003]</code> (case-insensitive, whitespace-normalised) matches PQM <code>Authorised_Qualification_Name</code>,
+                    <strong>AND</strong> QUAL <code>[_005]</code> matches PQM <code>HEQF_Qual_Type</code> — both on the <em>same</em> PQM row.
+                    <code>CESM._006</code> is captured for display. EL §5.1.2: Inspect E005 Qualification Type and agree correct type has been allocated per PQM.
+                    The approval filter applies to the full QUAL population. The type codes below are used to classify rows as Postgraduate or Undergraduate.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>QUAL — Qualification Code (_001) <span class="auto-tag" id="qualIdAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualIdColSelect"><option value="">Select column (_001)</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>QUAL — Qualification Name (_003) <span class="auto-tag" id="qualNameAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualNameColSelect"><option value="">Select column (_003)</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>QUAL — Approval Status (_004) <span class="auto-tag" id="qualApprovalAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualApprovalColSelect"><option value="">Select column (_004)</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>QUAL — HEQF Type Column (_005) <span class="auto-tag" id="qualHeqfTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualHeqfTypeColSelect"><option value="">Select column (_005)</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>CESM — Qualification Code (_001) <span class="auto-tag" id="cesmIdAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="cesmIdColSelect"><option value="">Select column (_001)</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>CESM — CESM Code Column (_006) <span class="auto-tag" id="cesmCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="cesmCodeColSelect"><option value="">Select column (_006)</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>PQM — Authorised Qualification Name <span class="auto-tag" id="pqmNameAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmNameColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>PQM — HEQF_Qual_Type Column <span class="auto-tag" id="pqmHeqfTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmHeqfTypeColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>PQM — Code Column (CESM_Code) <span class="auto-tag" id="pqmCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmCodeColSelect"><option value="">Select column (CESM_Code)</option></select>
+                    </div>
+                </div>
+                <div class="info-box info-box--blue" style="margin-top:16px">
+                    <strong>Population Classification:</strong> Rule 11 validates all QUAL rows where the approval status matches the configured value. The HEQF type list below marks rows as Postgraduate; all other approved rows are labelled Undergraduate. Update these values here if the source values change.
+                </div>
+                <div class="form-grid" style="margin-top:12px">
+                    <div class="field-group">
+                        <label>QUAL — Approval Filter Value</label>
+                        <input type="text" id="qualApprovalFilterValueInput"
+                               value="A"
+                               placeholder="e.g. A"
+                               style="text-transform:uppercase;width:120px;font-family:monospace;font-size:15px;font-weight:bold"
+                               maxlength="10"
+                               oninput="this.value=this.value.toUpperCase();state.qualApprovalFilterValue=this.value.trim() || 'A';markWorkspaceDirty();" />
+                        <small style="display:block;margin-top:4px;color:#555">
+                            Only QUAL rows where <code id="qualApprovalFilterPreview">_004</code> = <strong id="qualApprovalFilterValuePreview">A</strong> are validated; <code>_005</code> is used to label rows as Postgraduate or Undergraduate.
+                        </small>
+                    </div>
+                    <div class="field-group" style="grid-column:1 / -1">
+                        <label for="qualTypeCodesTextInput">QUAL — Postgraduate Type Codes</label>
+                        <textarea id="qualTypeCodesTextInput" rows="3"
+                                  style="width:100%;font-family:monospace;font-size:13px"
+                                  oninput="state.qualTypeCodesText=this.value.trim() || '07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75';markWorkspaceDirty();">07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75</textarea>
+                        <small style="display:block;margin-top:4px;color:#555">
+                            Rows whose <code>_005</code> value appears here are labelled Postgraduate; all other approved rows are labelled Undergraduate.
+                        </small>
                     </div>
                 </div>
             </div>
         </div>
-    }
 
+        <!-- 4. Download Formats -->
+        <div class="accordion-item" id="acc-downloads">
+            <button class="accordion-toggle" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Download Formats</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel (Validation Results, Exceptions, Summary)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV (Full results)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkExceptionsCsv" checked /> CSV (Exceptions only)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL Script</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workspace Signoff Card -->
     <div class="workspace-signoff-card">
         <div class="workspace-signoff-card__header">
             <div>
                 <div class="workspace-signoff-card__title">Saved Workspace</div>
-                <div class="workspace-signoff-card__subtitle">The latest Rule 11 connection, filters, results, and signoffs reload automatically for this engagement.</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 11 connection, configuration, results, and signoffs reload here automatically.</div>
             </div>
             <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
         </div>
         <div id="workspaceInfo" class="alert alert--info">
-            Select an engagement to load the saved Rule 11 workspace.
+            Select an engagement to load the last saved Rule 11 workspace.
         </div>
         <div class="workspace-signoff-grid">
-            <div>
-                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
-                <div id="workspaceRunLabel">No saved run yet</div>
-            </div>
-            <div>
-                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
-                <div id="workspaceStatusLabel">-</div>
-            </div>
-            <div>
-                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
-                <div id="workspaceEditedLabel">-</div>
-            </div>
-            <div>
-                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
-                <div id="workspaceRoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
-            </div>
-            <div class="field-group" style="grid-column:1 / -1">
-                <label for="workspaceSignoffComment">Signoff Comment</label>
-                <textarea id="workspaceSignoffComment" rows="3" placeholder="Add review or completion notes"></textarea>
+            <div class="field-group">
+                <label id="workspaceSignoffLabel">Signoff Comment</label>
+                <textarea id="signoffComment" placeholder="Add the final review note that confirms this validation is complete."></textarea>
             </div>
         </div>
         <div class="workspace-signoff-actions">
-            @if (!isResultsOnlyRole)
-            {
-                <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
-                <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
-            }
-            <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
-            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
+            <button class="btn btn-success" id="saveWorkspaceBtn" onclick="saveWorkspace()">Save Workspace</button>
+            <button class="btn btn-primary" id="signOffBtn" onclick="signOffWorkspace()">Sign Off</button>
+            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove Signoff</button>
         </div>
     </div>
 
-    @if (!isResultsOnlyRole)
-    {
-        <div class="action-bar">
-            <button type="button" class="btn btn-info" id="verifyBtn">Verify Tables</button>
-            <button type="button" class="btn btn-success" id="runBtn">Run Rule 11</button>
-            <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
-            <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
-        </div>
-    }
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
+        <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
+        <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+        <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
+    </div>
 
+    <!-- Results Panel -->
     <div class="results-panel">
         <div class="results-tabs">
-            <button class="tab-btn active" type="button" data-tab="analysis">Analysis</button>
-            <button class="tab-btn" type="button" data-tab="results">Results</button>
-            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
-            <button class="tab-btn" type="button" data-tab="sql">SQL</button>
-            <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
+            <button class="tab-btn active" type="button" data-tab="validation" onclick="switchTab('validation')">Validation Results</button>
+            <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
+            <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+            <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
-        <div class="tab-pane active" data-tab-panel="analysis" id="analysisPane"></div>
-        <div class="tab-pane" data-tab-panel="results" id="resultsPane"></div>
-        <div class="tab-pane" data-tab-panel="charts" id="chartsPane"></div>
-        <div class="tab-pane" data-tab-panel="sql">
-            <textarea id="sqlText" rows="18" readonly></textarea>
+
+        <div class="tab-pane active" id="tab-validation" data-tab-panel="validation">
+            <div id="validationContent" class="empty-state"><p>Run validation to see results here.</p></div>
         </div>
-        <div class="tab-pane" data-tab-panel="downloads">
-            <div class="alert alert--info" style="margin-bottom:16px">
-                Excel includes summary sheets and the full Rule 11 result set. CSV includes the current Rule 11 result set. SQL includes the full dbo_QUAL control query.
-            </div>
-            <div class="action-bar" style="justify-content:flex-start;margin:0">
-                <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
-                <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
-                <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
-            </div>
+        <div class="tab-pane" id="tab-exceptions" data-tab-panel="exceptions">
+            <div id="exceptionsContent" class="empty-state"><p>No exceptions data yet. Run validation first.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-charts" data-tab-panel="charts">
+            <div id="chartsContent" class="empty-state"><p>Charts will appear after running validation.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
+            <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
+            <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or individual download buttons.</p></div>
         </div>
     </div>
 
@@ -246,812 +292,1124 @@
     </div>
 </div>
 
-<form id="antiForgeryForm" method="post" style="display:none">
-    @Html.AntiForgeryToken()
-</form>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
-window.toggleAccordion = function (section) {
-    const body = document.getElementById(`body-${section}`);
-    if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+const currentSystemRole = '@(ViewBag.CurrentSystemRole ?? "")';
+const uiPreviewRowLimit = 10;
+const defaultQualApprovalFilterValue = 'A';
+const defaultQualTypeCodesText = '07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75';
+const state = {
+    server: '', database: '', driver: 'ODBC Driver 17 for SQL Server',
+    qualTable: '', cesmTable: '', pqmTable: '',
+    qualIdCol: '', qualNameCol: '', qualApprovalCol: '', qualHeqfTypeCol: '',
+    cesmIdCol: '', cesmCodeCol: '',
+    qualApprovalFilterValue: defaultQualApprovalFilterValue,
+    qualTypeCodesText: defaultQualTypeCodesText,
+    pqmNameCol: '', pqmHeqfTypeCol: '', pqmCodeCol: '',
+    clientId: parseInt(document.getElementById('clientIdSelect')?.value || '0') || 0,
+    currentRunId: null, validationResult: null,
+    validationView: { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit },
+    currentUserEngagementRole: '', currentStatus: '',
+    currentUserHasSignedOff: false, isWorkspaceSaved: false,
+    hasDataAnalystSignoff: false, resultsVisible: false,
+    editWarningAccepted: false, isBeginningWorkspaceEdit: false,
+    isHydrating: false, isDirty: false, chartInstances: {}
 };
 
-(() => {
-    const apiBasePath = '/Rule11';
-    const currentSystemRole = '@currentSystemRole';
-    const isResultsOnlyRole = @(isResultsOnlyRole.ToString().ToLowerInvariant());
-    const browserResultsRenderLimit = 10;
-    const defaultPgTypes = '07,27,28,49,72,73,08,30,50,74,75';
-    const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
-    const state = {
-        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
-        currentRunId: null,
-        summary: null,
-        sql: '',
-        resultsVisible: false,
-        hasPendingValidation: false,
-        currentUserEngagementRole: '',
-        currentUserHasSignedOff: false,
-        isWorkspaceSaved: false,
-        hasDataAnalystSignoff: false,
-        currentStatus: '',
-        resultFilter: 'ALL',
-        controlFilter: 'ALL',
-        chartInstances: {}
-    };
+function getPopulationType(qualHeqfType, populationType) {
+    if (populationType) return populationType;
+    const postgraduateTypes = new Set(
+        (state.qualTypeCodesText || '')
+            .split(/[,\r\n;]+/)
+            .map(v => v.trim().toUpperCase())
+            .filter(Boolean)
+    );
+    return postgraduateTypes.has(String(qualHeqfType || '').trim().toUpperCase()) ? 'Postgraduate' : 'Undergraduate';
+}
 
-    const els = {
-        clientId: document.getElementById('clientId'),
-        server: document.getElementById('server'),
-        driver: document.getElementById('driver'),
-        database: document.getElementById('database'),
-        qualTable: document.getElementById('qualTable'),
-        excludeMPrefixPattern: document.getElementById('excludeMPrefixPattern'),
-        postgraduateTypesCsv: document.getElementById('postgraduateTypesCsv'),
-        connectionOutput: document.getElementById('connectionOutput'),
-        configOutput: document.getElementById('configOutput'),
-        analysisPane: document.getElementById('analysisPane'),
-        resultsPane: document.getElementById('resultsPane'),
-        chartsPane: document.getElementById('chartsPane'),
-        sqlText: document.getElementById('sqlText'),
-        downloadAllBtn: document.getElementById('downloadAllBtn'),
-        workspaceInfo: document.getElementById('workspaceInfo'),
-        workspaceRunState: document.getElementById('workspaceRunState'),
-        workspaceRunLabel: document.getElementById('workspaceRunLabel'),
-        workspaceStatusLabel: document.getElementById('workspaceStatusLabel'),
-        workspaceEditedLabel: document.getElementById('workspaceEditedLabel'),
-        workspaceRoleLabel: document.getElementById('workspaceRoleLabel'),
-        workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
-        beginEditBtn: document.getElementById('beginEditBtn'),
-        saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
-        signoffBtn: document.getElementById('signoffBtn'),
-        removeSignoffBtn: document.getElementById('removeSignoffBtn'),
-        statusBadge: document.getElementById('statusBadge')
-    };
+function toggleAccordion(name) {
+    const body = document.getElementById(`body-${name}`);
+    const chevron = document.querySelector(`#acc-${name} .acc-chevron`);
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.textContent = open ? '^' : 'v';
+}
 
-    const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
-    tabButtons.forEach(btn => btn.addEventListener('click', () => setActiveTab(btn.dataset.tab)));
-
-    function showSpinner(message) {
-        document.getElementById('spinnerMsg').textContent = message || 'Processing...';
-        document.getElementById('spinner').style.display = 'flex';
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelector(`[onclick="switchTab('${name}')"]`).classList.add('active');
+    document.getElementById(`tab-${name}`).classList.add('active');
+    if (name === 'charts' && state.validationResult) {
+        const cc = document.getElementById('chartsContent');
+        if (cc && cc.classList.contains('empty-state')) renderCharts(state.validationResult);
     }
+}
 
-    function hideSpinner() {
-        document.getElementById('spinner').style.display = 'none';
-    }
+function showSpinner(msg = 'Processing...') {
+    document.getElementById('spinnerMsg').textContent = msg;
+    document.getElementById('spinner').style.display = 'flex';
+}
+function hideSpinner() { document.getElementById('spinner').style.display = 'none'; }
 
-    function getActiveTab() {
-        return document.querySelector('.tab-btn.active')?.dataset.tab || 'analysis';
-    }
+function setStatus(elId, msg, type = 'info') {
+    const el = document.getElementById(elId);
+    if (el) el.innerHTML = `<div class="alert alert--${type}">${msg}</div>`;
+}
 
-    function setActiveTab(tab) {
-        tabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
-        document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.toggle('active', pane.dataset.tabPanel === tab));
-        if (tab === 'results') {
-            window.setTimeout(() => renderResults(true), 0);
-        } else if (tab === 'charts') {
-            window.setTimeout(() => renderCharts(state.summary), 0);
-        }
-    }
+function setWorkspaceInfo(msg, type = 'info') {
+    const el = document.getElementById('workspaceInfo');
+    if (!el) return;
+    el.className = `alert alert--${type}`;
+    el.innerHTML = msg;
+    window.showWorkspaceActionToast?.(msg, type);
+}
 
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;')
-            .replaceAll("'", '&#39;');
-    }
+function setWorkspaceRunState(text, type = 'neutral') {
+    const el = document.getElementById('workspaceRunState');
+    if (el) { el.className = `badge badge--${type} badge--sm`; el.textContent = text; }
+}
 
-    function formatNumber(value) {
-        return Number(value || 0).toLocaleString();
-    }
+function isArchivedWorkspace() {
+    return String(state.currentStatus || '').toLowerCase() === 'archived';
+}
 
-    function normalizeRole(value) {
-        return String(value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
-    }
+function updateHeaderBadge(status) {
+    const badge = document.getElementById('statusBadge');
+    if (!badge) return;
+    if (!status) { badge.style.display = 'none'; badge.textContent = ''; return; }
+    badge.style.display = 'inline-block';
+    badge.className = `rule-header__badge ${String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail'}`;
+    badge.textContent = String(status).toUpperCase();
+}
 
-    function setAlert(target, type, message) {
-        if (!target) return;
-        target.innerHTML = `<div class="alert alert--${type}">${message}</div>`;
-    }
+async function post(url, data) {
+    return await window.fetchJsonWithProgress(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+}
+async function getJson(url) {
+    return await window.fetchJsonWithProgress(url, { method: 'GET' });
+}
+async function downloadPost(url, data, filename) {
+    await window.downloadFileWithProgress({
+        url, method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        defaultFileName: filename,
+        label: 'Downloading result'
+    });
+}
 
-    function setWorkspaceState(message, type) {
-        els.workspaceInfo.className = `alert alert--${type}`;
-        els.workspaceInfo.textContent = message || '';
-        window.showWorkspaceActionToast?.(message, type);
-    }
+async function markWorkspaceDirty() {
+    if (state.isHydrating) return;
+    if (currentSystemRole === 'Admin') return;
+    if (isArchivedWorkspace()) return;
 
-    function setStatusBadge(text, type) {
-        if (!text) {
-            els.statusBadge.style.display = 'none';
-            els.statusBadge.textContent = '';
+    if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+        if (state.isBeginningWorkspaceEdit) {
+            state.isDirty = true;
+            renderWorkspaceState();
             return;
         }
 
-        els.statusBadge.style.display = 'inline-block';
-        els.statusBadge.className = `rule-header__badge ${type === 'fail' ? 'badge--fail' : 'badge--pass'}`;
-        els.statusBadge.textContent = text;
-    }
+        const confirmEdit = window.confirm(
+            'Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.'
+        );
+        if (!confirmEdit) { await loadWorkspaceState(); return; }
 
-    async function postJson(url, data) {
-        return await window.fetchJsonWithProgress(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'RequestVerificationToken': token
-            },
-            body: JSON.stringify(data)
-        });
-    }
+        state.isBeginningWorkspaceEdit = true;
+        state.editWarningAccepted = true;
+        showSpinner('Clearing signoffs for the edited workspace...');
 
-    async function downloadBlob(url, payload, defaultName) {
-        await window.downloadFileWithProgress({
-            url,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'RequestVerificationToken': token
-            },
-            body: JSON.stringify(payload),
-            defaultFileName: defaultName,
-            label: 'Downloading result'
-        });
-    }
-
-    function populateSelect(select, values, selected) {
-        if (!select) return;
-        select.innerHTML = '<option value="">Select table</option>';
-        values.forEach(value => {
-            const option = document.createElement('option');
-            option.value = value;
-            option.textContent = value;
-            select.appendChild(option);
-        });
-        if (selected) {
-            if (![...select.options].some(option => option.value === selected)) {
-                const option = document.createElement('option');
-                option.value = selected;
-                option.textContent = selected;
-                select.appendChild(option);
+        try {
+            const result = await post('/Rule11/BeginWorkspaceEdit', buildRequest());
+            if (!result.success) {
+                state.editWarningAccepted = false;
+                setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
+                await loadWorkspaceState();
+                return;
             }
-            select.value = selected;
-        }
-    }
-
-    function getRequest() {
-        return {
-            clientId: parseInt(els.clientId?.value || '0', 10) || 0,
-            runId: state.currentRunId,
-            server: els.server?.value.trim() || '',
-            database: els.database?.value || '',
-            driver: els.driver?.value || 'ODBC Driver 17 for SQL Server',
-            qualTable: els.qualTable?.value || 'dbo_QUAL',
-            excludeMPrefixPattern: !!els.excludeMPrefixPattern?.checked,
-            postgraduateTypesCsv: els.postgraduateTypesCsv?.value?.trim() || defaultPgTypes
-        };
-    }
-
-    function updateWorkspaceButtons() {
-        const role = state.currentUserEngagementRole || currentSystemRole || '';
-        const normalizedRole = normalizeRole(role);
-        const normalizedSystemRole = normalizeRole(currentSystemRole);
-        const hasUnsavedValidation = !!state.summary &&
-            (!!state.hasPendingValidation || (!state.currentRunId && !state.isWorkspaceSaved));
-        const canEdit = !isResultsOnlyRole &&
-            (normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst' || hasUnsavedValidation);
-        const canSign = !state.hasPendingValidation && !!state.currentRunId &&
-            !!state.isWorkspaceSaved &&
-            (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
-        const signoffLocked = !!state.currentUserHasSignedOff;
-
-        window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signoffLocked);
-        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signoffLocked);
-        window.ruleWorkspaceUi.applyStates([
-            { target: 'connectBtn', disabled: !canEdit || signoffLocked },
-            { target: 'verifyBtn', disabled: !canEdit || signoffLocked },
-            { target: 'runBtn', disabled: !canEdit || signoffLocked },
-            { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
-            { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || state.hasPendingValidation },
-            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !hasUnsavedValidation },
-            {
-                target: els.signoffBtn,
-                disabled: signoffLocked || !canSign,
-                text: state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff'
-            },
-            { target: els.removeSignoffBtn, show: state.currentUserHasSignedOff, display: '', disabled: !state.currentUserHasSignedOff },
-            { target: els.workspaceSignoffComment, disabled: signoffLocked || !canSign },
-            { target: els.downloadAllBtn, disabled: !state.summary }
-        ]);
-        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signoffLocked, {
-            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
-        });
-    }
-
-    function destroyCharts() {
-        Object.values(state.chartInstances || {}).forEach(chart => {
-            if (chart && typeof chart.destroy === 'function') chart.destroy();
-        });
-        state.chartInstances = {};
-    }
-
-    function renderCharts(summary) {
-        destroyCharts();
-
-        if (!summary) {
-            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts will appear after running Rule 11.</p></div>';
-            return;
-        }
-
-        if (typeof Chart === 'undefined') {
-            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts could not load because Chart.js is unavailable.</p></div>';
-            return;
-        }
-
-        const controls = summary.controlSummaries || [];
-        const labels = controls.map(item => item.controlLabel || String(item.controlType || '').replace('_', ' '));
-        const totalCounts = controls.map(item => Number(item.totalCount || 0));
-        const successRates = controls.map(item => {
-            const total = Number(item.totalCount || 0);
-            return total > 0 ? Number(((Number(item.passCount || 0) / total) * 100).toFixed(2)) : 0;
-        });
-
-        els.chartsPane.innerHTML = `
-            <div class="card" style="padding:20px">
-                <h3 class="section-title" style="margin-top:0">Rule 11 Visual Summary</h3>
-                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
-                    <div class="chart-card">
-                        <h4>Rows by Control</h4>
-                        <canvas id="Rule11ChartControlTotals"></canvas>
-                    </div>
-                    <div class="chart-card">
-                        <h4>Overall PASS vs FAIL</h4>
-                        <canvas id="Rule11ChartOutcome"></canvas>
-                    </div>
-                    <div class="chart-card">
-                        <h4>Control Success Rate</h4>
-                        <canvas id="Rule11ChartRates"></canvas>
-                    </div>
-                    <div class="chart-card chart-card--status ${summary.failCount > 0 ? 'chart-card--fail' : 'chart-card--pass'}">
-                        <h4>Run Status</h4>
-                        <div class="big-status">${escapeHtml(summary.status || '')}</div>
-                        <div class="summary-text" style="width:100%;margin-top:12px">
-                            <div><span>Approved Qualifications</span><strong>${formatNumber(summary.approvedQualificationCount)}</strong></div>
-                            <div><span>Undergraduate</span><strong>${formatNumber(summary.undergraduateCount)}</strong></div>
-                            <div><span>Postgraduate</span><strong>${formatNumber(summary.postgraduateCount)}</strong></div>
-                            <div><span>Total Selected</span><strong>${formatNumber(summary.totalValidated)}</strong></div>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-
-        state.chartInstances.controlTotals = new Chart(document.getElementById('Rule11ChartControlTotals'), {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [{ label: 'Rows Selected', data: totalCounts, backgroundColor: ['#4CAF50', '#2563EB'] }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
-        });
-
-        state.chartInstances.outcome = new Chart(document.getElementById('Rule11ChartOutcome'), {
-            type: 'doughnut',
-            data: {
-                labels: ['PASS', 'FAIL'],
-                datasets: [{ data: [Number(summary.passCount || 0), Number(summary.failCount || 0)], backgroundColor: ['#4CAF50', '#F44336'], borderWidth: 0 }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
-        });
-
-        state.chartInstances.rates = new Chart(document.getElementById('Rule11ChartRates'), {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [{ label: 'Success %', data: successRates, backgroundColor: ['#0F766E', '#0EA5E9'] }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 } } }
-        });
-    }
-
-    function normalizeBrowserSummary(summary) {
-        if (!summary) return summary;
-        const rows = Array.isArray(summary.reviewRows) ? summary.reviewRows : [];
-        if (rows.length <= browserResultsRenderLimit) return summary;
-
-        return {
-            ...summary,
-            reviewRows: rows.slice(0, browserResultsRenderLimit),
-            displayedCount: Math.min(Number(summary.displayedCount || rows.length), browserResultsRenderLimit),
-            isPreviewOnly: true,
-            previewLimit: Number(summary.previewLimit || browserResultsRenderLimit)
-        };
-    }
-
-    function applySummary(summary, options = {}) {
-        state.summary = normalizeBrowserSummary(summary);
-        if (!options.fromWorkspace) state.currentRunId = summary?.savedRunId || state.currentRunId;
-        state.currentStatus = summary?.status || state.currentStatus;
-        state.resultsVisible = !!summary || state.resultsVisible;
-
-        if (!summary) {
-            els.analysisPane.innerHTML = '<div class="empty-card"><p>No Rule 11 results loaded.</p></div>';
-            els.resultsPane.innerHTML = '<div class="empty-card"><p>No Rule 11 results loaded.</p></div>';
-            setStatusBadge('', 'pass');
-            updateWorkspaceButtons();
-            return;
-        }
-
-        if (state.hasPendingValidation) {
-            els.workspaceRunState.textContent = `Pending save | ${summary.status || 'Completed'}`;
-            els.workspaceRunLabel.textContent = 'Unsaved Rule 11 validation';
-            els.workspaceStatusLabel.textContent = 'Pending Save';
-        } else {
-            els.workspaceRunState.textContent = state.currentRunId ? `Run #${state.currentRunId} | ${state.currentStatus || 'Completed'}` : 'No saved run loaded';
-            els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
-            els.workspaceStatusLabel.textContent = state.currentStatus || '-';
-        }
-
-        if (!els.workspaceRoleLabel.textContent?.trim()) els.workspaceRoleLabel.textContent = state.currentUserEngagementRole || currentSystemRole || '-';
-        setStatusBadge(summary.status, summary.failCount > 0 ? 'fail' : 'pass');
-        renderAnalysis(summary);
-        renderResults();
-        renderCharts(summary);
-        updateWorkspaceButtons();
-    }
-
-    function applyWorkspace(workspace, resultsVisible, preserveExistingSummary = false) {
-        if (!workspace) {
-            state.currentRunId = null;
-            state.currentStatus = '';
-            state.currentUserEngagementRole = '';
             state.currentUserHasSignedOff = false;
             state.isWorkspaceSaved = false;
             state.hasDataAnalystSignoff = false;
-            state.resultsVisible = false;
-            state.hasPendingValidation = false;
-            els.workspaceRunState.textContent = 'No saved run loaded';
-            els.workspaceRunLabel.textContent = 'No saved run yet';
-            els.workspaceStatusLabel.textContent = '-';
-            els.workspaceEditedLabel.textContent = '-';
-            setWorkspaceState('No saved Rule 11 workspace exists for this engagement yet.', 'info');
-            if (!preserveExistingSummary) applySummary(null); else updateWorkspaceButtons();
-            return;
+            if (result.workspace) {
+                state.currentRunId = result.workspace.runId || state.currentRunId;
+                state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+                state.currentStatus = result.workspace.currentStatus || state.currentStatus;
+                state.resultsVisible = !!result.workspace.resultsVisible;
+                document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || '';
+                if (result.workspace.summary)
+                    applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+            }
+            setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+        } catch (error) {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo(`Error: ${escapeHtml(error?.message || 'Failed to begin editing.')}`, 'error');
+            await loadWorkspaceState();
+        } finally {
+            state.isBeginningWorkspaceEdit = false;
+            hideSpinner();
         }
+    }
 
-        state.clientId = workspace.clientId || state.clientId;
+    state.isDirty = true;
+    renderWorkspaceState();
+}
+
+function resetWorkspaceState(clearClient = false) {
+    state.server = ''; state.database = ''; state.driver = 'ODBC Driver 17 for SQL Server';
+    state.qualTable = ''; state.cesmTable = ''; state.pqmTable = '';
+    state.qualIdCol = ''; state.qualNameCol = ''; state.qualApprovalCol = ''; state.qualHeqfTypeCol = '';
+    state.cesmIdCol = ''; state.cesmCodeCol = '';
+    state.qualApprovalFilterValue = defaultQualApprovalFilterValue;
+    state.qualTypeCodesText = defaultQualTypeCodesText;
+    state.pqmNameCol = ''; state.pqmHeqfTypeCol = ''; state.pqmCodeCol = '';
+    state.currentRunId = null; state.validationResult = null;
+    state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    state.currentUserEngagementRole = ''; state.currentStatus = '';
+    state.currentUserHasSignedOff = false; state.isWorkspaceSaved = false;
+    state.hasDataAnalystSignoff = false; state.resultsVisible = false;
+    state.editWarningAccepted = false; state.isDirty = false;
+    if (clearClient) state.clientId = 0;
+
+    document.getElementById('serverInput').value = '';
+    document.getElementById('driverSelect').value = 'ODBC Driver 17 for SQL Server';
+    document.getElementById('databaseSelect').innerHTML = '<option value="">Select database</option>';
+    ['qualTableSelect','cesmTableSelect','pqmTableSelect'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.innerHTML = '<option value="">Select table</option>';
+    });
+    ['qualIdColSelect','qualNameColSelect','qualApprovalColSelect','qualHeqfTypeColSelect',
+     'cesmIdColSelect','cesmCodeColSelect',
+     'pqmNameColSelect','pqmHeqfTypeColSelect','pqmCodeColSelect'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.innerHTML = '<option value="">Select column</option>';
+    });
+    document.getElementById('qualApprovalFilterValueInput').value = defaultQualApprovalFilterValue;
+    document.getElementById('qualTypeCodesTextInput').value = defaultQualTypeCodesText;
+    document.getElementById('qualApprovalFilterValuePreview').textContent = defaultQualApprovalFilterValue;
+    document.getElementById('qualApprovalFilterPreview').textContent = '_004';
+    document.getElementById('dbFieldGroup').style.display = 'none';
+    document.getElementById('signoffComment').value = '';
+    document.getElementById('downloadAllBtn').disabled = true;
+    ['qualAutoTag','cesmAutoTag','pqmAutoTag',
+     'qualIdAutoTag','qualNameAutoTag','qualApprovalAutoTag','qualHeqfTypeAutoTag',
+     'cesmIdAutoTag','cesmCodeAutoTag',
+     'pqmNameAutoTag','pqmHeqfTypeAutoTag','pqmCodeAutoTag'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    document.getElementById('connectionStatus').innerHTML = '';
+    document.getElementById('tableStatus').innerHTML = '';
+    ['validationContent','exceptionsContent','chartsContent','sqlContent','downloadsContent'].forEach((id, i) => {
+        const msgs = ['Run validation to see results here.',
+            'No exceptions data yet. Run validation first.',
+            'Charts will appear after running validation.',
+            'Click "Generate SQL" or run validation to generate the SQL script.',
+            'Run validation first, then use "Download All" or individual download buttons.'];
+        const el = document.getElementById(id);
+        el.className = 'empty-state';
+        el.innerHTML = `<p>${msgs[i]}</p>`;
+    });
+    Object.values(state.chartInstances).forEach(c => c.destroy());
+    state.chartInstances = {};
+    updateHeaderBadge('');
+    renderWorkspaceState();
+}
+
+function renderWorkspaceState() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const archived = isArchivedWorkspace();
+    const canEditWorkspace = currentSystemRole === 'DataAnalyst' && !archived;
+    const canSignWorkspace =
+        !archived && state.currentRunId &&
+        (currentSystemRole === 'DataAnalyst' ||
+         (state.resultsVisible && (role === 'Manager' || role === 'Director')));
+    const canActivateSignoff = !!canSignWorkspace && !!state.isWorkspaceSaved;
+    const canRemoveWorkspaceSignoff = !archived && canSignWorkspace && state.currentUserHasSignedOff;
+    const showDisabledArchivedSignoff = archived && !!state.currentRunId;
+    const runValidationBtn = document.getElementById('runValidationBtn');
+    const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
+    const signOffBtn = document.getElementById('signOffBtn');
+    const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
+    const signoffComment = document.getElementById('signoffComment');
+    const signoffLabel = document.getElementById('workspaceSignoffLabel');
+    const signedOffLock = !!state.currentUserHasSignedOff;
+    const signoffButtonText = state.currentUserHasSignedOff
+        ? `Signed Off as ${role || 'Reviewer'}`
+        : `Sign Off as ${role || 'Reviewer'}`;
+
+    window.ruleWorkspaceUi.setReadonlyShell('app', !canEditWorkspace || signedOffLock);
+    window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEditWorkspace || signedOffLock);
+    window.ruleWorkspaceUi.applyStates([
+        { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateSqlBtn,   show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
+        { target: signoffComment,   disabled: archived || !canActivateSignoff || signedOffLock }
+    ]);
+    window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
+        allow: ['#downloadAllBtn', '#removeWorkspaceSignoffBtn']
+    });
+
+    if (showDisabledArchivedSignoff) {
+        window.ruleWorkspaceUi.applyStates([
+            { target: signOffBtn, show: true, disabled: true, text: signoffButtonText, title: 'Archived engagements are read-only. Signoff is disabled.' },
+            { target: removeWorkspaceSignoffBtn, show: !!state.currentUserHasSignedOff, disabled: true, title: 'Archived engagements are read-only. Signoff removal is disabled.' }
+        ]);
+    } else {
+        window.ruleWorkspaceUi.applyStates([
+            { target: signOffBtn, show: canSignWorkspace, disabled: !canActivateSignoff || state.isDirty || signedOffLock, text: signoffButtonText, title: '' },
+            { target: removeWorkspaceSignoffBtn, show: canRemoveWorkspaceSignoff, disabled: !canRemoveWorkspaceSignoff, title: '' }
+        ]);
+    }
+
+    if (signoffLabel)
+        signoffLabel.textContent = role === 'DataAnalyst' ? 'Analyst Signoff Comment' : 'Review Signoff Comment';
+
+    applyWorkspaceAccessMode(canEditWorkspace);
+
+    if (!state.clientId) {
+        setWorkspaceRunState('No engagement selected', 'neutral');
+        setWorkspaceInfo('Select an engagement to load the last saved Rule 11 workspace.', 'info');
+        return;
+    }
+    if (!state.currentRunId) {
+        setWorkspaceRunState('No saved run loaded', 'neutral');
+        setWorkspaceInfo(
+            canEditWorkspace
+                ? 'No saved Rule 11 workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.'
+                : 'No saved Rule 11 workspace exists for this engagement yet. This module is read-only for your role.', 'info');
+        return;
+    }
+    if (archived) {
+        setWorkspaceRunState(`Run #${state.currentRunId} archived`, 'warning');
+        setWorkspaceInfo('This engagement is archived. The saved workspace and results remain visible, but configuration, validation, saving, and signoff are disabled.', 'warning');
+        return;
+    }
+    if (state.isDirty) {
+        setWorkspaceRunState(`Run #${state.currentRunId} loaded`, 'warning');
+        setWorkspaceInfo(
+            canEditWorkspace
+                ? `Saved run <strong>#${state.currentRunId}</strong> is loaded, but the current screen has unsaved changes. Save the workspace or run validation again before signing off.`
+                : `Saved run <strong>#${state.currentRunId}</strong> is loaded, but your role cannot edit this workspace.`, 'warning');
+        return;
+    }
+    if (state.currentUserHasSignedOff) {
+        setWorkspaceRunState(`Run #${state.currentRunId} signed off`, 'success');
+        setWorkspaceInfo(`Saved run <strong>#${state.currentRunId}</strong> is loaded with its last configuration and results. Your analyst signoff is already on this run.`, 'success');
+        return;
+    }
+    if (state.hasDataAnalystSignoff) {
+        setWorkspaceRunState(`Run #${state.currentRunId} analyst-signed`, 'success');
+        setWorkspaceInfo(`Saved run <strong>#${state.currentRunId}</strong> is loaded. Other assigned users can review this analyst-signed run.`, 'success');
+        return;
+    }
+    setWorkspaceRunState(`Run #${state.currentRunId} saved`, 'info');
+    setWorkspaceInfo(
+        canEditWorkspace
+            ? `Saved run <strong>#${state.currentRunId}</strong> is loaded. The analyst signoff is still outstanding.`
+            : `Saved run <strong>#${state.currentRunId}</strong> is loaded and is awaiting analyst signoff.`, 'info');
+}
+
+function applyWorkspaceAccessMode(canEditWorkspace) {
+    ['body-connection','body-tables','body-columns'].forEach(id => {
+        const body = document.getElementById(id);
+        if (!body) return;
+        body.style.opacity = canEditWorkspace ? '' : '0.45';
+        body.style.filter = canEditWorkspace ? '' : 'grayscale(0.15)';
+        body.querySelectorAll('input, select, textarea, button').forEach(el => {
+            el.disabled = !canEditWorkspace;
+        });
+    });
+}
+
+async function handleClientChange(value) {
+    state.clientId = parseInt(value || '0') || 0;
+    resetWorkspaceState();
+    if (!state.clientId) return;
+    await loadWorkspaceState();
+}
+
+async function loadWorkspaceState() {
+    if (!state.clientId) { renderWorkspaceState(); return; }
+    showSpinner('Loading saved workspace...');
+    try {
+        const result = await getJson(`/Rule11/GetWorkspaceState?clientId=${state.clientId}`);
+        if (!result.success) { setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to load saved workspace.')}`, 'error'); return; }
+        if (!result.hasWorkspace || !result.workspace) { renderWorkspaceState(); return; }
+        await hydrateWorkspace(result.workspace);
+    } finally { hideSpinner(); }
+}
+
+async function hydrateWorkspace(workspace) {
+    state.isHydrating = true;
+    let reconnectWarning = '';
+    try {
         state.currentRunId = workspace.runId || null;
+        state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
         state.currentStatus = workspace.currentStatus || '';
-        state.currentUserEngagementRole = workspace.currentUserEngagementRole || currentSystemRole || '';
         state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
         state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
         state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
-        state.resultsVisible = !!resultsVisible;
-        state.hasPendingValidation = false;
+        state.resultsVisible = !!workspace.resultsVisible;
+        state.editWarningAccepted = false;
 
-        if (els.server) els.server.value = workspace.server || '';
-        if (els.driver) els.driver.value = workspace.driver || 'ODBC Driver 17 for SQL Server';
-        populateSelect(els.database, workspace.database ? [workspace.database] : [], workspace.database);
-        populateSelect(els.qualTable, workspace.qualTable ? [workspace.qualTable] : [], workspace.qualTable);
-        if (els.excludeMPrefixPattern) els.excludeMPrefixPattern.checked = workspace.summary?.excludeMPrefixPattern ?? workspace.excludeMPrefixPattern ?? true;
-        if (els.postgraduateTypesCsv) els.postgraduateTypesCsv.value = workspace.summary?.postgraduateTypesCsv || workspace.postgraduateTypesCsv || defaultPgTypes;
+        document.getElementById('serverInput').value = workspace.server || '';
+        document.getElementById('driverSelect').value = workspace.driver || 'ODBC Driver 17 for SQL Server';
+        document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
+        state.server = workspace.server || '';
+        state.driver = workspace.driver || 'ODBC Driver 17 for SQL Server';
+        state.qualApprovalFilterValue = (workspace.qualApprovalFilterValue || defaultQualApprovalFilterValue).toUpperCase();
+        state.qualTypeCodesText = workspace.qualTypeCodesText || defaultQualTypeCodesText;
+        document.getElementById('qualApprovalFilterValueInput').value = state.qualApprovalFilterValue;
+        document.getElementById('qualTypeCodesTextInput').value = state.qualTypeCodesText;
+        document.getElementById('qualApprovalFilterValuePreview').textContent = state.qualApprovalFilterValue;
+        document.getElementById('qualApprovalFilterPreview').textContent = workspace.qualApprovalCol || '_004';
 
-        els.workspaceRunState.textContent = workspace.runId ? `Run #${workspace.runId}` : 'No saved run loaded';
-        els.workspaceRunLabel.textContent = workspace.runId ? `Rule 11 Run #${workspace.runId}` : 'No saved run yet';
-        els.workspaceStatusLabel.textContent = workspace.currentStatus || '-';
-        els.workspaceEditedLabel.textContent = workspace.lastEditedAt ? new Date(workspace.lastEditedAt).toLocaleString() : '-';
-        els.workspaceRoleLabel.textContent = workspace.currentUserEngagementRole || currentSystemRole || '-';
-        els.workspaceSignoffComment.value = workspace.currentUserSignoffComment || '';
-
-        if (!resultsVisible) {
-            setWorkspaceState('Saved Rule 11 results are not available for your engagement role.', 'info');
-            if (!preserveExistingSummary) applySummary(null); else updateWorkspaceButtons();
-            return;
-        }
-
-        setWorkspaceState(
-            workspace.summary
-                ? 'Saved workspace loaded. The last analyst configuration and results are ready.'
-                : 'Rule 11 workspace loaded. Run the validation to generate results.',
-            'success');
-
-        if (workspace.summary) applySummary(workspace.summary, { fromWorkspace: true });
-        else if (!preserveExistingSummary) applySummary(null);
-        else updateWorkspaceButtons();
-    }
-
-    async function loadWorkspace() {
-        state.clientId = Number(els.clientId?.value || 0);
-        if (!state.clientId) {
-            applyWorkspace(null, false);
-            return;
-        }
-
-        const data = await window.fetchJsonWithProgress(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`, { method: 'GET' });
-        if (!data.success) throw new Error(data.error || 'Failed to load workspace.');
-        applyWorkspace(data.workspace, data.resultsVisible);
-    }
-
-    async function connect() {
-        const server = els.server?.value?.trim();
-        if (!server) throw new Error('Enter the SQL Server name first.');
-
-        showSpinner('Loading databases...');
-        try {
-            const data = await postJson(`${apiBasePath}/GetDatabases`, { server, driver: els.driver.value });
-            if (!data.success) throw new Error(data.error || 'Connection failed.');
-
-            els.database.innerHTML = '<option value="">Select database</option>';
-            data.databases.forEach(db => {
-                const option = document.createElement('option');
-                option.value = db;
-                option.textContent = db;
-                els.database.appendChild(option);
-            });
-
-            setAlert(els.connectionOutput, 'success', `Connected. Found ${data.databases.length} database(s).`);
-            if ((data.databases || []).length) await loadTables();
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    async function loadTables() {
-        if (!els.database.value) return;
-        const data = await postJson(`${apiBasePath}/GetTables`, {
-            server: els.server.value.trim(),
-            database: els.database.value,
-            driver: els.driver.value
-        });
-
-        if (!data.success) throw new Error(data.error || 'Could not load tables.');
-        populateSelect(els.qualTable, data.tables || [], data.autoQualTable || data.autoStudTable);
-        setAlert(els.configOutput, 'success', `Loaded ${data.tables.length} table(s).`);
-    }
-
-    async function verifyTables() {
-        showSpinner('Verifying Rule 11 table...');
-        try {
-            const data = await postJson(`${apiBasePath}/VerifyTables`, getRequest());
-            if (!data.success) throw new Error(data.error || 'Verification failed.');
-
-            els.configOutput.innerHTML = `
-                <div class="alert alert--success">
-                    QUAL rows: <strong>${formatNumber(data.qualRecordCount)}</strong> |
-                    Approved qualifications: <strong>${formatNumber(data.approvedQualificationCount)}</strong> |
-                    Undergraduate population: <strong>${formatNumber(data.undergraduateCount)}</strong> |
-                    Postgraduate population: <strong>${formatNumber(data.postgraduateCount)}</strong>
-                </div>`;
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    async function runValidation() {
-        const request = getRequest();
-        if (!request.clientId) {
-            setWorkspaceState('Select the approved engagement assigned to you before running this rule.', 'warning');
-            return;
+        if (workspace.summary && state.resultsVisible) {
+            applyValidationResult(workspace.summary, { switchToValidation: false, fromWorkspace: true });
+        } else {
+            updateHeaderBadge(workspace.summary?.status || workspace.currentStatus || '');
         }
 
         try {
-            showSpinner('Running Rule 11 qualification selection...');
-            const data = await postJson(`${apiBasePath}/RunValidation`, request);
-            if (!data.success) throw new Error(data.error || 'Rule 11 failed.');
-
-            state.hasPendingValidation = true;
-            state.currentRunId = null;
-            state.currentStatus = data.status || '';
-            state.currentUserHasSignedOff = false;
-            state.isWorkspaceSaved = false;
-            state.hasDataAnalystSignoff = false;
-            state.resultsVisible = true;
-            state.currentUserEngagementRole = state.currentUserEngagementRole || currentSystemRole || 'DataAnalyst';
-            applySummary(data);
-
-            setWorkspaceState(`Rule 11 validation completed. Undergraduate rows: ${formatNumber(data.undergraduateCount)} | Postgraduate rows: ${formatNumber(data.postgraduateCount)} | Total selected: ${formatNumber(data.totalValidated)}. The current run is already in the system database. Click Save Workspace before signoff or visibility to other users.`, 'success');
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    async function generateSql() {
-        showSpinner('Generating SQL...');
-        try {
-            const data = await postJson(`${apiBasePath}/GenerateSql`, getRequest());
-            if (!data.success) throw new Error(data.error || 'SQL generation failed.');
-            state.sql = data.sql || '';
-            els.sqlText.value = state.sql;
-            setActiveTab('sql');
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    async function beginEdit() {
-        showSpinner('Preparing workspace edit...');
-        try {
-            const data = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, getRequest());
-            if (!data.success) throw new Error(data.error || 'Could not begin editing.');
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible') ? !!data.resultsVisible : !!data.workspace?.resultsVisible;
-            applyWorkspace(data.workspace, workspaceResultsVisible, true);
-            setWorkspaceState(data.message || 'Workspace ready for editing.', 'warning');
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    async function saveWorkspace() {
-        showSpinner('Saving workspace...');
-        try {
-            const data = await postJson(`${apiBasePath}/SaveWorkspace`, getRequest());
-            if (!data.success) throw new Error(data.error || 'Could not save workspace.');
-            state.hasPendingValidation = false;
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible') ? !!data.resultsVisible : !!data.workspace?.resultsVisible;
-            applyWorkspace(data.workspace, workspaceResultsVisible, true);
-            setWorkspaceState(data.message || 'Workspace saved.', data.signoffsCleared ? 'warning' : 'success');
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    async function signoffWorkspace() {
-        showSpinner('Saving signoff...');
-        try {
-            const data = await postJson(`${apiBasePath}/SignOffWorkspace`, {
-                clientId: state.clientId,
-                runId: state.currentRunId,
-                comment: els.workspaceSignoffComment.value.trim()
-            });
-            if (!data.success) throw new Error(data.error || 'Signoff failed.');
-            state.currentUserHasSignedOff = true;
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible') ? !!data.resultsVisible : !!data.workspace?.resultsVisible;
-            applyWorkspace(data.workspace, workspaceResultsVisible, true);
-            setWorkspaceState(data.message || 'Signoff saved.', 'success');
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    async function removeWorkspaceSignoff() {
-        showSpinner('Removing signoff...');
-        try {
-            const previousRunId = state.currentRunId;
-            const data = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
-                clientId: state.clientId,
-                runId: state.currentRunId,
-                comment: ''
-            });
-            if (!data.success) throw new Error(data.error || 'Could not remove signoff.');
-            state.currentUserHasSignedOff = false;
-            state.isWorkspaceSaved = false;
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible') ? !!data.resultsVisible : !!data.workspace?.resultsVisible;
-            const preserveExistingSummary = !!(data.workspace && previousRunId && data.workspace.runId === previousRunId);
-            applyWorkspace(data.workspace, workspaceResultsVisible, preserveExistingSummary);
-            setWorkspaceState(data.message || 'Signoff removed.', 'warning');
-        } finally {
-            hideSpinner();
-        }
-    }
-
-    function renderAnalysis(summary) {
-        if (!summary) {
-            els.analysisPane.innerHTML = '<div class="empty-card"><p>No Rule 11 results loaded.</p></div>';
-            return;
-        }
-
-        const controlRows = (summary.controlSummaries || [])
-            .map(item => `<tr><td>${escapeHtml(item.controlLabel)}</td><td>${escapeHtml(item.criteriaText)}</td><td>${formatNumber(item.totalCount)}</td><td>${formatNumber(item.passCount)}</td><td>${formatNumber(item.failCount)}</td><td>${escapeHtml(item.status)}</td></tr>`)
-            .join('');
-
-        els.analysisPane.innerHTML = `
-            ${summary.isPreviewOnly ? `<div class="alert alert--warning">The browser shows only the first ${summary.previewLimit.toLocaleString()} row(s) to stay responsive. Excel and CSV keep the saved result set.</div>` : ''}
-            <div class="rule11-summary-grid">
-                <div class="stat-card"><div class="stat-card__label">QUAL Records</div><div class="stat-card__value">${formatNumber(summary.qualRecordCount)}</div></div>
-                <div class="stat-card"><div class="stat-card__label">Approved Qualifications</div><div class="stat-card__value">${formatNumber(summary.approvedQualificationCount)}</div></div>
-                <div class="stat-card"><div class="stat-card__label">Undergraduate Rows</div><div class="stat-card__value">${formatNumber(summary.undergraduateCount)}</div></div>
-                <div class="stat-card"><div class="stat-card__label">Postgraduate Rows</div><div class="stat-card__value">${formatNumber(summary.postgraduateCount)}</div></div>
-                <div class="stat-card"><div class="stat-card__label">PASS Rows</div><div class="stat-card__value">${formatNumber(summary.passCount)}</div></div>
-                <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL Rows</div><div class="stat-card__value">${formatNumber(summary.failCount)}</div></div>
-            </div>
-            <div class="alert alert--info" style="margin-top:16px">
-                Selected rows tested: <strong>${formatNumber(summary.totalValidated)}</strong> |
-                Control 1: <strong>${formatNumber(summary.undergraduateCount)}</strong> |
-                Control 2: <strong>${formatNumber(summary.postgraduateCount)}</strong>
-            </div>
-            <div class="card" style="padding:20px;margin-top:20px">
-                <h3 class="section-title" style="margin-top:0">Run Summary</h3>
-                <div class="form-grid">
-                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Database</div><div>${escapeHtml(summary.database)}</div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Source Table</div><div>${escapeHtml(summary.qualTable)}</div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Rule Mode</div><div>${escapeHtml(summary.ruleModeText)}</div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Status</div><div>${escapeHtml(summary.status)}</div></div>
-                </div>
-                <div class="rule11-control-summary">
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Control</th><th>Criteria</th><th>Rows Tested</th><th>PASS</th><th>FAIL</th><th>Status</th></tr>
-                        </thead>
-                        <tbody>${controlRows}</tbody>
-                    </table>
-                </div>
-            </div>`;
-    }
-
-    function getFilteredRows(summary) {
-        return (summary.reviewRows || []).filter(row => {
-            const matchesControl = state.controlFilter === 'ALL' || row.controlType === state.controlFilter;
-            const matchesResult = state.resultFilter === 'ALL' || String(row.validationResult || '').toUpperCase() === state.resultFilter;
-            return matchesControl && matchesResult;
-        });
-    }
-
-    function renderControlSection(summary, controlType) {
-        const controlMeta = (summary.controlSummaries || []).find(item => item.controlType === controlType);
-        const rows = getFilteredRows(summary).filter(row => row.controlType === controlType);
-        if (state.controlFilter !== 'ALL' && state.controlFilter !== controlType) return '';
-
-        const criteriaText = controlMeta?.criteriaText || '';
-        const rowHtml = rows.map(row => {
-            const v = row.displayValues || {};
-            const resultText = String(row.validationResult || '').toUpperCase() === 'FAIL' ? 'FAIL' : 'PASS';
-            return `
-                <tr>
-                    <td>${escapeHtml(v.QUAL__001 || '')}</td>
-                    <td>${escapeHtml(v.QUAL__002 || '')}</td>
-                    <td>${escapeHtml(v.QUAL__004 || '')}</td>
-                    <td>${escapeHtml(v.QUAL__005 || '')}</td>
-                    <td class="criteria-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">${escapeHtml(v.QUAL_CRITERIA_MESSAGE || '')}<br /><span class="message-text">${escapeHtml(v.QUAL_DETAIL_MESSAGE || '')}</span></td>
-                    <td class="final-cell ${row.validationResult === 'FAIL' ? 'is-fail' : 'is-pass'}">
-                        <div class="result-text">${escapeHtml(resultText)}</div>
-                        <div class="message-text">${escapeHtml(v.FINAL_RESULT_MESSAGE || row.validationExplanation || '')}</div>
-                    </td>
-                </tr>`;
-        }).join('');
-
-        return `
-            <div class="card" style="padding:20px">
-                <h3 class="section-title" style="margin-top:0">${escapeHtml(controlMeta?.controlLabel || controlType)}</h3>
-                <p class="text-muted" style="margin:0 0 16px 0">${escapeHtml(criteriaText)}</p>
-                ${rows.length === 0 ? `<div class="alert alert--info" style="margin:0">No rows match the selected control/result filters in the current browser result set.</div>` : `
-                <div class="rule11-table-wrap">
-                    <table class="rule11-grid">
-                        <thead>
-                            <tr>
-                                <th colspan="4" class="group-qual">${escapeHtml(summary.qualTable || 'dbo_QUAL')}</th>
-                                <th class="criteria-head">Criteria Result</th>
-                                <th class="group-final">Results</th>
-                            </tr>
-                            <tr>
-                                <th>_001</th>
-                                <th>_002</th>
-                                <th>_004</th>
-                                <th>_005</th>
-                                <th></th>
-                                <th class="final-head">PASS/FAIL</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rowHtml}</tbody>
-                    </table>
-                </div>`}
-            </div>`;
-    }
-
-    function renderResults(force = false) {
-        if (!state.summary) {
-            els.resultsPane.innerHTML = '<div class="empty-card"><p>No Rule 11 results loaded.</p></div>';
-            return;
-        }
-
-        if (!force && getActiveTab() !== 'results') {
-            els.resultsPane.innerHTML = '<div class="empty-card"><p>Open the Results tab to load the browser preview.</p></div>';
-            return;
-        }
-
-        const summary = state.summary;
-        const filteredRows = getFilteredRows(summary);
-        els.resultsPane.innerHTML = `
-            <div class="rule11-filterbar">
-                <div class="field-group" style="margin:0;min-width:180px">
-                    <label for="liveControlFilter">Control Filter</label>
-                    <select id="liveControlFilter">
-                        <option value="ALL">All controls</option>
-                        <option value="Control_1">Control 1</option>
-                        <option value="Control_2">Control 2</option>
-                    </select>
-                </div>
-                <div class="field-group" style="margin:0;min-width:180px">
-                    <label for="liveResultFilter">Result Filter</label>
-                    <select id="liveResultFilter">
-                        <option value="PASS">PASS</option>
-                        <option value="FAIL">FAIL</option>
-                        <option value="ALL">All results</option>
-                    </select>
-                </div>
-            </div>
-            <div class="alert alert--info" style="margin-bottom:16px">
-                Showing ${formatNumber(filteredRows.length)} loaded result row(s) in the browser preview.
-            </div>
-            <div class="rule11-results-wrap">
-                ${summary.isPreviewOnly ? `<div class="alert alert--warning">Only the saved browser preview is shown here. Downloads keep the saved Rule 11 result set.</div>` : ''}
-                ${renderControlSection(summary, 'Control_1')}
-                ${renderControlSection(summary, 'Control_2')}
-            </div>`;
-
-        const controlFilter = document.getElementById('liveControlFilter');
-        const resultFilter = document.getElementById('liveResultFilter');
-        if (controlFilter) controlFilter.value = state.controlFilter;
-        if (resultFilter) resultFilter.value = state.resultFilter;
-
-        controlFilter?.addEventListener('change', () => {
-            state.controlFilter = controlFilter.value;
-            renderResults(summary);
-        });
-        resultFilter?.addEventListener('change', () => {
-            state.resultFilter = resultFilter.value;
-            renderResults(summary);
-        });
-    }
-
-    if (!isResultsOnlyRole) {
-        els.database?.addEventListener('change', () => loadTables().catch(err => {
-            els.configOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;
-        }));
-        document.getElementById('connectBtn')?.addEventListener('click', () => connect().catch(err => {
-            hideSpinner();
-            els.connectionOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;
-        }));
-        document.getElementById('verifyBtn')?.addEventListener('click', () => verifyTables().catch(err => {
-            hideSpinner();
-            els.configOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;
-        }));
-        document.getElementById('runBtn')?.addEventListener('click', () => runValidation().catch(err => {
-            hideSpinner();
-            setWorkspaceState(err.message, 'error');
-        }));
-        document.getElementById('sqlBtn')?.addEventListener('click', () => generateSql().catch(err => {
-            hideSpinner();
-            els.sqlText.value = err.message;
-        }));
-        els.beginEditBtn?.addEventListener('click', () => beginEdit().catch(err => {
-            hideSpinner();
-            setWorkspaceState(err.message, 'error');
-        }));
-        els.saveWorkspaceBtn?.addEventListener('click', () => saveWorkspace().catch(err => {
-            hideSpinner();
-            setWorkspaceState(err.message, 'error');
-        }));
-        els.downloadAllBtn?.addEventListener('click', async () => {
-            try {
-                if (!state.summary) throw new Error('Run Rule 11 first.');
-                if (document.getElementById('chkExcel')?.checked) await downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule11_Qualification_Selection.xlsx');
-                if (document.getElementById('chkCsv')?.checked) await downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule11_Qualification_Selection.csv');
-                if (document.getElementById('chkSql')?.checked) await downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule11_Qualification_Selection.sql');
-            } catch (err) {
-                setWorkspaceState(err.message || 'Download failed.', 'error');
+            if (workspace.server) {
+                await connectServer({
+                    preferredDatabase: workspace.database || '',
+                    silent: true,
+                    statusMessage: workspace.database
+                        ? `Connected to <strong>${workspace.database}</strong>. Restored from saved run #${workspace.runId}.`
+                        : 'Connected using the saved Rule 11 workspace.'
+                });
             }
-        });
+            if (workspace.database) {
+                await loadTables({
+                    preferredQualTable:      workspace.qualTable || '',
+                    preferredCesmTable:      workspace.cesmTable || '',
+                    preferredPqmTable:       workspace.pqmTable || '',
+                    preferredQualIdCol:      workspace.qualIdCol || '',
+                    preferredQualNameCol:    workspace.qualNameCol || '',
+                    preferredQualApprovalCol: workspace.qualApprovalCol || '',
+                    preferredQualHeqfTypeCol: workspace.qualHeqfTypeCol || '',
+                    preferredCesmIdCol:      workspace.cesmIdCol || '',
+                    preferredCesmCodeCol:    workspace.cesmCodeCol || '',
+                    preferredPqmNameCol:     workspace.pqmNameCol || '',
+                    preferredPqmHeqfTypeCol: workspace.pqmHeqfTypeCol || '',
+                    preferredPqmCodeCol:     workspace.pqmCodeCol || '',
+                    silent: true
+                });
+            }
+        } catch (error) {
+            reconnectWarning = state.resultsVisible
+                ? 'Saved workspace results are still loaded from SQL, but the live source could not be reconnected.'
+                : 'The saved workspace was found in SQL, but the live source could not be reconnected.';
+            setStatus('connectionStatus', `Warning: ${escapeHtml(error?.message || 'Live SQL reconnect failed.')}`, 'warning');
+        }
+    } finally {
+        state.isHydrating = false;
+        state.isDirty = false;
+        renderWorkspaceState();
+        if (reconnectWarning) setWorkspaceInfo(reconnectWarning, 'warning');
+    }
+}
+
+async function connectServer(options = {}) {
+    state.server = document.getElementById('serverInput').value.trim();
+    state.driver = document.getElementById('driverSelect').value;
+    if (!state.server) { setStatus('connectionStatus', 'Enter a server name.', 'error'); return null; }
+    if (!options.silent) showSpinner('Connecting to server...');
+    setStatus('connectionStatus', 'Connecting...', 'info');
+    const result = await post('/Rule11/GetDatabases', { server: state.server, driver: state.driver });
+    if (!options.silent) hideSpinner();
+    if (!result.success) { setStatus('connectionStatus', `Error: ${result.error}`, 'error'); return null; }
+
+    const dbSelect = document.getElementById('databaseSelect');
+    dbSelect.innerHTML = '<option value="">Select database</option>';
+    result.databases.forEach(db => dbSelect.appendChild(new Option(db, db)));
+    document.getElementById('dbFieldGroup').style.display = 'block';
+
+    if (options.preferredDatabase && result.databases.includes(options.preferredDatabase)) {
+        dbSelect.value = options.preferredDatabase;
+        state.database = options.preferredDatabase;
     }
 
-    els.signoffBtn?.addEventListener('click', () => signoffWorkspace().catch(err => {
-        hideSpinner();
-        setWorkspaceState(err.message, 'error');
-    }));
-    els.removeSignoffBtn?.addEventListener('click', () => removeWorkspaceSignoff().catch(err => {
-        hideSpinner();
-        setWorkspaceState(err.message, 'error');
-    }));
-    document.getElementById('downloadExcelBtn')?.addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule11_Qualification_Selection.xlsx').catch(err => setWorkspaceState(err.message, 'error')));
-    document.getElementById('downloadCsvBtn')?.addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule11_Qualification_Selection.csv').catch(err => setWorkspaceState(err.message, 'error')));
-    document.getElementById('downloadSqlBtn')?.addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule11_Qualification_Selection.sql').catch(err => setWorkspaceState(err.message, 'error')));
-    els.clientId?.addEventListener('change', () => loadWorkspace().catch(err => setWorkspaceState(err.message, 'error')));
+    setStatus('connectionStatus',
+        options.statusMessage || `Connected. Found ${result.databases.length} database(s). Select one below.`, 'success');
+    return result;
+}
 
-    renderAnalysis(null);
-    renderResults();
-    renderCharts(null);
-    updateWorkspaceButtons();
-    if (state.clientId) loadWorkspace().catch(err => setWorkspaceState(err.message, 'error'));
-    else if (isResultsOnlyRole) setWorkspaceState('Select an engagement to load the saved Rule 11 results.', 'info');
-})();
+async function loadTables(options = {}) {
+    state.database = document.getElementById('databaseSelect').value;
+    if (!state.database) return null;
+    if (!options.silent) showSpinner('Loading tables...');
+
+    const result = await post('/Rule11/GetTables', { server: state.server, database: state.database, driver: state.driver });
+    if (!options.silent) hideSpinner();
+    if (!result.success) { setStatus('connectionStatus', `Error: ${result.error}`, 'error'); return null; }
+
+    setStatus('connectionStatus', `Connected to <strong>${state.database}</strong>. Found ${result.tables.length} tables.`, 'success');
+
+    ['qualTableSelect','cesmTableSelect','pqmTableSelect'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '<option value="">Select table</option>';
+        result.tables.forEach(t => sel.appendChild(new Option(t, t)));
+    });
+
+    const selQual = options.preferredQualTable || result.autoQualTable || '';
+    const selCesm = options.preferredCesmTable || result.autoCesmTable || '';
+    const selPqm  = options.preferredPqmTable  || result.autoPqmTable  || '';
+
+    setAutoTag('qualAutoTag', selQual, result.autoQualTable);
+    setAutoTag('cesmAutoTag', selCesm, result.autoCesmTable);
+    setAutoTag('pqmAutoTag',  selPqm,  result.autoPqmTable);
+
+    if (selQual && result.tables.includes(selQual)) { document.getElementById('qualTableSelect').value = selQual; state.qualTable = selQual; }
+    if (selCesm && result.tables.includes(selCesm)) { document.getElementById('cesmTableSelect').value = selCesm; state.cesmTable = selCesm; }
+    if (selPqm  && result.tables.includes(selPqm))  { document.getElementById('pqmTableSelect').value  = selPqm;  state.pqmTable  = selPqm; }
+
+    document.getElementById('body-tables').style.display = 'block';
+    document.querySelector('#acc-tables .acc-chevron').textContent = '^';
+
+    if (selQual) await loadColumnsForTable('qual', {
+        preferredIdCol: options.preferredQualIdCol, preferredNameCol: options.preferredQualNameCol,
+        preferredApprovalCol: options.preferredQualApprovalCol, preferredHeqfTypeCol: options.preferredQualHeqfTypeCol, silent: true });
+    if (selCesm) await loadColumnsForTable('cesm', {
+        preferredIdCol: options.preferredCesmIdCol, preferredCodeCol: options.preferredCesmCodeCol, silent: true });
+    if (selPqm)  await loadColumnsForTable('pqm',  {
+        preferredNameCol: options.preferredPqmNameCol, preferredHeqfTypeCol: options.preferredPqmHeqfTypeCol, preferredCodeCol: options.preferredPqmCodeCol, silent: true });
+
+    return result;
+}
+
+function setAutoTag(tagId, selected, autoValue) {
+    const el = document.getElementById(tagId);
+    if (el) el.style.display = selected && selected === autoValue ? 'inline' : 'none';
+}
+
+async function onTableChange(which) {
+    await markWorkspaceDirty();
+    if (which === 'qual') {
+        state.qualTable = document.getElementById('qualTableSelect').value;
+        if (state.qualTable) await loadColumnsForTable('qual', {});
+    } else if (which === 'cesm') {
+        state.cesmTable = document.getElementById('cesmTableSelect').value;
+        if (state.cesmTable) await loadColumnsForTable('cesm', {});
+    } else if (which === 'pqm') {
+        state.pqmTable = document.getElementById('pqmTableSelect').value;
+        if (state.pqmTable) await loadColumnsForTable('pqm', {});
+    }
+}
+
+async function loadColumnsForTable(which, options = {}) {
+    const tableName = which === 'qual' ? state.qualTable
+                    : which === 'cesm' ? state.cesmTable
+                    : state.pqmTable;
+    if (!tableName) return;
+
+    const columnRoles = which === 'qual'
+        ? [{ key: 'qual_id',        sel: 'qualIdColSelect',       autoTag: 'qualIdAutoTag',        preferred: options.preferredIdCol       || '' },
+           { key: 'qual_name',      sel: 'qualNameColSelect',     autoTag: 'qualNameAutoTag',      preferred: options.preferredNameCol     || '' },
+           { key: 'qual_approval',  sel: 'qualApprovalColSelect', autoTag: 'qualApprovalAutoTag',  preferred: options.preferredApprovalCol  || '' },
+           { key: 'qual_heqf_type', sel: 'qualHeqfTypeColSelect', autoTag: 'qualHeqfTypeAutoTag',  preferred: options.preferredHeqfTypeCol  || '' }]
+        : which === 'cesm'
+        ? [{ key: 'cesm_id',        sel: 'cesmIdColSelect',       autoTag: 'cesmIdAutoTag',        preferred: options.preferredIdCol   || '' },
+           { key: 'cesm_code',      sel: 'cesmCodeColSelect',     autoTag: 'cesmCodeAutoTag',      preferred: options.preferredCodeCol || '' }]
+        : [{ key: 'pqm_name',       sel: 'pqmNameColSelect',      autoTag: 'pqmNameAutoTag',       preferred: options.preferredNameCol      || '' },
+           { key: 'pqm_heqf_type',  sel: 'pqmHeqfTypeColSelect',  autoTag: 'pqmHeqfTypeAutoTag',   preferred: options.preferredHeqfTypeCol  || '' },
+           { key: 'pqm_code',       sel: 'pqmCodeColSelect',      autoTag: 'pqmCodeAutoTag',       preferred: options.preferredCodeCol      || '' }];
+
+    for (const roleInfo of columnRoles) {
+        const result = await post('/Rule11/GetColumns', {
+            server: state.server, database: state.database, driver: state.driver,
+            tableName, tableRole: roleInfo.key
+        });
+        if (!result.success) continue;
+
+        const columns = result.columns || result.Columns || [];
+        const autoSelected = result.autoSelected || result.AutoSelected || '';
+        const sel = document.getElementById(roleInfo.sel);
+        sel.innerHTML = '<option value="">Select column</option>';
+        columns.forEach(c => sel.appendChild(new Option(c, c)));
+
+        const preferredCol = roleInfo.preferred ? columns.find(c => c.toLowerCase() === roleInfo.preferred.toLowerCase()) : null;
+        const selectedCol = preferredCol || autoSelected || '';
+        setAutoTag(roleInfo.autoTag, selectedCol, autoSelected);
+        if (selectedCol) sel.value = selectedCol;
+
+        if (roleInfo.key === 'qual_id')        state.qualIdCol        = sel.value;
+        if (roleInfo.key === 'qual_name')       state.qualNameCol      = sel.value;
+        if (roleInfo.key === 'qual_approval')   state.qualApprovalCol  = sel.value;
+        if (roleInfo.key === 'qual_heqf_type')  state.qualHeqfTypeCol  = sel.value;
+        if (roleInfo.key === 'cesm_id')         state.cesmIdCol        = sel.value;
+        if (roleInfo.key === 'cesm_code')       state.cesmCodeCol      = sel.value;
+        if (roleInfo.key === 'pqm_name')        state.pqmNameCol       = sel.value;
+        if (roleInfo.key === 'pqm_heqf_type')   state.pqmHeqfTypeCol   = sel.value;
+        if (roleInfo.key === 'pqm_code')        state.pqmCodeCol       = sel.value;
+    }
+
+    document.getElementById('body-columns').style.display = 'block';
+    document.querySelector('#acc-columns .acc-chevron').textContent = '^';
+}
+
+function syncStateFromSelects() {
+    state.qualTable       = document.getElementById('qualTableSelect').value;
+    state.cesmTable       = document.getElementById('cesmTableSelect').value;
+    state.pqmTable        = document.getElementById('pqmTableSelect').value;
+    state.qualIdCol       = document.getElementById('qualIdColSelect').value;
+    state.qualNameCol     = document.getElementById('qualNameColSelect').value;
+    state.qualApprovalCol = document.getElementById('qualApprovalColSelect').value;
+    state.qualHeqfTypeCol = document.getElementById('qualHeqfTypeColSelect').value;
+    state.cesmIdCol       = document.getElementById('cesmIdColSelect').value;
+    state.cesmCodeCol     = document.getElementById('cesmCodeColSelect').value;
+    state.pqmNameCol      = document.getElementById('pqmNameColSelect').value;
+    state.pqmHeqfTypeCol  = document.getElementById('pqmHeqfTypeColSelect').value;
+    state.pqmCodeCol      = document.getElementById('pqmCodeColSelect').value;
+    state.qualApprovalFilterValue = (document.getElementById('qualApprovalFilterValueInput').value || defaultQualApprovalFilterValue).trim().toUpperCase() || defaultQualApprovalFilterValue;
+    state.qualTypeCodesText = (document.getElementById('qualTypeCodesTextInput').value || defaultQualTypeCodesText).trim() || defaultQualTypeCodesText;
+    document.getElementById('qualApprovalFilterValuePreview').textContent = state.qualApprovalFilterValue;
+}
+
+async function verifyTables() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can verify tables.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. Verification is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!state.server || !state.database || !state.qualTable || !state.cesmTable || !state.pqmTable || !state.qualIdCol || !state.cesmIdCol) {
+        setStatus('tableStatus', 'Select the server, database, all three tables, and the ID columns first.', 'warning'); return;
+    }
+    showSpinner('Verifying data...');
+    try {
+        const result = await post('/Rule11/VerifyTables', {
+            server: state.server, database: state.database, driver: state.driver,
+            qualTable: state.qualTable, cesmTable: state.cesmTable, pqmTable: state.pqmTable,
+            qualIdCol: state.qualIdCol, cesmIdCol: state.cesmIdCol,
+            qualApprovalCol: state.qualApprovalCol, qualHeqfTypeCol: state.qualHeqfTypeCol,
+            qualApprovalFilterValue: state.qualApprovalFilterValue, qualTypeCodesText: state.qualTypeCodesText
+        });
+        if (!result.success) { setStatus('tableStatus', `Error: ${result.error}`, 'error'); return; }
+        setStatus('tableStatus', `
+            <strong>Verification Complete</strong><br>
+            ${state.qualTable}: <strong>${result.qualTotal.toLocaleString()}</strong> records<br>
+            ${state.cesmTable}: <strong>${result.cesmTotal.toLocaleString()}</strong> records<br>
+            ${state.pqmTable}: <strong>${result.pqmTotal.toLocaleString()}</strong> PQM rows<br>
+            QUAL LEFT JOIN CESM: <strong>${result.mergedTotal.toLocaleString()}</strong> records<br>
+            <em>Ready to run full validation against PQM.</em>
+        `, 'success');
+    } finally { hideSpinner(); }
+}
+
+async function runValidation(options = {}) {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can run Rule 11.', 'error'); return null; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. Validation is disabled.', 'error'); return null; }
+    syncStateFromSelects();
+    if (!validateConfig()) return null;
+    showSpinner(options.spinnerMessage || 'Running validation... this may take a moment for large datasets.');
+    try {
+        const result = await post('/Rule11/RunValidation', buildRequest());
+        if (!result.success) {
+            const el = document.getElementById('validationContent');
+            el.classList.remove('empty-state');
+            el.innerHTML = `<div class="alert alert--error">Error: ${escapeHtml(result.error)}</div>`;
+            switchTab('validation');
+            return null;
+        }
+        applyValidationResult(result, options);
+        if (currentSystemRole === 'DataAnalyst') {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo('Validation saved. Save the workspace and sign off again before others review this run.', 'warning');
+            renderWorkspaceState();
+        }
+        return result;
+    } finally { hideSpinner(); }
+}
+
+function applyValidationResult(result, options = {}) {
+    state.validationResult = result;
+    state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    if (!options.fromWorkspace) state.currentRunId = result.savedRunId || state.currentRunId;
+    state.currentUserHasSignedOff = options.fromWorkspace ? !!state.currentUserHasSignedOff : false;
+    state.hasDataAnalystSignoff = options.fromWorkspace ? !!state.hasDataAnalystSignoff : false;
+    if (!options.fromWorkspace) state.editWarningAccepted = false;
+    state.isDirty = false;
+    document.getElementById('downloadAllBtn').disabled = false;
+    updateHeaderBadge(result.status);
+    renderValidationResults(result);
+    renderExceptions(result);
+    renderDownloads(result);
+    if (options.switchToValidation !== false) switchTab('validation');
+    renderWorkspaceState();
+}
+
+function renderSectionHeader(title, subtitle, meta) {
+    return `<div class="section-header">
+        <div>
+            <div class="section-header__title">${escapeHtml(title)}</div>
+            <div class="section-header__subtitle">${escapeHtml(subtitle)}</div>
+        </div>
+        ${meta ? `<div class="section-header__meta">${meta}</div>` : ''}
+    </div>`;
+}
+
+function renderValidationResults(r) {
+    if (!state.validationView) state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    const rate = parseFloat(r.exceptionRate);
+    const rateColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
+    const allRows = r.validationRows || [];
+    const filteredRows = allRows.filter(row => state.validationView.filter === 'ALL' || row.validationResult === state.validationView.filter);
+    const pageSize = uiPreviewRowLimit;
+    const totalRows = filteredRows.length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    const currentPage = Math.min(Math.max(state.validationView.page || 1, 1), totalPages);
+    state.validationView.page = currentPage;
+    const startIndex = (currentPage - 1) * pageSize;
+    const pageRows = filteredRows.slice(startIndex, startIndex + pageSize);
+
+    const rowsHtml = pageRows.length === 0
+        ? `<div class="alert alert--info">No rows match the selected filter.</div>`
+        : `<div class="results-table-shell">
+            <div class="table-wrapper">
+                <table class="data-table rule11-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
+                            <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_QUAL</th>
+                            <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_CESM</th>
+                            <th colspan="3" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">PQM</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Results</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Comments</th>
+                        </tr>
+                        <tr>
+                            <th style="background:#AED581;font-size:11px">_001</th>
+                            <th style="background:#AED581;font-size:11px">_003</th>
+                            <th style="background:#AED581;font-size:11px">_004</th>
+                            <th style="background:#AED581;font-size:11px">_005</th>
+                            <th style="background:#AED581;font-size:11px">_053</th>
+                            <th style="background:#AED581;font-size:11px">_054</th>
+                            <th style="background:#AED581;font-size:11px">_084</th>
+                            <th style="background:#AED581;font-size:11px">_090</th>
+                            <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
+                            <th style="background:#80DEEA;font-size:11px">_001</th>
+                            <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">_006</th>
+                            <th style="background:#CE93D8;font-size:10px;max-width:160px">Authorised_Qualification_Name</th>
+                            <th style="background:#CE93D8;font-size:10px;max-width:120px">HEQF_Qual_Type</th>
+                            <th style="background:#CE93D8;font-size:10px;max-width:80px;border-right:2px solid #6A1B9A">CESM_Code</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${pageRows.map(row => `
+                        <tr style="${row.validationResult === 'PASS' ? 'background:#f3fff3' : 'background:#fff3f3'}">
+                            <td style="text-align:center">${row.validationNumber}</td>
+                            <td>${escapeHtml(row.qualId || '')}</td>
+                            <td>${escapeHtml(row.qualName || '')}</td>
+                            <td>${escapeHtml(row.qualApproval || '')}</td>
+                            <td>${escapeHtml(row.qualHeqfType || '')}</td>
+                            <td>${escapeHtml(row.qual053 || '')}</td>
+                            <td>${escapeHtml(row.qual054 || '')}</td>
+                            <td>${escapeHtml(row.qual084 || '')}</td>
+                            <td>${escapeHtml(row.qual090 || '')}</td>
+                            <td style="font-weight:700;color:${getPopulationType(row.qualHeqfType, row.populationType) === 'Postgraduate' ? '#1B5E20' : '#1565C0'}">${escapeHtml(getPopulationType(row.qualHeqfType, row.populationType))}</td>
+                            <td>${escapeHtml(row.qualId || '')}</td>
+                            <td style="${row.validationResult !== 'PASS' && !row.cesmCodeMatch ? 'background:#fff3e0' : ''}">${escapeHtml(row.cesmCode || '')}</td>
+                            <td style="${!row.pqmName ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmName ? escapeHtml(row.pqmName) : 'To be confirmed manually if we did not get Auto'}</td>
+                            <td style="${!row.pqmHeqfType ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmHeqfType ? escapeHtml(row.pqmHeqfType) : 'To be confirmed manually'}</td>
+                            <td style="${row.validationResult !== 'PASS' && !row.cesmCodeMatch ? 'background:#fff3e0' : ''}">${escapeHtml(row.pqmCode || '')}</td>
+                            <td style="text-align:center"><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
+                            <td></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">${totalRows.toLocaleString()} row(s) after filter. Showing ${pageRows.length ? startIndex + 1 : 0}&ndash;${startIndex + pageRows.length}.</div>
+        </div>`;
+
+    const el = document.getElementById('validationContent');
+    el.classList.remove('empty-state');
+    el.innerHTML = `
+        ${renderSectionHeader(
+            'Rule 11: QUAL vs CESM vs PQM Validation',
+            'Database ' + escapeHtml(r.database) + ' | QUAL: ' + escapeHtml(r.qualTable) + ' | CESM: ' + escapeHtml(r.cesmTable) + ' | PQM: ' + escapeHtml(r.pqmTable),
+            'Scope: QUAL approval = ' + escapeHtml(state.qualApprovalFilterValue) + '<br>Postgraduate codes: ' + escapeHtml(state.qualTypeCodesText) + '<br>Approved rows are labelled Undergraduate or Postgraduate<br>Run: ' + escapeHtml(r.timestamp)
+        )}
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-card__label">Records Validated</div><div class="stat-card__value">${r.totalValidated.toLocaleString()}</div></div>
+            <div class="stat-card stat-card--pass"><div class="stat-card__label">PASS (All matched)</div><div class="stat-card__value">${r.passCount.toLocaleString()}</div></div>
+            <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL (Mismatch)</div><div class="stat-card__value">${r.failCount.toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-card__label">Exception Rate</div><div class="stat-card__value" style="color:${rateColor}">${rate.toFixed(2)}%</div></div>
+        </div>
+        <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
+            ${r.status === 'PASS'
+                ? 'VALIDATION PASSED — All qualification names, HEQF types, and CESM codes matched the PQM register'
+                : 'VALIDATION FAILED — ' + r.failCount.toLocaleString() + ' record(s) could not be matched'}
+        </div>
+        <div class="results-table-panel">
+            <div class="panel-title-row">
+                <h4>Validation Rows</h4>
+                <span class="panel-title-badge">${totalRows.toLocaleString()} filtered rows</span>
+            </div>
+            <div class="validation-toolbar">
+                <div class="validation-toolbar__group">
+                    <label for="validationFilter">Filter</label>
+                    <select id="validationFilter" onchange="setValidationFilter(this.value)">
+                        <option value="ALL" ${state.validationView.filter === 'ALL' ? 'selected' : ''}>All</option>
+                        <option value="PASS" ${state.validationView.filter === 'PASS' ? 'selected' : ''}>Passed</option>
+                        <option value="FAIL" ${state.validationView.filter === 'FAIL' ? 'selected' : ''}>Failed</option>
+                    </select>
+                </div>
+                <div class="validation-toolbar__meta">Showing ${pageRows.length ? startIndex + 1 : 0}&ndash;${startIndex + pageRows.length} of ${totalRows.toLocaleString()}</div>
+                <div class="validation-pager">
+                    <button class="btn btn-sm btn-info" onclick="setValidationPage(-1)" ${currentPage <= 1 ? 'disabled' : ''}>Prev</button>
+                    <span class="validation-pager__status">Page ${currentPage} of ${totalPages}</span>
+                    <button class="btn btn-sm btn-info" onclick="setValidationPage(1)" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>
+                </div>
+            </div>
+            ${rowsHtml}
+        </div>`;
+}
+
+function renderExceptions(r) {
+    const el = document.getElementById('exceptionsContent');
+    el.classList.remove('empty-state');
+    if (r.failCount === 0) {
+        el.innerHTML = renderSectionHeader('Rule 11 Exceptions', 'QUAL/CESM vs PQM mismatches', 'Exceptions: 0') +
+            '<div class="alert alert--success">No exceptions — all records matched the PQM register successfully.</div>';
+        return;
+    }
+    const exRows = (r.exceptions || []).slice(0, 10).map((ex, i) => `
+        <tr style="${i % 2 === 0 ? '' : 'background:#f9fafb'}">
+            <td style="text-align:center">${ex.validationNumber}</td>
+            <td>${escapeHtml(ex.qualId || '')}</td>
+            <td>${escapeHtml(ex.qualName || '')}</td>
+            <td>${escapeHtml(ex.qualApproval || '')}</td>
+            <td>${escapeHtml(ex.qualHeqfType || '')}</td>
+            <td>${escapeHtml(ex.qual053 || '')}</td>
+            <td>${escapeHtml(ex.qual054 || '')}</td>
+            <td>${escapeHtml(ex.qual084 || '')}</td>
+            <td>${escapeHtml(ex.qual090 || '')}</td>
+            <td style="font-weight:700;color:${getPopulationType(ex.qualHeqfType, ex.populationType) === 'Postgraduate' ? '#1B5E20' : '#1565C0'}">${escapeHtml(getPopulationType(ex.qualHeqfType, ex.populationType))}</td>
+            <td>${escapeHtml(ex.qualId || '')}</td>
+            <td style="${!ex.cesmCodeMatch ? 'background:#fff3e0' : ''}">${escapeHtml(ex.cesmCode || '')}</td>
+            <td style="${!ex.pqmName ? 'color:#888;font-style:italic;font-size:11px' : ''}">${ex.pqmName ? escapeHtml(ex.pqmName) : 'Not found in PQM'}</td>
+            <td style="${!ex.pqmHeqfType ? 'color:#888;font-style:italic;font-size:11px' : ''}">${ex.pqmHeqfType ? escapeHtml(ex.pqmHeqfType) : 'N/A'}</td>
+            <td style="${!ex.cesmCodeMatch ? 'background:#fff3e0' : ''}">${escapeHtml(ex.pqmCode || '')}</td>
+            <td style="text-align:center"><span class="badge badge--fail">${escapeHtml(ex.validationResult)}</span></td>
+            <td style="font-size:11px">${escapeHtml(ex.exceptionReason)}</td>
+            <td></td>
+        </tr>`).join('');
+
+    el.innerHTML = `
+        ${renderSectionHeader('Rule 11 Exceptions', 'Records that could not be matched on the PQM register',
+            'Exceptions: ' + r.failCount.toLocaleString() + '<br>Validated: ' + escapeHtml(r.timestamp))}
+        <div class="results-table-shell">
+            <div class="table-wrapper">
+                <table class="data-table rule11-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
+                            <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_QUAL</th>
+                            <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_CESM</th>
+                            <th colspan="3" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">PQM</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Results</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Exception Reason</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Comments</th>
+                        </tr>
+                        <tr>
+                            <th style="background:#AED581;font-size:11px">_001</th>
+                            <th style="background:#AED581;font-size:11px">_003</th>
+                            <th style="background:#AED581;font-size:11px">_004</th>
+                            <th style="background:#AED581;font-size:11px">_005</th>
+                            <th style="background:#AED581;font-size:11px">_053</th>
+                            <th style="background:#AED581;font-size:11px">_054</th>
+                            <th style="background:#AED581;font-size:11px">_084</th>
+                            <th style="background:#AED581;font-size:11px">_090</th>
+                            <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
+                            <th style="background:#80DEEA;font-size:11px">_001</th>
+                            <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">_006</th>
+                            <th style="background:#CE93D8;font-size:10px">Authorised_Qualification_Name</th>
+                            <th style="background:#CE93D8;font-size:10px">HEQF_Qual_Type</th>
+                            <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">CESM_Code</th>
+                        </tr>
+                    </thead>
+                    <tbody>${exRows}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+function renderCharts(r) {
+    Object.values(state.chartInstances).forEach(c => c.destroy());
+    state.chartInstances = {};
+    const rate = parseFloat(r.exceptionRate);
+    const rateBarColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
+    const cc = document.getElementById('chartsContent');
+    cc.classList.remove('empty-state');
+    cc.innerHTML = `
+        ${renderSectionHeader('Rule 11 Visualisation', 'QUAL vs CESM vs PQM validation summary', 'Status: ' + escapeHtml(r.status))}
+        <div class="charts-grid">
+            <div class="chart-card"><h4>Validation Results</h4><canvas id="chartPassFail"></canvas></div>
+            <div class="chart-card"><h4>Exception Rate: ${rate.toFixed(2)}%</h4><canvas id="chartRate"></canvas></div>
+            <div class="chart-card chart-card--status ${r.status === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                <h4>Validation Status</h4><div class="big-status">${r.status === 'PASS' ? 'PASS' : 'FAIL'}</div>
+            </div>
+            <div class="chart-card"><h4>Summary</h4>
+                <div class="summary-text">
+                    <div><span>Total Records</span><strong>${r.totalValidated.toLocaleString()}</strong></div>
+                    <div><span>PASS</span><strong class="text-success">${r.passCount.toLocaleString()}</strong></div>
+                    <div><span>FAIL</span><strong class="text-danger">${r.failCount.toLocaleString()}</strong></div>
+                    <div><span>Exception Rate</span><strong style="color:${rateBarColor}">${rate.toFixed(2)}%</strong></div>
+                </div>
+            </div>
+        </div>`;
+
+    state.chartInstances.passFail = new Chart(document.getElementById('chartPassFail'), {
+        type: 'bar',
+        data: { labels: ['PASS','FAIL'], datasets: [{ data: [r.passCount, r.failCount], backgroundColor: ['#4CAF50','#F44336'], borderWidth: 0 }] },
+        options: { maintainAspectRatio: false, responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+    state.chartInstances.rate = new Chart(document.getElementById('chartRate'), {
+        type: 'bar',
+        data: { labels: ['Exception Rate'], datasets: [
+            { data: [rate], backgroundColor: [rateBarColor], label: 'Exception %' },
+            { data: [Math.max(0, 100 - rate)], backgroundColor: ['#E0E0E0'], label: 'Pass %' }
+        ]},
+        options: { indexAxis: 'y', maintainAspectRatio: false, responsive: true, plugins: { legend: { display: false } },
+            scales: { x: { stacked: true, max: 100 }, y: { stacked: true } } }
+    });
+}
+
+function renderDownloads(r) {
+    const el = document.getElementById('downloadsContent');
+    const canUseSql = currentSystemRole === 'DataAnalyst' && !isArchivedWorkspace();
+    el.classList.remove('empty-state');
+    el.innerHTML = `
+        <div class="downloads-panel">
+            ${renderSectionHeader('Download Results',
+                'Configuration and results are saved. Other assigned users only see this run after the data analyst signs off.',
+                'Completed: ' + escapeHtml(r.timestamp) + (r.savedRunId ? '<br>Saved Run: #' + r.savedRunId : '') + (state.currentUserHasSignedOff ? '<br>Analyst signoff: saved' : '')
+            )}
+            <div class="download-buttons download-buttons--wide">
+                <button class="btn btn-success" onclick="downloadExcel()">Excel</button>
+                <button class="btn btn-info" onclick="downloadCsv()">Full CSV</button>
+                <button class="btn btn-info" onclick="downloadExceptionsCsv()">Exceptions CSV</button>
+                ${canUseSql ? '<button class="btn btn-primary" onclick="downloadSql()">SQL Script</button>' : ''}
+                ${r.savedRunId ? '<a href="/Rule11/Run/' + r.savedRunId + '" class="btn btn-secondary">' + (canUseSql ? 'Open Saved Run and Sign Off' : 'Open Saved Run') + '</a>' : ''}
+            </div>
+            <div class="download-summary-grid">
+                <div class="download-summary-card"><span>Validated</span><strong>${r.totalValidated.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>PASS</span><strong class="text-success">${r.passCount.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>FAIL</span><strong class="text-danger">${r.failCount.toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>Exception Rate</span><strong>${parseFloat(r.exceptionRate).toFixed(2)}%</strong></div>
+            </div>
+        </div>`;
+}
+
+async function generateSql() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate SQL.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. SQL generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating SQL...');
+    try {
+        const result = await post('/Rule11/GenerateSql', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('sqlContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            ${renderSectionHeader('Rule 11 SQL Code', 'Generated SQL matches the QUAL vs CESM vs PQM validation formula', 'Database: ' + escapeHtml(state.database || ''))}
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('sqlCode')">Copy</button>
+                <button class="btn btn-sm btn-info" onclick="downloadSql()">Download SQL</button>
+            </div>
+            <div class="sql-panel"><pre id="sqlCode" class="sql-block">${escapeHtml(result.sql)}</pre></div>`;
+        switchTab('sql');
+    } finally { hideSpinner(); }
+}
+
+function setValidationFilter(filter) {
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    state.validationView.filter = filter;
+    state.validationView.page = 1;
+    if (state.validationResult) renderValidationResults(state.validationResult);
+}
+
+function setValidationPage(delta) {
+    if (!state.validationResult) return;
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    state.validationView.page = Math.max(1, (state.validationView.page || 1) + delta);
+    renderValidationResults(state.validationResult);
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function validateConfig() {
+    syncStateFromSelects();
+    const missing = [];
+    if (!state.clientId)         missing.push('engagement');
+    if (!state.server)           missing.push('server');
+    if (!state.database)         missing.push('database');
+    if (!state.qualTable)        missing.push('QUAL table');
+    if (!state.cesmTable)        missing.push('CESM table');
+    if (!state.pqmTable)         missing.push('PQM table');
+    if (!state.qualIdCol)        missing.push('QUAL ID column');
+    if (!state.qualNameCol)      missing.push('QUAL Name column');
+    if (!state.qualApprovalCol)  missing.push('QUAL Approval column');
+    if (!state.qualHeqfTypeCol)  missing.push('QUAL HEQF Type column');
+    if (!state.cesmIdCol)        missing.push('CESM ID column');
+    if (!state.cesmCodeCol)      missing.push('CESM Code column');
+    if (!state.pqmNameCol)       missing.push('PQM Name column');
+    if (!state.pqmHeqfTypeCol)   missing.push('PQM HEQF Type column');
+    if (!state.pqmCodeCol)       missing.push('PQM Code column');
+
+    if (missing.length) {
+        if (!state.clientId) setWorkspaceInfo('Select the approved engagement assigned to you before running this rule.', 'warning');
+        setStatus('validationContent', 'Please select ' + missing.join(', ') + ' first.', 'warning');
+        switchTab('validation');
+        return false;
+    }
+    return true;
+}
+
+function buildRequest() {
+    syncStateFromSelects();
+    return {
+        clientId: state.clientId, runId: state.currentRunId,
+        server: state.server, database: state.database, driver: state.driver,
+        qualTable: state.qualTable, qualIdCol: state.qualIdCol, qualNameCol: state.qualNameCol,
+        qualApprovalCol: state.qualApprovalCol, qualHeqfTypeCol: state.qualHeqfTypeCol,
+        qualApprovalFilterValue: state.qualApprovalFilterValue, qualTypeCodesText: state.qualTypeCodesText,
+        cesmTable: state.cesmTable, cesmIdCol: state.cesmIdCol, cesmCodeCol: state.cesmCodeCol,
+        pqmTable: state.pqmTable, pqmNameCol: state.pqmNameCol,
+        pqmHeqfTypeCol: state.pqmHeqfTypeCol, pqmCodeCol: state.pqmCodeCol
+    };
+}
+
+function fileStamp() {
+    return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '');
+}
+
+async function downloadExcel() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule11/DownloadExcel', state.validationResult, 'Rule11_QUAL_CESM_PQM_Validation_' + fileStamp() + '.xlsx');
+}
+async function downloadCsv() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule11/DownloadCsv', state.validationResult, 'Rule11_Validation_Results_' + fileStamp() + '.csv');
+}
+async function downloadExceptionsCsv() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule11/DownloadExceptionsCsv', state.validationResult, 'Rule11_QUAL_CESM_PQM_Exceptions_' + fileStamp() + '.csv');
+}
+async function downloadSql() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can download the SQL script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. SQL download is disabled.', 'error'); return; }
+    if (!validateConfig()) return;
+    await downloadPost('/Rule11/DownloadSql', buildRequest(), 'Rule11_QUAL_CESM_PQM_Validation_' + fileStamp() + '.sql');
+}
+async function downloadAll() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    const tasks = [];
+    if (document.getElementById('chkExcel')?.checked) tasks.push(() => downloadExcel());
+    if (document.getElementById('chkCsv')?.checked) tasks.push(() => downloadCsv());
+    if (document.getElementById('chkExceptionsCsv')?.checked) tasks.push(() => downloadExceptionsCsv());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql')?.checked) tasks.push(() => downloadSql());
+    if (!tasks.length) { alert('Select at least one download format.'); return; }
+    for (const task of tasks) await task();
+}
+
+function copyToClipboard(elId) {
+    navigator.clipboard.writeText(document.getElementById(elId).textContent).then(() => alert('Copied to clipboard!'));
+}
+
+async function saveWorkspace() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can save this workspace.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. Saving is disabled.', 'error'); return; }
+    if (!state.currentRunId) { setWorkspaceInfo('Run validation first so the workspace can be saved.', 'error'); return; }
+    showSpinner('Saving workspace...');
+    try {
+        const result = await post('/Rule11/SaveWorkspace', buildRequest());
+        if (!result.success) { setWorkspaceInfo('Error: ' + escapeHtml(result.error || 'Failed to save workspace.'), 'error'); return; }
+        state.editWarningAccepted = true;
+        state.isDirty = false;
+        if (result.workspace) {
+            state.currentRunId = result.workspace.runId || state.currentRunId;
+            state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+            state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
+            state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
+            state.isWorkspaceSaved = !!result.workspace.isWorkspaceSaved;
+            document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || document.getElementById('signoffComment').value;
+            if (result.workspace.summary) applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+        }
+        setWorkspaceInfo(result.message || 'Workspace saved.', result.signoffsCleared ? 'warning' : 'success');
+        renderWorkspaceState();
+    } finally { hideSpinner(); }
+}
+
+async function signOffWorkspace() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const canSign = !isArchivedWorkspace() && state.currentRunId &&
+        (currentSystemRole === 'DataAnalyst' || (state.resultsVisible && (role === 'Manager' || role === 'Director')));
+    if (!canSign) { setWorkspaceInfo('This workspace can only be signed off by the assigned analyst, manager, or director after the analyst review is available.', 'error'); return; }
+    if (!state.isWorkspaceSaved) { setWorkspaceInfo('Save the workspace first before signing off.', 'warning'); return; }
+    if (state.isDirty) { setWorkspaceInfo('Save the workspace first. Editing removes signoffs and requires a fresh review.', 'warning'); return; }
+    showSpinner('Saving analyst signoff...');
+    try {
+        const result = await post('/Rule11/SignOffWorkspace', {
+            clientId: state.clientId, runId: state.currentRunId,
+            comment: document.getElementById('signoffComment').value.trim()
+        });
+        if (!result.success) { setWorkspaceInfo('Error: ' + escapeHtml(result.error || 'Failed to save signoff.'), 'error'); return; }
+        const visible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible') ? !!result.resultsVisible : !!result.workspace?.resultsVisible;
+        if (result.workspace) { result.workspace.resultsVisible = visible; await hydrateWorkspace(result.workspace); }
+        state.isDirty = false;
+        setWorkspaceInfo('Workspace signoff saved. Other assigned users can now review this signed run.', 'success');
+        renderWorkspaceState();
+        switchTab('downloads');
+    } finally { hideSpinner(); }
+}
+
+async function removeWorkspaceSignoff() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const canSign = !isArchivedWorkspace() && state.currentRunId &&
+        (currentSystemRole === 'DataAnalyst' || (state.resultsVisible && (role === 'Manager' || role === 'Director')));
+    if (!canSign || !state.currentUserHasSignedOff) { setWorkspaceInfo('There is no signoff for your assigned engagement role to remove.', 'error'); return; }
+    showSpinner('Removing signoff...');
+    try {
+        const result = await post('/Rule11/RemoveWorkspaceSignoff', { clientId: state.clientId, runId: state.currentRunId, comment: '' });
+        if (!result.success) { setWorkspaceInfo('Error: ' + escapeHtml(result.error || 'Failed to remove signoff.'), 'error'); return; }
+        const visible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible') ? !!result.resultsVisible : !!result.workspace?.resultsVisible;
+        if (result.workspace) { result.workspace.resultsVisible = visible; await hydrateWorkspace(result.workspace); }
+        setWorkspaceInfo('Signoff removed.', 'warning');
+        renderWorkspaceState();
+    } finally { hideSpinner(); }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    document.getElementById('serverInput').addEventListener('input', async () => {
+        state.server = document.getElementById('serverInput').value.trim();
+        await markWorkspaceDirty();
+    });
+    document.getElementById('driverSelect').addEventListener('change', async () => {
+        state.driver = document.getElementById('driverSelect').value;
+        await markWorkspaceDirty();
+    });
+    document.getElementById('databaseSelect').addEventListener('change', async e => {
+        state.database = e.target.value;
+        await markWorkspaceDirty();
+        await loadTables();
+    });
+    ['qualIdColSelect','qualNameColSelect','qualApprovalColSelect','qualHeqfTypeColSelect',
+     'cesmIdColSelect','cesmCodeColSelect',
+     'pqmNameColSelect','pqmHeqfTypeColSelect','pqmCodeColSelect'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', async () => {
+            syncStateFromSelects();
+            await markWorkspaceDirty();
+        });
+    });
+
+    renderWorkspaceState();
+    if (state.clientId > 0) await loadWorkspaceState();
+});
 </script>

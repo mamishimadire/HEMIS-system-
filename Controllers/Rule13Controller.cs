@@ -97,18 +97,7 @@ namespace HemisAudit.Controllers
             if (workspace != null)
                 workspace.ResultsVisible = resultsVisible;
 
-            if (workspace != null && !resultsVisible)
-            {
-                workspace.Server = "";
-                workspace.Database = "";
-                workspace.Driver = "ODBC Driver 17 for SQL Server";
-                workspace.StudTable = "dbo_CESM";
-                workspace.QualTable = "dbo_QUAL";
-                workspace.CregTable = "dbo_STUD";
-                workspace.CrseTable = "dbo_STUD";
-                workspace.PgTypesText = "";
-                workspace.Summary = null;
-            }
+            if (workspace != null && !resultsVisible) workspace.Summary = null;
 
             return Json(new
             {

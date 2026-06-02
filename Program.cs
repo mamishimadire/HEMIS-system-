@@ -4,12 +4,19 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using System.IO.Compression;
+using System.Globalization;
 using HemisAudit.Data;
 using HemisAudit.Filters;
 using HemisAudit.Models;
 using HemisAudit.Services;
+using Newtonsoft.Json.Serialization;
+
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+CultureInfo.DefaultThreadCurrentCulture = new CultureInfo("en-US");
+CultureInfo.DefaultThreadCurrentUICulture = new CultureInfo("en-US");
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls("http://localhost:5076");
 var dataProtectionPath = Path.Combine(builder.Environment.ContentRootPath, ".run", "data-protection-keys");
 
 Directory.CreateDirectory(dataProtectionPath);
@@ -91,7 +98,10 @@ builder.Services.Configure<GzipCompressionProviderOptions>(options =>
 builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.AddService<PasswordAgeFilter>();
-}).AddNewtonsoftJson()
+}).AddNewtonsoftJson(options =>
+{
+    options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+})
   .AddSessionStateTempDataProvider();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRule12Service, Rule12Service>();
@@ -114,12 +124,32 @@ builder.Services.AddScoped<IRule26Service, Rule26Service>();
 builder.Services.AddScoped<IRule28Service, Rule28Service>();
 builder.Services.AddScoped<IRule35Service, Rule35Service>();
 builder.Services.AddScoped<IRule36Service, Rule36Service>();
+builder.Services.AddScoped<IRule37Service, Rule37Service>();
+builder.Services.AddScoped<IRule38Service, Rule38Service>();
+builder.Services.AddScoped<IRule39Service, Rule39Service>();
+builder.Services.AddScoped<IRule40Service, Rule40Service>();
+builder.Services.AddScoped<IRule41Service, Rule41Service>();
+builder.Services.AddScoped<IRule45Service, Rule45Service>();
+builder.Services.AddScoped<IRule47Service, Rule47Service>();
+builder.Services.AddScoped<IRule48Service, Rule48Service>();
+builder.Services.AddScoped<IRule46Service, Rule46Service>();
+builder.Services.AddScoped<IRule44Service, Rule44Service>();
 builder.Services.AddScoped<IRule34Service, Rule34Service>();
 builder.Services.AddScoped<IRule32Service, Rule32Service>();
 builder.Services.AddScoped<IRule31Service, Rule31Service>();
 builder.Services.AddScoped<IRule30Service, Rule30Service>();
 builder.Services.AddScoped<IRule29Service, Rule29Service>();
 builder.Services.AddScoped<IRule27Service, Rule27Service>();
+builder.Services.AddScoped<IRule51Service, Rule51Service>();
+builder.Services.AddScoped<IRule52Service, Rule52Service>();
+builder.Services.AddScoped<IRule53Service, Rule53Service>();
+builder.Services.AddScoped<IRule54Service, Rule54Service>();
+builder.Services.AddScoped<IRule55Service, Rule55Service>();
+builder.Services.AddScoped<IRule57Service, Rule57Service>();
+builder.Services.AddScoped<IRule58Service, Rule58Service>();
+builder.Services.AddScoped<IRule59Service, Rule59Service>();
+builder.Services.AddScoped<IRule60Service, Rule60Service>();
+builder.Services.AddScoped<IRule61Service, Rule61Service>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddSingleton<IValidationOperationService, ValidationOperationService>();
@@ -163,8 +193,12 @@ app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>
     {
-        if (context.User.Identity?.IsAuthenticated == true &&
-            HttpMethods.IsGet(context.Request.Method))
+        if (HttpMethods.IsGet(context.Request.Method) &&
+            !context.Request.Path.StartsWithSegments("/css") &&
+            !context.Request.Path.StartsWithSegments("/js") &&
+            !context.Request.Path.StartsWithSegments("/lib") &&
+            !context.Request.Path.StartsWithSegments("/images") &&
+            !context.Request.Path.StartsWithSegments("/uploads"))
         {
             context.Response.Headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate";
             context.Response.Headers["Pragma"] = "no-cache";
@@ -311,9 +345,159 @@ app.MapControllerRoute(
     defaults: new { controller = "Rule36", action = "Index" });
 
 app.MapControllerRoute(
+    name: "rule37-short",
+    pattern: "Rule37",
+    defaults: new { controller = "Rule37", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule38-short",
+    pattern: "Rule38",
+    defaults: new { controller = "Rule38", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule39-short",
+    pattern: "Rule39",
+    defaults: new { controller = "Rule39", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule40-short",
+    pattern: "Rule40",
+    defaults: new { controller = "Rule40", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule41-short",
+    pattern: "Rule41",
+    defaults: new { controller = "Rule41", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule44-short",
+    pattern: "Rule44",
+    defaults: new { controller = "Rule44", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule45-short",
+    pattern: "Rule45",
+    defaults: new { controller = "Rule45", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule47-short",
+    pattern: "Rule47",
+    defaults: new { controller = "Rule47", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule48-short",
+    pattern: "Rule48",
+    defaults: new { controller = "Rule48", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule46-short",
+    pattern: "Rule46",
+    defaults: new { controller = "Rule46", action = "Index" });
+
+app.MapControllerRoute(
     name: "rule34-short",
     pattern: "Rule34",
     defaults: new { controller = "Rule34", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule51-run",
+    pattern: "Rule51/Run/{id:int}",
+    defaults: new { controller = "Rule51", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule51-short",
+    pattern: "Rule51",
+    defaults: new { controller = "Rule51", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule52-run",
+    pattern: "Rule52/Run/{id:int}",
+    defaults: new { controller = "Rule52", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule52-short",
+    pattern: "Rule52",
+    defaults: new { controller = "Rule52", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule53-run",
+    pattern: "Rule53/Run/{id:int}",
+    defaults: new { controller = "Rule53", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule53-short",
+    pattern: "Rule53",
+    defaults: new { controller = "Rule53", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule54-run",
+    pattern: "Rule54/Run/{id:int}",
+    defaults: new { controller = "Rule54", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule54-short",
+    pattern: "Rule54",
+    defaults: new { controller = "Rule54", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule55-run",
+    pattern: "Rule55/Run/{id:int}",
+    defaults: new { controller = "Rule55", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule55-short",
+    pattern: "Rule55",
+    defaults: new { controller = "Rule55", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule59-run",
+    pattern: "Rule59/Run/{id:int}",
+    defaults: new { controller = "Rule59", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule59-short",
+    pattern: "Rule59",
+    defaults: new { controller = "Rule59", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule60-run",
+    pattern: "Rule60/Run/{id:int}",
+    defaults: new { controller = "Rule60", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule60-short",
+    pattern: "Rule60",
+    defaults: new { controller = "Rule60", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule61-run",
+    pattern: "Rule61/Run/{id:int}",
+    defaults: new { controller = "Rule61", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule61-short",
+    pattern: "Rule61",
+    defaults: new { controller = "Rule61", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule58-run",
+    pattern: "Rule58/Run/{id:int}",
+    defaults: new { controller = "Rule58", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule58-short",
+    pattern: "Rule58",
+    defaults: new { controller = "Rule58", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule57-run",
+    pattern: "Rule57/Run/{id:int}",
+    defaults: new { controller = "Rule57", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule57-short",
+    pattern: "Rule57",
+    defaults: new { controller = "Rule57", action = "Index" });
 
 app.MapControllerRoute(
     name: "messages-short",

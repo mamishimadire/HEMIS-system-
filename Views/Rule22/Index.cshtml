@@ -92,11 +92,11 @@
                 <span class="acc-chevron">v</span>
             </button>
             <div class="accordion-body" id="body-config" style="display:none">
-                <div class="info-box info-box--red">
+                <div class="info-box info-box--red" id="controlDefinitionsBox">
                     <strong>Control Definitions:</strong><br />
-                    <span>Control 1: <code>_041='PE' AND _039='01'</code></span><br />
-                    <span>Control 2: <code>_041='PE' AND _039&lt;&gt;'01'</code></span><br />
-                    <span>Control 3: <code>_041&lt;&gt;'PE' AND _039&lt;&gt;'01'</code></span>
+                    <span>Control 1: <code id="ctrl1Def">_041='PE' AND _039='01'</code></span><br />
+                    <span>Control 2: <code id="ctrl2Def">_041='PE' AND _039&lt;&gt;'01'</code></span><br />
+                    <span>Control 3: <code id="ctrl3Def">_041&lt;&gt;'PE' AND _039&lt;&gt;'01'</code></span>
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
@@ -110,6 +110,14 @@
                     <div class="field-group">
                         <label for="column039">Column _039</label>
                         <select id="column039"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="filterValue041">Filter Value for _041 <span style="color:#757575;font-size:11px">(e.g. PE)</span></label>
+                        <input type="text" id="filterValue041" value="PE" placeholder="PE" maxlength="50" />
+                    </div>
+                    <div class="field-group">
+                        <label for="filterValue039">Filter Value for _039 <span style="color:#757575;font-size:11px">(e.g. 01)</span></label>
+                        <input type="text" id="filterValue039" value="01" placeholder="01" maxlength="50" />
                     </div>
                 </div>
                 <div id="configOutput" class="status-output"></div>
@@ -258,6 +266,8 @@
         profTable: document.getElementById('profTable'),
         column041: document.getElementById('column041'),
         column039: document.getElementById('column039'),
+        filterValue041: document.getElementById('filterValue041'),
+        filterValue039: document.getElementById('filterValue039'),
         connectionOutput: document.getElementById('connectionOutput'),
         configOutput: document.getElementById('configOutput'),
         workspaceInfo: document.getElementById('workspaceInfo'),
@@ -353,6 +363,15 @@
         });
     }
 
+    function updateControlDefinitionsBox() {
+        var fv041 = (els.filterValue041?.value || 'PE').trim() || 'PE';
+        var fv039 = (els.filterValue039?.value || '01').trim() || '01';
+        var e041 = escapeHtml(fv041), e039 = escapeHtml(fv039);
+        var d1 = document.getElementById('ctrl1Def'); if (d1) d1.textContent = `_041='${fv041}' AND _039='${fv039}'`;
+        var d2 = document.getElementById('ctrl2Def'); if (d2) d2.textContent = `_041='${fv041}' AND _039<>'${fv039}'`;
+        var d3 = document.getElementById('ctrl3Def'); if (d3) d3.textContent = `_041<>'${fv041}' AND _039<>'${fv039}'`;
+    }
+
     function getRequest() {
         return {
             clientId: Number(els.clientId.value || 0),
@@ -363,6 +382,8 @@
             profTable: els.profTable.value || '',
             column041: els.column041.value || '_041',
             column039: els.column039.value || '_039',
+            filterValue041: (els.filterValue041?.value || 'PE').trim() || 'PE',
+            filterValue039: (els.filterValue039?.value || '01').trim() || '01',
             control1SampleSize: 0,
             control2SampleSize: 0,
             control3SampleSize: 0
@@ -1012,6 +1033,9 @@
             await loadProfColumns(false);
             if (workspace.column041) els.column041.value = workspace.column041;
             if (workspace.column039) els.column039.value = workspace.column039;
+            if (els.filterValue041) els.filterValue041.value = workspace.filterValue041 || 'PE';
+            if (els.filterValue039) els.filterValue039.value = workspace.filterValue039 || '01';
+            updateControlDefinitionsBox();
 
             updateWorkspaceCard(workspace);
 
@@ -1060,6 +1084,9 @@
         if (document.getElementById('chkSql').checked) await downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule22.sql');
     });
 
+    if (els.filterValue041) els.filterValue041.addEventListener('input', updateControlDefinitionsBox);
+    if (els.filterValue039) els.filterValue039.addEventListener('input', updateControlDefinitionsBox);
+    updateControlDefinitionsBox();
     renderResults(null);
     updateWorkspaceActions();
     if (state.clientId > 0) loadWorkspace();

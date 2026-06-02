@@ -73,6 +73,8 @@ namespace HemisAudit.ViewModels
         public string EmployeeCode { get; set; } = "";
         public string? ProfilePicturePath { get; set; }
         public bool IsActive { get; set; }
+        public bool IsLockedOut { get; set; }
+        public DateTimeOffset? LockoutEnd { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? LastLoginAt { get; set; }
         public List<string> Roles { get; set; } = new();

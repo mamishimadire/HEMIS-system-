@@ -141,6 +141,17 @@
                             <option value="">Select column</option>
                         </select>
                     </div>
+                    <div class="field-group">
+                        <label>Block Column <small style="font-weight:normal">(optional — filter excluded values)</small></label>
+                        <select id="blockColumnSelect">
+                            <option value="">None (no block filter)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="field-group" id="blockExcludeGroup" style="margin-top:12px">
+                    <label for="blockExcludeInput">Block Values to Exclude <small style="font-weight:normal">(comma-separated, case-insensitive)</small></label>
+                    <input type="text" id="blockExcludeInput" value="5, 5F, 8F, 8G, R0, R1, R2" placeholder="e.g. 5, 5F, 8F, 8G, R0, R1, R2" />
+                    <small style="color:var(--text-muted)">Rows where the Block column contains any of these values will be excluded from the validation.</small>
                 </div>
                 <div class="status-output" id="configStatus"></div>
                 <div id="verifyPreview" class="validation-preview" style="display:none"></div>
@@ -244,6 +255,8 @@ const state = {
     censusDateColumn: '',
     startYear: parseInt(document.getElementById('startYearInput').value || '0') || new Date().getFullYear(),
     endYear: parseInt(document.getElementById('endYearInput').value || '0') || new Date().getFullYear(),
+    blockColumn: '',
+    blockExcludeValues: '5, 5F, 8F, 8G, R0, R1, R2',
     currentRunId: null,
     validationResult: null,
     currentUserEngagementRole: '',
@@ -382,6 +395,8 @@ function resetWorkspaceState(clearClient) {
     document.getElementById('firstDaySelect').innerHTML = '<option value="">Select column</option>';
     document.getElementById('lastDaySelect').innerHTML = '<option value="">Select column</option>';
     document.getElementById('censusDateSelect').innerHTML = '<option value="">Select column</option>';
+    document.getElementById('blockColumnSelect').innerHTML = '<option value="">None (no block filter)</option>';
+    document.getElementById('blockExcludeInput').value = '5, 5F, 8F, 8G, R0, R1, R2';
     document.getElementById('dbFieldGroup').style.display = 'none';
     document.getElementById('signoffComment').value = '';
     document.getElementById('verifyPreview').style.display = 'none';
@@ -510,6 +525,8 @@ function applyWorkspace(workspace, preserveMessage) {
     state.censusDateColumn = workspace.censusDateColumn || '';
     state.startYear = workspace.startYear || state.startYear;
     state.endYear = workspace.endYear || state.endYear;
+    state.blockColumn = workspace.blockColumn || '';
+    state.blockExcludeValues = workspace.blockExcludeValues || '5, 5F, 8F, 8G, R0, R1, R2';
     state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
     state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
     state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
@@ -523,7 +540,15 @@ function applyWorkspace(workspace, preserveMessage) {
     document.getElementById('driverSelect').value = state.driver;
     document.getElementById('startYearInput').value = state.startYear;
     document.getElementById('endYearInput').value = state.endYear;
+    document.getElementById('blockExcludeInput').value = state.blockExcludeValues;
     document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
+    if (state.blockColumn) {
+        const bSel = document.getElementById('blockColumnSelect');
+        if (![...bSel.options].some(o => o.value === state.blockColumn)) {
+            const o = document.createElement('option'); o.value = o.textContent = state.blockColumn; bSel.appendChild(o);
+        }
+        bSel.value = state.blockColumn;
+    }
     if (state.database) {
         document.getElementById('dbFieldGroup').style.display = 'block';
         document.getElementById('databaseSelect').innerHTML = `<option value="${escapeHtml(state.database)}">${escapeHtml(state.database)}</option>`;
@@ -573,7 +598,17 @@ function applyWorkspaceReviewState(workspace) {
     state.censusDateColumn = workspace.censusDateColumn || state.censusDateColumn;
     state.startYear = workspace.startYear || state.startYear;
     state.endYear = workspace.endYear || state.endYear;
+    state.blockColumn = workspace.blockColumn || state.blockColumn;
+    state.blockExcludeValues = workspace.blockExcludeValues || state.blockExcludeValues;
     state.currentUserEngagementRole = workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+    document.getElementById('blockExcludeInput').value = state.blockExcludeValues;
+    if (state.blockColumn) {
+        const bSel = document.getElementById('blockColumnSelect');
+        if (![...bSel.options].some(o => o.value === state.blockColumn)) {
+            const o = document.createElement('option'); o.value = o.textContent = state.blockColumn; bSel.appendChild(o);
+        }
+        bSel.value = state.blockColumn;
+    }
     state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
     state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
     state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
@@ -776,9 +811,12 @@ async function loadColumns() {
 function populateRule34ColumnSelects(result) {
     const options = '<option value="">Select column</option>' +
         (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    const blockOptions = '<option value="">None (no block filter)</option>' +
+        (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
     document.getElementById('firstDaySelect').innerHTML = options;
     document.getElementById('lastDaySelect').innerHTML = options;
     document.getElementById('censusDateSelect').innerHTML = options;
+    document.getElementById('blockColumnSelect').innerHTML = blockOptions;
 
     if (result.autoFirstDayColumn) {
         document.getElementById('firstDaySelect').value = result.autoFirstDayColumn;
@@ -791,6 +829,10 @@ function populateRule34ColumnSelects(result) {
     if (result.autoCensusDateColumn) {
         document.getElementById('censusDateSelect').value = result.autoCensusDateColumn;
         state.censusDateColumn = result.autoCensusDateColumn;
+    }
+    if (result.autoBlockColumn) {
+        document.getElementById('blockColumnSelect').value = result.autoBlockColumn;
+        state.blockColumn = result.autoBlockColumn;
     }
 }
 
@@ -809,7 +851,8 @@ async function verifyTable() {
             tableName: state.tableName,
             firstDayColumn: state.firstDayColumn,
             lastDayColumn: state.lastDayColumn,
-            censusDateColumn: state.censusDateColumn
+            censusDateColumn: state.censusDateColumn,
+            blockColumn: state.blockColumn || ''
         });
 
         if (!result.success) {
@@ -817,19 +860,22 @@ async function verifyTable() {
             return;
         }
 
+        const blockColActive = state.blockColumn || '';
+        const colCount = blockColActive ? 4 : 3;
         const rows = (result.sampleRows || []).map(r => {
             const values = r.values || {};
             return `<tr>
                 <td>${escapeHtml(values[state.firstDayColumn] || '')}</td>
                 <td>${escapeHtml(values[state.lastDayColumn] || '')}</td>
                 <td>${escapeHtml(values[state.censusDateColumn] || '')}</td>
+                ${blockColActive ? `<td>${escapeHtml(values[blockColActive] || '')}</td>` : ''}
             </tr>`;
         }).join('');
 
         const preview = document.getElementById('verifyPreview');
         preview.style.display = 'block';
         preview.innerHTML = `
-            <div class="alert alert--success">Total records: <strong>${result.totalRecords.toLocaleString()}</strong></div>
+            <div class="alert alert--success">Total records: <strong>${result.totalRecords.toLocaleString()}</strong>${blockColActive ? ` &nbsp;|&nbsp; Block filter column: <strong>${escapeHtml(blockColActive)}</strong>` : ''}</div>
             <div class="table-wrapper">
                 <table class="data-table">
                     <thead>
@@ -837,9 +883,10 @@ async function verifyTable() {
                             <th>${escapeHtml(state.firstDayColumn)}</th>
                             <th>${escapeHtml(state.lastDayColumn)}</th>
                             <th>${escapeHtml(state.censusDateColumn)}</th>
+                            ${blockColActive ? `<th>${escapeHtml(blockColActive)} (block)</th>` : ''}
                         </tr>
                     </thead>
-                    <tbody>${rows || '<tr><td colspan="3">No sample rows returned.</td></tr>'}</tbody>
+                    <tbody>${rows || `<tr><td colspan="${colCount}">No sample rows returned.</td></tr>`}</tbody>
                 </table>
             </div>`;
     } finally {
@@ -882,7 +929,9 @@ function buildRequest() {
         lastDayColumn: state.lastDayColumn,
         censusDateColumn: state.censusDateColumn,
         startYear: state.startYear,
-        endYear: state.endYear
+        endYear: state.endYear,
+        blockColumn: state.blockColumn || '',
+        blockExcludeValues: state.blockExcludeValues || ''
     };
 }
 
@@ -931,9 +980,14 @@ function applyValidationResult(result, switchToValidationTab, options = {}) {
 }
 
 function renderValidationResults(r) {
-    const rows = (r.validationRows || []).slice(0, 10).map(row => `
+    const blockCol = r.blockColumn || '';
+    const excludedVals = r.blockExcludeValues || '';
+    const rows = (r.validationRows || []).slice(0, 10).map(row => {
+        const isExcludedBlock = blockCol && excludedVals.split(',').map(v => v.trim().toUpperCase()).includes((row.blockValue||'').trim().toUpperCase());
+        return `
         <tr>
             <td>${row.validationNumber}</td>
+            ${blockCol ? `<td style="font-weight:700;color:${isExcludedBlock?'var(--rule15-fail)':'inherit'}">${escapeHtml(row.blockValue||'')}</td>` : ''}
             <td>${escapeHtml(row.firstDayValue)}</td>
             <td>${escapeHtml(row.lastDayValue)}</td>
             <td>${row.currentDays ?? ''}</td>
@@ -943,7 +997,8 @@ function renderValidationResults(r) {
             <td>${escapeHtml(row.censusDateValue)}</td>
             <td>${escapeHtml(row.dayStatus)}</td>
             <td><span class="badge ${row.dateMatch ? 'badge--pass' : 'badge--fail'}">${escapeHtml(row.validationStatus)}</span></td>
-        </tr>`).join('');
+        </tr>`;
+    }).join('');
 
     const content = document.getElementById('validationContent');
     content.classList.remove('empty-state');
@@ -953,17 +1008,20 @@ function renderValidationResults(r) {
             <div class="stat-card stat-card--pass"><div class="stat-card__label">Pass</div><div class="stat-card__value">${r.passCount.toLocaleString()}</div></div>
             <div class="stat-card stat-card--fail"><div class="stat-card__label">Fail</div><div class="stat-card__value">${r.failCount.toLocaleString()}</div></div>
             <div class="stat-card"><div class="stat-card__label">Mismatch Rate</div><div class="stat-card__value">${parseFloat(r.exceptionRate).toFixed(2)}%</div></div>
+            ${(r.excludedRowCount > 0 || r.blockColumn) ? `<div class="stat-card"><div class="stat-card__label">Excluded (Block Filter)</div><div class="stat-card__value">${(r.excludedRowCount||0).toLocaleString()}</div></div>` : ''}
         </div>
         <div class="card" style="padding:18px;margin-bottom:18px">
             <strong>Holiday Years:</strong> ${escapeHtml(r.holidayYearRange)}<br>
             <strong>Computed Holidays:</strong> ${r.holidayCount.toLocaleString()}<br>
             <strong>Computed Weekends:</strong> ${r.weekendCount.toLocaleString()}
+            ${r.blockColumn ? `<br><strong>Block Filter Column:</strong> ${escapeHtml(r.blockColumn)} &nbsp;|&nbsp; <strong>Excluded Values:</strong> ${escapeHtml(r.blockExcludeValues)} &nbsp;|&nbsp; <strong>Rows Excluded:</strong> ${(r.excludedRowCount||0).toLocaleString()}` : ''}
         </div>
         <div class="table-wrapper">
             <table class="data-table">
                 <thead>
                     <tr>
                         <th>#</th>
+                        ${blockCol ? `<th style="background:var(--rule15-group-stud)">${escapeHtml(blockCol)} (block)</th>` : ''}
                         <th>First Day</th>
                         <th>Last Day</th>
                         <th>c_Days</th>
@@ -982,9 +1040,12 @@ function renderValidationResults(r) {
 }
 
 function renderExceptions(r) {
+    const blockCol = r.blockColumn || '';
+    const colSpan = blockCol ? 11 : 10;
     const rows = (r.exceptions || []).map(row => `
         <tr>
             <td>${row.validationNumber}</td>
+            ${blockCol ? `<td style="font-weight:700">${escapeHtml(row.blockValue||'')}</td>` : ''}
             <td>${escapeHtml(row.firstDayValue)}</td>
             <td>${escapeHtml(row.lastDayValue)}</td>
             <td>${row.currentDays ?? ''}</td>
@@ -1002,12 +1063,14 @@ function renderExceptions(r) {
         <div class="card" style="padding:18px;margin-bottom:18px">
             <strong>Exceptions:</strong> ${r.failCount.toLocaleString()}<br>
             <strong>Completed:</strong> ${escapeHtml(r.timestamp)}
+            ${blockCol ? `<br><strong>Block column:</strong> ${escapeHtml(blockCol)} &nbsp;|&nbsp; <strong>Excluded values:</strong> ${escapeHtml(r.blockExcludeValues||'')} &nbsp;|&nbsp; <strong>Rows excluded from validation:</strong> ${(r.excludedRowCount||0).toLocaleString()}` : ''}
         </div>
         <div class="table-wrapper">
             <table class="data-table">
                 <thead>
                     <tr>
                         <th>#</th>
+                        ${blockCol ? `<th style="background:var(--rule15-group-stud)">${escapeHtml(blockCol)} (block)</th>` : ''}
                         <th>First Day</th>
                         <th>Last Day</th>
                         <th>c_Days</th>
@@ -1019,7 +1082,7 @@ function renderExceptions(r) {
                         <th>Validation Status</th>
                     </tr>
                 </thead>
-                <tbody>${rows || '<tr><td colspan="10">No exceptions found.</td></tr>'}</tbody>
+                <tbody>${rows || `<tr><td colspan="${colSpan}">No exceptions found.</td></tr>`}</tbody>
             </table>
         </div>`;
 }
@@ -1322,6 +1385,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('censusDateSelect').addEventListener('change', async e => {
         state.censusDateColumn = e.target.value;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('blockColumnSelect').addEventListener('change', async e => {
+        state.blockColumn = e.target.value;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('blockExcludeInput').addEventListener('change', async e => {
+        state.blockExcludeValues = e.target.value;
         await markWorkspaceDirty();
     });
 

@@ -73,7 +73,7 @@ namespace HemisAudit.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetWorkspaceState(int clientId)
+        public async Task<IActionResult> GetWorkspaceState(int clientId, bool includeSummary = false)
         {
             var user = await _users.GetUserAsync(User);
             var role = await GetCurrentSystemRoleAsync(user);
@@ -88,21 +88,13 @@ namespace HemisAudit.Controllers
                 return Json(new { success = false, error = "You cannot access this engagement." });
             }
 
-            var workspace = await _rule12.GetCurrentWorkspaceStateAsync(clientId, user?.Email);
+            var workspace = await _rule12.GetCurrentWorkspaceStateAsync(clientId, user?.Email, includeSummary);
             var resultsVisible = CanViewWorkspaceResults(role, workspace);
 
             if (workspace != null)
                 workspace.ResultsVisible = resultsVisible;
 
-            if (workspace != null && !resultsVisible)
-            {
-                workspace.Server = "";
-                workspace.Database = "";
-                workspace.Driver = "ODBC Driver 17 for SQL Server";
-                workspace.CregTable = "dbo_CREG";
-                workspace.CrseTable = "dbo_CRSE";
-                workspace.Summary = null;
-            }
+            if (workspace != null && !resultsVisible) workspace.Summary = null;
 
             return Json(new
             {
@@ -158,12 +150,20 @@ namespace HemisAudit.Controllers
 
             review.GeneratedSql = await _rule12.GenerateSqlAsync(new Rule12ValidationRequest
             {
-                ClientId = review.ClientId,
-                Server = review.SourceServer,
-                Database = review.Summary.Database,
-                StudTable = review.Summary.StudTable,
-                BridgeTable = review.Summary.BridgeTable,
-                CrseTable = review.Summary.CrseTable
+                ClientId         = review.ClientId,
+                Server           = review.SourceServer,
+                Database         = review.Summary.Database,
+                CregTable        = review.Summary.CregTable,
+                QualTable        = review.Summary.QualTable,
+                CresTable        = review.Summary.CresTable,
+                CregStudentCol   = review.Summary.CregStudentCol,
+                CregQualCol      = review.Summary.CregQualCol,
+                CregCourseCol    = review.Summary.CregCourseCol,
+                QualJoinCol      = review.Summary.QualJoinCol,
+                QualDescCol      = review.Summary.QualDescCol,
+                CresCourseCol    = review.Summary.CresCourseCol,
+                CresStatusCol    = review.Summary.CresStatusCol,
+                CresStatusFilter = review.Summary.CresStatusFilter
             });
 
             return View(review);
@@ -176,6 +176,11 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> GetTables([FromBody] ConnectionViewModel model) =>
             Json(await RequireDataAnalystAsync(async () => await _rule12.GetTablesAsync(model.Server, model.Database, model.Driver)));
+
+        [HttpPost]
+        public async Task<IActionResult> GetColumns([FromBody] Rule12VerifyRequest request) =>
+            Json(await RequireDataAnalystAsync(async () =>
+                await _rule12.GetColumnsAsync(request.Server, request.Database, request.Driver, request.CregTable)));
 
         [HttpPost]
         public async Task<IActionResult> VerifyTables([FromBody] Rule12VerifyRequest request) =>
@@ -730,7 +735,6 @@ namespace HemisAudit.Controllers
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
     }
 }
-
 
 
 

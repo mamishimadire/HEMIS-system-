@@ -277,7 +277,7 @@
         const bridgeTableName = summary.bridgeTable || summary.cregTable || 'dbo_CREG';
 
         const rowHtml = rows.map(row => {
-            const v = row.displayValues || {};
+            const rawV = row.displayValues || {}; const v = Object.fromEntries(Object.entries(rawV).map(([k, val]) => [k.toUpperCase(), val]));
             const resultText = row.validationResult === 'FAIL' ? 'Fail' : 'Pass';
             const studCriteriaMessage = v.STUD_CRITERIA_MESSAGE || `${resultText} this criteria on dbo_STUD: ${criteriaText}`;
             const bridgeMessage = v.BRIDGE_LINK_MESSAGE || `${resultText} bridge linkage check`;

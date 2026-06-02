@@ -570,76 +570,126 @@ END";
 -- STUD Columns: Student# [{studStudentColumn}], Qual [{studQualColumn}], ID# [{studIdColumn}]
 -- Audit Columns: Student# [{auditStudentColumn}], Qual [{auditQualColumn}], ID# [{auditIdColumn}]
 -- H16 Columns: Student# [{h16StudentColumn}], Qual [{h16QualColumn}], ID# [{h16IdColumn}]
+-- NOTE: ID comparisons strip leading zeros (0504... = 504...) to ignore ingestion artefacts.
 -- ================================================================
 
-SELECT
-    CAST(STUD.[{studStudentColumn}] AS nvarchar(255)) AS STUD_StudentNum,
-    CAST(STUD.[{studQualColumn}] AS nvarchar(255)) AS STUD_QualCode,
-    CAST(STUD.[{studIdColumn}] AS nvarchar(255)) AS STUD_IDNum,
-    CAST(AUDIT.[{auditStudentColumn}] AS nvarchar(255)) AS AUDIT_StudentNum,
-    CAST(AUDIT.[{auditQualColumn}] AS nvarchar(255)) AS AUDIT_QualCode,
-    CAST(AUDIT.[{auditIdColumn}] AS nvarchar(255)) AS AUDIT_IDNum,
-    CAST(H16.[{h16StudentColumn}] AS nvarchar(255)) AS H16_StudentNum,
-    CAST(H16.[{h16QualColumn}] AS nvarchar(255)) AS H16_QualCode,
-    CAST(H16.[{h16IdColumn}] AS nvarchar(255)) AS H16_IDNum,
-    CASE 
-        WHEN H16.[{h16StudentColumn}] IS NULL THEN 'MISSING_IN_H16'
-        WHEN STUD.[{studIdColumn}] <> H16.[{h16IdColumn}] THEN 'ID_MISMATCH_H16'
-        WHEN STUD.[{studQualColumn}] <> H16.[{h16QualColumn}] THEN 'QUAL_MISMATCH_H16'
-        WHEN AUDIT.[{auditStudentColumn}] IS NULL THEN 'MISSING_IN_AUDIT'
-        WHEN STUD.[{studIdColumn}] <> AUDIT.[{auditIdColumn}] THEN 'ID_MISMATCH_AUDIT'
-        WHEN STUD.[{studQualColumn}] <> AUDIT.[{auditQualColumn}] THEN 'QUAL_MISMATCH_AUDIT'
-        ELSE 'MATCH'
-    END AS Reconciliation_Status,
-    CASE
-        WHEN H16.[{h16StudentColumn}] IS NULL THEN 'H16 record missing'
-        WHEN STUD.[{studIdColumn}] <> H16.[{h16IdColumn}] THEN 'ID mismatch with H16'
-        WHEN STUD.[{studQualColumn}] <> H16.[{h16QualColumn}] THEN 'Qualification mismatch with H16'
-        WHEN AUDIT.[{auditStudentColumn}] IS NULL THEN 'Audit record missing'
-        WHEN STUD.[{studIdColumn}] <> AUDIT.[{auditIdColumn}] THEN 'ID mismatch with Audit'
-        WHEN STUD.[{studQualColumn}] <> AUDIT.[{auditQualColumn}] THEN 'Qualification mismatch with Audit'
-        ELSE 'All records match'
-    END AS Issue_Description
-FROM [{studTable}] STUD
-LEFT JOIN [{auditTable}] AUDIT
-    ON STUD.[{studStudentColumn}] = AUDIT.[{auditStudentColumn}]
-LEFT JOIN [{h16Table}] H16
-    ON STUD.[{studStudentColumn}] = H16.[{h16StudentColumn}]
-WHERE
-    H16.[{h16StudentColumn}] IS NULL
-    OR STUD.[{studIdColumn}] <> H16.[{h16IdColumn}]
-    OR STUD.[{studQualColumn}] <> H16.[{h16QualColumn}]
-    OR AUDIT.[{auditStudentColumn}] IS NULL
-    OR STUD.[{studIdColumn}] <> AUDIT.[{auditIdColumn}]
-    OR STUD.[{studQualColumn}] <> AUDIT.[{auditQualColumn}];
-
-SELECT
-    Reconciliation_Status,
-    COUNT(*) AS Issue_Count
-FROM (
+WITH SourceJoined AS (
     SELECT
-        CASE
-            WHEN H16.[{h16StudentColumn}] IS NULL THEN 'MISSING_IN_H16'
-            WHEN STUD.[{studIdColumn}] <> H16.[{h16IdColumn}] THEN 'ID_MISMATCH_H16'
-            WHEN STUD.[{studQualColumn}] <> H16.[{h16QualColumn}] THEN 'QUAL_MISMATCH_H16'
-            WHEN AUDIT.[{auditStudentColumn}] IS NULL THEN 'MISSING_IN_AUDIT'
-            WHEN STUD.[{studIdColumn}] <> AUDIT.[{auditIdColumn}] THEN 'ID_MISMATCH_AUDIT'
-            WHEN STUD.[{studQualColumn}] <> AUDIT.[{auditQualColumn}] THEN 'QUAL_MISMATCH_AUDIT'
-            ELSE 'MATCH'
-        END AS Reconciliation_Status
+        CAST(STUD.[{studStudentColumn}] AS nvarchar(255)) AS STUD_StudentNum,
+        CAST(STUD.[{studQualColumn}] AS nvarchar(255)) AS STUD_QualCode,
+        CAST(STUD.[{studIdColumn}] AS nvarchar(255)) AS STUD_IDNum,
+        CAST(AUDIT.[{auditStudentColumn}] AS nvarchar(255)) AS AUDIT_StudentNum,
+        CAST(AUDIT.[{auditQualColumn}] AS nvarchar(255)) AS AUDIT_QualCode,
+        CAST(AUDIT.[{auditIdColumn}] AS nvarchar(255)) AS AUDIT_IDNum,
+        CAST(H16.[{h16StudentColumn}] AS nvarchar(255)) AS H16_StudentNum,
+        CAST(H16.[{h16QualColumn}] AS nvarchar(255)) AS H16_QualCode,
+        CAST(H16.[{h16IdColumn}] AS nvarchar(255)) AS H16_IDNum
     FROM [{studTable}] STUD
     LEFT JOIN [{auditTable}] AUDIT
         ON STUD.[{studStudentColumn}] = AUDIT.[{auditStudentColumn}]
     LEFT JOIN [{h16Table}] H16
         ON STUD.[{studStudentColumn}] = H16.[{h16StudentColumn}]
-    WHERE
-        H16.[{h16StudentColumn}] IS NULL
-        OR STUD.[{studIdColumn}] <> H16.[{h16IdColumn}]
-        OR STUD.[{studQualColumn}] <> H16.[{h16QualColumn}]
-        OR AUDIT.[{auditStudentColumn}] IS NULL
-        OR STUD.[{studIdColumn}] <> AUDIT.[{auditIdColumn}]
-        OR STUD.[{studQualColumn}] <> AUDIT.[{auditQualColumn}]
-) Results
+),
+NormalizedIds AS (
+    SELECT
+        STUD_StudentNum, STUD_QualCode, STUD_IDNum,
+        AUDIT_StudentNum, AUDIT_QualCode, AUDIT_IDNum,
+        H16_StudentNum, H16_QualCode, H16_IDNum,
+        CASE WHEN STUD_IDNum IS NULL OR STUD_IDNum = '' THEN STUD_IDNum
+             WHEN STUD_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(STUD_IDNum, PATINDEX('%[^0]%', STUD_IDNum), 255) END AS STUD_IDNum_Norm,
+        CASE WHEN AUDIT_IDNum IS NULL OR AUDIT_IDNum = '' THEN AUDIT_IDNum
+             WHEN AUDIT_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(AUDIT_IDNum, PATINDEX('%[^0]%', AUDIT_IDNum), 255) END AS AUDIT_IDNum_Norm,
+        CASE WHEN H16_IDNum IS NULL OR H16_IDNum = '' THEN H16_IDNum
+             WHEN H16_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(H16_IDNum, PATINDEX('%[^0]%', H16_IDNum), 255) END AS H16_IDNum_Norm
+    FROM SourceJoined
+),
+Reconciliation AS (
+    SELECT
+        STUD_StudentNum, STUD_QualCode, STUD_IDNum,
+        AUDIT_StudentNum, AUDIT_QualCode, AUDIT_IDNum,
+        H16_StudentNum, H16_QualCode, H16_IDNum,
+        CASE
+            WHEN H16_StudentNum IS NULL THEN 'MISSING_IN_H16'
+            WHEN STUD_IDNum_Norm <> H16_IDNum_Norm THEN 'ID_MISMATCH_H16'
+            WHEN STUD_QualCode <> H16_QualCode THEN 'QUAL_MISMATCH_H16'
+            WHEN AUDIT_StudentNum IS NULL THEN 'MISSING_IN_AUDIT'
+            WHEN STUD_IDNum_Norm <> AUDIT_IDNum_Norm THEN 'ID_MISMATCH_AUDIT'
+            WHEN STUD_QualCode <> AUDIT_QualCode THEN 'QUAL_MISMATCH_AUDIT'
+            ELSE 'MATCH'
+        END AS Reconciliation_Status,
+        CASE
+            WHEN H16_StudentNum IS NULL THEN 'H16 record missing'
+            WHEN STUD_IDNum_Norm <> H16_IDNum_Norm THEN 'ID mismatch with H16'
+            WHEN STUD_QualCode <> H16_QualCode THEN 'Qualification mismatch with H16'
+            WHEN AUDIT_StudentNum IS NULL THEN 'Audit record missing'
+            WHEN STUD_IDNum_Norm <> AUDIT_IDNum_Norm THEN 'ID mismatch with Audit'
+            WHEN STUD_QualCode <> AUDIT_QualCode THEN 'Qualification mismatch with Audit'
+            ELSE 'All records match'
+        END AS Issue_Description
+    FROM NormalizedIds
+)
+SELECT
+    STUD_StudentNum, STUD_QualCode, STUD_IDNum,
+    AUDIT_StudentNum, AUDIT_QualCode, AUDIT_IDNum,
+    H16_StudentNum, H16_QualCode, H16_IDNum,
+    Reconciliation_Status,
+    Issue_Description
+FROM Reconciliation
+WHERE Reconciliation_Status <> 'MATCH';
+
+WITH SourceJoined AS (
+    SELECT
+        CAST(STUD.[{studStudentColumn}] AS nvarchar(255)) AS STUD_StudentNum,
+        CAST(STUD.[{studQualColumn}] AS nvarchar(255)) AS STUD_QualCode,
+        CAST(STUD.[{studIdColumn}] AS nvarchar(255)) AS STUD_IDNum,
+        CAST(AUDIT.[{auditStudentColumn}] AS nvarchar(255)) AS AUDIT_StudentNum,
+        CAST(AUDIT.[{auditQualColumn}] AS nvarchar(255)) AS AUDIT_QualCode,
+        CAST(AUDIT.[{auditIdColumn}] AS nvarchar(255)) AS AUDIT_IDNum,
+        CAST(H16.[{h16StudentColumn}] AS nvarchar(255)) AS H16_StudentNum,
+        CAST(H16.[{h16QualColumn}] AS nvarchar(255)) AS H16_QualCode,
+        CAST(H16.[{h16IdColumn}] AS nvarchar(255)) AS H16_IDNum
+    FROM [{studTable}] STUD
+    LEFT JOIN [{auditTable}] AUDIT
+        ON STUD.[{studStudentColumn}] = AUDIT.[{auditStudentColumn}]
+    LEFT JOIN [{h16Table}] H16
+        ON STUD.[{studStudentColumn}] = H16.[{h16StudentColumn}]
+),
+NormalizedIds AS (
+    SELECT
+        STUD_StudentNum, STUD_QualCode, STUD_IDNum,
+        AUDIT_StudentNum, AUDIT_QualCode, AUDIT_IDNum,
+        H16_StudentNum, H16_QualCode, H16_IDNum,
+        CASE WHEN STUD_IDNum IS NULL OR STUD_IDNum = '' THEN STUD_IDNum
+             WHEN STUD_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(STUD_IDNum, PATINDEX('%[^0]%', STUD_IDNum), 255) END AS STUD_IDNum_Norm,
+        CASE WHEN AUDIT_IDNum IS NULL OR AUDIT_IDNum = '' THEN AUDIT_IDNum
+             WHEN AUDIT_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(AUDIT_IDNum, PATINDEX('%[^0]%', AUDIT_IDNum), 255) END AS AUDIT_IDNum_Norm,
+        CASE WHEN H16_IDNum IS NULL OR H16_IDNum = '' THEN H16_IDNum
+             WHEN H16_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(H16_IDNum, PATINDEX('%[^0]%', H16_IDNum), 255) END AS H16_IDNum_Norm
+    FROM SourceJoined
+),
+Reconciliation AS (
+    SELECT
+        CASE
+            WHEN H16_StudentNum IS NULL THEN 'MISSING_IN_H16'
+            WHEN STUD_IDNum_Norm <> H16_IDNum_Norm THEN 'ID_MISMATCH_H16'
+            WHEN STUD_QualCode <> H16_QualCode THEN 'QUAL_MISMATCH_H16'
+            WHEN AUDIT_StudentNum IS NULL THEN 'MISSING_IN_AUDIT'
+            WHEN STUD_IDNum_Norm <> AUDIT_IDNum_Norm THEN 'ID_MISMATCH_AUDIT'
+            WHEN STUD_QualCode <> AUDIT_QualCode THEN 'QUAL_MISMATCH_AUDIT'
+            ELSE 'MATCH'
+        END AS Reconciliation_Status
+    FROM NormalizedIds
+)
+SELECT
+    Reconciliation_Status,
+    COUNT(*) AS Issue_Count
+FROM Reconciliation
 GROUP BY Reconciliation_Status
 ORDER BY Issue_Count DESC;";
 
@@ -1316,7 +1366,7 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
             string h16StudentColumn,
             string h16QualColumn,
             string h16IdColumn) => $@"
-WITH Reconciliation AS (
+WITH SourceJoined AS (
     SELECT
         CAST(STUD.[{studStudentColumn}] AS nvarchar(255)) AS STUD_StudentNum,
         CAST(STUD.[{studQualColumn}] AS nvarchar(255)) AS STUD_QualCode,
@@ -1326,30 +1376,54 @@ WITH Reconciliation AS (
         CAST(AUDIT.[{auditIdColumn}] AS nvarchar(255)) AS AUDIT_IDNum,
         CAST(H16.[{h16StudentColumn}] AS nvarchar(255)) AS H16_StudentNum,
         CAST(H16.[{h16QualColumn}] AS nvarchar(255)) AS H16_QualCode,
-        CAST(H16.[{h16IdColumn}] AS nvarchar(255)) AS H16_IDNum,
-        CASE
-            WHEN H16.[{h16StudentColumn}] IS NULL THEN 'MISSING_IN_H16'
-            WHEN STUD.[{studIdColumn}] <> H16.[{h16IdColumn}] THEN 'ID_MISMATCH_H16'
-            WHEN STUD.[{studQualColumn}] <> H16.[{h16QualColumn}] THEN 'QUAL_MISMATCH_H16'
-            WHEN AUDIT.[{auditStudentColumn}] IS NULL THEN 'MISSING_IN_AUDIT'
-            WHEN STUD.[{studIdColumn}] <> AUDIT.[{auditIdColumn}] THEN 'ID_MISMATCH_AUDIT'
-            WHEN STUD.[{studQualColumn}] <> AUDIT.[{auditQualColumn}] THEN 'QUAL_MISMATCH_AUDIT'
-            ELSE 'MATCH'
-        END AS Reconciliation_Status,
-        CASE
-            WHEN H16.[{h16StudentColumn}] IS NULL THEN 'H16 record missing'
-            WHEN STUD.[{studIdColumn}] <> H16.[{h16IdColumn}] THEN 'ID mismatch with H16'
-            WHEN STUD.[{studQualColumn}] <> H16.[{h16QualColumn}] THEN 'Qualification mismatch with H16'
-            WHEN AUDIT.[{auditStudentColumn}] IS NULL THEN 'Audit record missing'
-            WHEN STUD.[{studIdColumn}] <> AUDIT.[{auditIdColumn}] THEN 'ID mismatch with Audit'
-            WHEN STUD.[{studQualColumn}] <> AUDIT.[{auditQualColumn}] THEN 'Qualification mismatch with Audit'
-            ELSE 'All records match'
-        END AS Issue_Description
+        CAST(H16.[{h16IdColumn}] AS nvarchar(255)) AS H16_IDNum
     FROM [{studTable}] STUD
     LEFT JOIN [{auditTable}] AUDIT
         ON STUD.[{studStudentColumn}] = AUDIT.[{auditStudentColumn}]
     LEFT JOIN [{h16Table}] H16
         ON STUD.[{studStudentColumn}] = H16.[{h16StudentColumn}]
+),
+NormalizedIds AS (
+    -- Strip leading zeros from ID columns so that 0504080678080 = 504080678080 (ingestion artefact)
+    SELECT
+        STUD_StudentNum, STUD_QualCode, STUD_IDNum,
+        AUDIT_StudentNum, AUDIT_QualCode, AUDIT_IDNum,
+        H16_StudentNum, H16_QualCode, H16_IDNum,
+        CASE WHEN STUD_IDNum IS NULL OR STUD_IDNum = '' THEN STUD_IDNum
+             WHEN STUD_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(STUD_IDNum, PATINDEX('%[^0]%', STUD_IDNum), 255) END AS STUD_IDNum_Norm,
+        CASE WHEN AUDIT_IDNum IS NULL OR AUDIT_IDNum = '' THEN AUDIT_IDNum
+             WHEN AUDIT_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(AUDIT_IDNum, PATINDEX('%[^0]%', AUDIT_IDNum), 255) END AS AUDIT_IDNum_Norm,
+        CASE WHEN H16_IDNum IS NULL OR H16_IDNum = '' THEN H16_IDNum
+             WHEN H16_IDNum NOT LIKE '%[^0]%' THEN '0'
+             ELSE SUBSTRING(H16_IDNum, PATINDEX('%[^0]%', H16_IDNum), 255) END AS H16_IDNum_Norm
+    FROM SourceJoined
+),
+Reconciliation AS (
+    SELECT
+        STUD_StudentNum, STUD_QualCode, STUD_IDNum,
+        AUDIT_StudentNum, AUDIT_QualCode, AUDIT_IDNum,
+        H16_StudentNum, H16_QualCode, H16_IDNum,
+        CASE
+            WHEN H16_StudentNum IS NULL THEN 'MISSING_IN_H16'
+            WHEN STUD_IDNum_Norm <> H16_IDNum_Norm THEN 'ID_MISMATCH_H16'
+            WHEN STUD_QualCode <> H16_QualCode THEN 'QUAL_MISMATCH_H16'
+            WHEN AUDIT_StudentNum IS NULL THEN 'MISSING_IN_AUDIT'
+            WHEN STUD_IDNum_Norm <> AUDIT_IDNum_Norm THEN 'ID_MISMATCH_AUDIT'
+            WHEN STUD_QualCode <> AUDIT_QualCode THEN 'QUAL_MISMATCH_AUDIT'
+            ELSE 'MATCH'
+        END AS Reconciliation_Status,
+        CASE
+            WHEN H16_StudentNum IS NULL THEN 'H16 record missing'
+            WHEN STUD_IDNum_Norm <> H16_IDNum_Norm THEN 'ID mismatch with H16'
+            WHEN STUD_QualCode <> H16_QualCode THEN 'Qualification mismatch with H16'
+            WHEN AUDIT_StudentNum IS NULL THEN 'Audit record missing'
+            WHEN STUD_IDNum_Norm <> AUDIT_IDNum_Norm THEN 'ID mismatch with Audit'
+            WHEN STUD_QualCode <> AUDIT_QualCode THEN 'Qualification mismatch with Audit'
+            ELSE 'All records match'
+        END AS Issue_Description
+    FROM NormalizedIds
 )";
 
         private static async Task<List<Rule23ReconciliationRowViewModel>> LoadReconciliationRowsAsync(

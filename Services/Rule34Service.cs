@@ -126,13 +126,19 @@ ORDER BY ORDINAL_POSITION;", conn)
                     AutoColumnPrioritySets.Select(s => s.CensusDate).ToArray(),
                     new[] { "midpoint_census", "census_date", "censusdate", "midpoint" });
 
+                var autoBlock = columns.FirstOrDefault(c =>
+                    c.Equals("Block", StringComparison.OrdinalIgnoreCase) ||
+                    c.Equals("BlockCode", StringComparison.OrdinalIgnoreCase) ||
+                    c.Contains("block", StringComparison.OrdinalIgnoreCase));
+
                 return new Rule34ColumnSelectionResult
                 {
                     Success = true,
                     Columns = columns,
                     AutoFirstDayColumn = autoFirst,
                     AutoLastDayColumn = autoLast,
-                    AutoCensusDateColumn = autoCensus
+                    AutoCensusDateColumn = autoCensus,
+                    AutoBlockColumn = autoBlock
                 };
             }
             catch (Exception ex)
@@ -154,7 +160,8 @@ ORDER BY ORDINAL_POSITION;", conn)
                 using var conn = new SqlConnection(connStr);
                 await conn.OpenAsync();
 
-                var sampleColumns = new[] { firstDay, lastDay, census }
+                var blockCol = !string.IsNullOrWhiteSpace(request.BlockColumn) ? Sanitise(request.BlockColumn) : "";
+                var sampleColumns = new[] { firstDay, lastDay, census, blockCol }
                     .Where(x => !string.IsNullOrWhiteSpace(x))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -267,52 +274,66 @@ FROM [{table}];";
                 if (!string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysHalfColumn))
                     selectedColumns.Add($"[{optionalColumns.CurrentDaysHalfColumn}] AS CurrentDaysHalfValue");
 
+                if (!string.IsNullOrWhiteSpace(request.BlockColumn))
+                    selectedColumns.Add($"[{Sanitise(request.BlockColumn)}] AS BlockValue");
+
+                var whereClause = BuildBlockExcludeWhere(request.BlockColumn, request.BlockExcludeValues);
+
+                // Count excluded rows before opening the main reader to avoid "open DataReader" conflict
+                var excludedRowCount = await GetExcludedRowCountAsync(conn, safeTable, request.BlockColumn, request.BlockExcludeValues);
+
                 var sql = $@"
 SELECT
     ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
     {string.Join(",\n    ", selectedColumns)}
-FROM [{safeTable}];";
-
-                using var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout();
-                using var reader = await cmd.ExecuteReaderAsync();
+FROM [{safeTable}]{(string.IsNullOrWhiteSpace(whereClause) ? "" : $"\n{whereClause}")};";
 
                 var rows = new List<Rule34ValidationRowRecord>();
-                while (await reader.ReadAsync())
+                using (var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout())
+                using (var reader = await cmd.ExecuteReaderAsync())
                 {
-                    var validationNumber = Convert.ToInt32(reader.GetInt64(0));
-                    var firstDay = ParseNullableDate(reader[1]);
-                    var lastDay = ParseNullableDate(reader[2]);
-                    var censusDate = ParseNullableDate(reader[3]);
-                    var storedCurrentDays = TryGetValue(reader, "CurrentDaysValue", ParseNullableInt);
-                    var storedCurrentDaysHalf = TryGetValue(reader, "CurrentDaysHalfValue", ParseNullableDecimal);
-                    var wholeDays = storedCurrentDays ?? ComputeNotebookDaySpan(firstDay, lastDay);
-                    var halfDays = storedCurrentDaysHalf ?? ComputeNotebookHalfDaySpan(wholeDays);
-                    var useSqlDayValues = storedCurrentDays.HasValue && storedCurrentDaysHalf.HasValue;
-                    var computedDate = useSqlDayValues
-                        ? ComputePreparedCensusDateFromSqlDayValues(firstDay, wholeDays, halfDays)
-                        : ComputePreparedCensusDate(firstDay, halfDays);
-                    var actualCensusDate = ComputeActualCensusDate(computedDate, holidayLookup);
-                    var dayStatus = GetDayStatus(computedDate, actualCensusDate, holidayLookup);
-                    var comparisonResult = !actualCensusDate.HasValue || !censusDate.HasValue ||
-                                           actualCensusDate.Value.Date != censusDate.Value.Date;
-
-                    rows.Add(new Rule34ValidationRowRecord
+                    while (await reader.ReadAsync())
                     {
-                        ValidationNumber = validationNumber,
-                        FirstDayValue = FormatDate(firstDay),
-                        LastDayValue = FormatDate(lastDay),
-                        CurrentDays = wholeDays,
-                        CurrentDaysHalf = halfDays,
-                        ComputedCensusDate = FormatDate(computedDate),
-                        ActualCensusDate = FormatDate(actualCensusDate),
-                        CensusDateValue = FormatDate(censusDate),
-                        DayStatus = dayStatus,
-                        ComparisonResult = comparisonResult,
-                        DateMatch = !comparisonResult,
-                        ValidationStatus = comparisonResult
-                            ? "FAIL (TRUE - MISMATCH)"
-                            : "PASS (FALSE - MATCH)"
-                    });
+                        var validationNumber = Convert.ToInt32(reader.GetInt64(0));
+                        var firstDay = ParseNullableDate(reader[1]);
+                        var lastDay = ParseNullableDate(reader[2]);
+                        var censusDate = ParseNullableDate(reader[3]);
+                        var storedCurrentDays = TryGetValue(reader, "CurrentDaysValue", ParseNullableInt);
+                        var storedCurrentDaysHalf = TryGetValue(reader, "CurrentDaysHalfValue", ParseNullableDecimal);
+                        var wholeDays = storedCurrentDays ?? ComputeNotebookDaySpan(firstDay, lastDay);
+                        var halfDays = storedCurrentDaysHalf ?? ComputeNotebookHalfDaySpan(wholeDays);
+                        var useSqlDayValues = storedCurrentDays.HasValue && storedCurrentDaysHalf.HasValue;
+                        var computedDate = useSqlDayValues
+                            ? ComputePreparedCensusDateFromSqlDayValues(firstDay, wholeDays, halfDays)
+                            : ComputePreparedCensusDate(firstDay, halfDays);
+                        var actualCensusDate = ComputeActualCensusDate(computedDate, holidayLookup);
+                        var dayStatus = GetDayStatus(computedDate, actualCensusDate, holidayLookup);
+                        var comparisonResult = !actualCensusDate.HasValue || !censusDate.HasValue ||
+                                               actualCensusDate.Value.Date != censusDate.Value.Date;
+
+                        var blockValue = !string.IsNullOrWhiteSpace(request.BlockColumn)
+                            ? ReadStringColumn(reader, "BlockValue")
+                            : "";
+
+                        rows.Add(new Rule34ValidationRowRecord
+                        {
+                            ValidationNumber = validationNumber,
+                            FirstDayValue = FormatDate(firstDay),
+                            LastDayValue = FormatDate(lastDay),
+                            CurrentDays = wholeDays,
+                            CurrentDaysHalf = halfDays,
+                            ComputedCensusDate = FormatDate(computedDate),
+                            ActualCensusDate = FormatDate(actualCensusDate),
+                            CensusDateValue = FormatDate(censusDate),
+                            DayStatus = dayStatus,
+                            ComparisonResult = comparisonResult,
+                            DateMatch = !comparisonResult,
+                            ValidationStatus = comparisonResult
+                                ? "FAIL (TRUE - MISMATCH)"
+                                : "PASS (FALSE - MATCH)",
+                            BlockValue = blockValue ?? ""
+                        });
+                    }
                 }
 
                 var passCount = rows.Count(r => r.DateMatch);
@@ -343,6 +364,9 @@ FROM [{safeTable}];";
                     HolidayCount = holidayCount,
                     WeekendCount = weekendCount,
                     ClientId = request.ClientId,
+                    BlockColumn = request.BlockColumn ?? "",
+                    BlockExcludeValues = request.BlockExcludeValues ?? "",
+                    ExcludedRowCount = excludedRowCount,
                     Holidays = holidays,
                     ValidationRows = rows,
                     Exceptions = rows.Where(r => !r.DateMatch).ToList()
@@ -458,6 +482,8 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
                 CensusDateColumn = reader.GetString(7),
                 StartYear = summary?.StartYear ?? DateTime.Now.Year,
                 EndYear = summary?.EndYear ?? DateTime.Now.Year,
+                BlockColumn = summary?.BlockColumn ?? "",
+                BlockExcludeValues = !string.IsNullOrWhiteSpace(summary?.BlockExcludeValues) ? summary!.BlockExcludeValues : "5, 5F, 8F, 8G, R0, R1, R2",
                 CurrentStatus = reader.GetString(8),
                 LastEditedByUserName = reader.IsDBNull(9) ? null : reader.GetString(9),
                 LastEditedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
@@ -809,6 +835,10 @@ END";
                     ? BuildSqlDecimalParseExpression(optionalColumns.CurrentDaysHalfColumn!)
                     : null;
 
+            var blockWhere = BuildBlockExcludeWhere(request.BlockColumn, request.BlockExcludeValues);
+            var blockNote = string.IsNullOrWhiteSpace(blockWhere) ? "" :
+                $"\n-- Block filter: rows where [{request.BlockColumn}] IN ({request.BlockExcludeValues}) are excluded";
+
             return $@"-- ============================================================================
 -- HEMIS 2025 - RULE 34: CENSUS DATE VALIDATION
 -- ============================================================================
@@ -822,7 +852,7 @@ END";
 --   Comparison_Result = c_ACTUAL_CENSUS_DATE <> Midpoint_CENSUS_DATE
 -- PASS: FALSE (dates match)
 -- FAIL: TRUE (dates mismatch)
--- Dynamic holiday year range: {request.StartYear} - {request.EndYear}
+-- Dynamic holiday year range: {request.StartYear} - {request.EndYear}{blockNote}
 -- ============================================================================
 
 IF OBJECT_ID('tempdb..#Rule34Holidays') IS NOT NULL DROP TABLE #Rule34Holidays;
@@ -845,7 +875,7 @@ WITH BaseData AS
         {firstDaySql} AS First_Day_Class,
         {lastDaySql} AS Last_Day_Class,
         {censusDateSql} AS Midpoint_CENSUS_DATE
-    FROM [{table}]
+    FROM [{table}]{(string.IsNullOrWhiteSpace(blockWhere) ? "" : $"\n    {blockWhere}")}
 ),
 Prepared AS
 (
@@ -1007,6 +1037,46 @@ DROP TABLE #Rule34Holidays;
 -- END OF RULE 34 CENSUS DATE VALIDATION
 -- ============================================================================
 ";
+        }
+
+        private static string BuildBlockExcludeWhere(string? blockColumn, string? blockExcludeValues)
+        {
+            if (string.IsNullOrWhiteSpace(blockColumn) || string.IsNullOrWhiteSpace(blockExcludeValues))
+                return "";
+
+            var safeCol = Sanitise(blockColumn);
+            var values = blockExcludeValues
+                .Split(',')
+                .Select(v => v.Trim().Replace("'", "''"))
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (!values.Any()) return "";
+
+            var inList = string.Join(", ", values.Select(v => $"'{v.ToUpperInvariant()}'"));
+            return $"WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), [{safeCol}])))) NOT IN ({inList})";
+        }
+
+        private async Task<int> GetExcludedRowCountAsync(SqlConnection conn, string safeTable, string? blockColumn, string? blockExcludeValues)
+        {
+            if (string.IsNullOrWhiteSpace(blockColumn) || string.IsNullOrWhiteSpace(blockExcludeValues))
+                return 0;
+
+            var safeCol = Sanitise(blockColumn);
+            var values = blockExcludeValues
+                .Split(',')
+                .Select(v => v.Trim().Replace("'", "''"))
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (!values.Any()) return 0;
+
+            var inList = string.Join(", ", values.Select(v => $"'{v.ToUpperInvariant()}'"));
+            var sql = $"SELECT COUNT(*) FROM [{safeTable}] WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), [{safeCol}])))) IN ({inList});";
+            using var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout();
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         }
 
         private async Task<int> InsertValidationRunAsync(
@@ -1365,6 +1435,16 @@ WHERE RunID = @RunID;";
                 return parsed;
 
             return null;
+        }
+
+        private static string ReadStringColumn(SqlDataReader reader, string columnName)
+        {
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                if (string.Equals(reader.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+                    return reader.IsDBNull(i) ? "" : reader.GetValue(i)?.ToString() ?? "";
+            }
+            return "";
         }
 
         private static T? TryGetValue<T>(SqlDataReader reader, string columnName, Func<object, T?> parser)
