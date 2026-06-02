@@ -7,6 +7,7 @@ namespace HemisAudit.ViewModels
         public bool Success { get; set; }
         public List<string> Tables { get; set; } = new();
         public string? AutoStudTable { get; set; }
+        public string? AutoQualTable { get; set; }
         public string? AutoNalTable { get; set; }
         public string? Error { get; set; }
     }
@@ -17,6 +18,12 @@ namespace HemisAudit.ViewModels
         public List<string> Columns { get; set; } = new();
         public string? AutoQualRefColumn { get; set; }
         public string? AutoFirstTimeColumn { get; set; }
+        public string? AutoStud007Column { get; set; }
+        public string? AutoStud008Column { get; set; }
+        public string? AutoStud012Column { get; set; }
+        public string? AutoStud026Column { get; set; }
+        public string? AutoQualCodeColumn { get; set; }
+        public string? AutoQualNameColumn { get; set; }
         public string? AutoNalRefColumn { get; set; }
         public string? AutoNalNameColumn { get; set; }
         public string? AutoNalAlignedColumn { get; set; }
@@ -38,10 +45,17 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string StudTable { get; set; } = "";
+        public string QualTable { get; set; } = "";
         public string NalTable { get; set; } = "";
         public string StudQualRefColumn { get; set; } = "_001";
+        public string Stud007Column { get; set; } = "";
+        public string Stud008Column { get; set; } = "";
         public string StudFirstTimeColumn { get; set; } = "_010";
+        public string Stud012Column { get; set; } = "";
+        public string Stud026Column { get; set; } = "";
         public string StudFirstTimeValue { get; set; } = "F";
+        public string QualCodeColumn { get; set; } = "_001";
+        public string QualNameColumn { get; set; } = "_003";
         public string NalCategoryColumn { get; set; } = "Category";
         public string NalCategoryValue { get; set; } = "C";
     }
@@ -51,6 +65,7 @@ namespace HemisAudit.ViewModels
         public bool Success { get; set; }
         public int StudTotalCount { get; set; }
         public int StudFilteredCount { get; set; }
+        public int QualTotalCount { get; set; }
         public int NalTotalCount { get; set; }
         public int NalFilteredCount { get; set; }
         public string? Error { get; set; }
@@ -64,10 +79,17 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string StudTable { get; set; } = "dbo_STUD";
+        public string QualTable { get; set; } = "dbo_QUAL";
         public string NalTable { get; set; } = "Non_Aligned_Qualifications";
         public string StudQualRefColumn { get; set; } = "_001";
+        public string Stud007Column { get; set; } = "";
+        public string Stud008Column { get; set; } = "";
         public string StudFirstTimeColumn { get; set; } = "_010";
+        public string Stud012Column { get; set; } = "";
+        public string Stud026Column { get; set; } = "";
         public string StudFirstTimeValue { get; set; } = "F";
+        public string QualCodeColumn { get; set; } = "_001";
+        public string QualNameColumn { get; set; } = "_003";
         public string NalRefColumn { get; set; } = "Qualification_reference_number";
         public string NalNameColumn { get; set; } = "Existing_qualification_name";
         public string NalAlignedColumn { get; set; } = "Aligned_qualification_name";
@@ -84,7 +106,13 @@ namespace HemisAudit.ViewModels
     {
         public int RowNumber { get; set; }
         public string StudQualRef { get; set; } = "";
+        public string Stud007Value { get; set; } = "";
+        public string Stud008Value { get; set; } = "";
         public string Stud010Value { get; set; } = "";
+        public string Stud012Value { get; set; } = "";
+        public string Stud026Value { get; set; } = "";
+        public string QualCodeValue { get; set; } = "";
+        public string QualNameValue { get; set; } = "";
         public string? NalQualName { get; set; }
         public string? NalAlignedName { get; set; }
         public string? NalCategory { get; set; }
@@ -108,10 +136,17 @@ namespace HemisAudit.ViewModels
         public string Timestamp { get; set; } = "";
         public string Database { get; set; } = "";
         public string StudTable { get; set; } = "";
+        public string QualTable { get; set; } = "";
         public string NalTable { get; set; } = "";
         public string StudQualRefColumn { get; set; } = "";
+        public string Stud007Column { get; set; } = "";
+        public string Stud008Column { get; set; } = "";
         public string StudFirstTimeColumn { get; set; } = "";
+        public string Stud012Column { get; set; } = "";
+        public string Stud026Column { get; set; } = "";
         public string StudFirstTimeValue { get; set; } = "";
+        public string QualCodeColumn { get; set; } = "";
+        public string QualNameColumn { get; set; } = "";
         public string NalRefColumn { get; set; } = "";
         public string NalNameColumn { get; set; } = "";
         public string NalAlignedColumn { get; set; } = "";
@@ -123,6 +158,7 @@ namespace HemisAudit.ViewModels
         public string NalCreditsColumn { get; set; } = "";
         public string NalOutcomeColumn { get; set; } = "";
         public int StudTotalCount { get; set; }
+        public int QualTotalCount { get; set; }
         public int NalCategoryCount { get; set; }
         public int ClientId { get; set; }
         public int? SavedRunId { get; set; }
@@ -143,10 +179,17 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string StudTable { get; set; } = "";
+        public string QualTable { get; set; } = "";
         public string NalTable { get; set; } = "";
         public string StudQualRefColumn { get; set; } = "_001";
+        public string Stud007Column { get; set; } = "";
+        public string Stud008Column { get; set; } = "";
         public string StudFirstTimeColumn { get; set; } = "_010";
+        public string Stud012Column { get; set; } = "";
+        public string Stud026Column { get; set; } = "";
         public string StudFirstTimeValue { get; set; } = "F";
+        public string QualCodeColumn { get; set; } = "_001";
+        public string QualNameColumn { get; set; } = "_003";
         public string NalRefColumn { get; set; } = "Qualification_reference_number";
         public string NalNameColumn { get; set; } = "Existing_qualification_name";
         public string NalAlignedColumn { get; set; } = "Aligned_qualification_name";
@@ -224,7 +267,7 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string TableName { get; set; } = "";
-        public string TableRole { get; set; } = "";  // "stud" | "nal"
+        public string TableRole { get; set; } = "";  // "stud" | "qual" | "nal"
     }
 
     public class Rule39GetDistinctValuesRequest

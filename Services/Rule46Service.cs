@@ -10,7 +10,8 @@ namespace HemisAudit.Services
 {
     public class Rule46Service : IRule46Service
     {
-        private const int BrowserPreviewRowLimit = 50;
+        private const int BrowserPreviewPerResultLimit = 10;
+        private const int BrowserPreviewTotalLimit = 20;
         private readonly IConfiguration _configuration;
 
         public Rule46Service(IConfiguration configuration)
@@ -101,10 +102,9 @@ namespace HemisAudit.Services
                 {
                     Success       = true,
                     Tables        = tables,
-                    AutoStudTable = FindFirst(tables, ["dbo_STUD", "STUD"],         ["stud"]),
-                    AutoQualTable = FindFirst(tables, ["dbo_QUAL", "QUAL"],         ["qual"]),
-                    AutoCredTable = FindFirst(tables, ["dbo_CRED", "CRED"],         ["cred"]),
-                    AutoPqmTable  = FindFirst(tables, ["PQM"],                      ["pqm", "PQM"])
+                    AutoStudTable = FindFirst(tables, ["dbo_STUD", "STUD"], ["stud"]),
+                    AutoQualTable = FindFirst(tables, ["dbo_QUAL", "QUAL"], ["qual"]),
+                    AutoPqmTable  = FindFirst(tables, ["dbo_PQM", "PQM"],  ["pqm"])
                 };
             }
             catch (Exception ex) { return new Rule46TableDiscoveryResult { Success = false, Error = ex.Message }; }
@@ -141,8 +141,7 @@ namespace HemisAudit.Services
                     Success   = true,
                     StudCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{Sanitise(req.StudTable)}];"),
                     QualCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{Sanitise(req.QualTable)}];"),
-                    CredCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{Sanitise(req.CredTable)}];"),
-                    PqmCount  = await CountAsync(conn, $"SELECT COUNT(*) FROM {SanitisePqm(req.PqmTable)};")
+                    PqmCount  = await CountAsync(conn, $"SELECT COUNT(*) FROM [{Sanitise(req.PqmTable)}];")
                 };
             }
             catch (Exception ex) { return new Rule46VerifyResult { Success = false, Error = ex.Message }; }
@@ -174,10 +173,61 @@ namespace HemisAudit.Services
             catch (Exception ex) { return new Rule46ValidationSummary { Success = false, Error = ex.Message }; }
         }
 
-        private static void ApplyBrowserPreview(Rule46ValidationSummary summary)
+        private static void ApplyBrowserPreview(Rule46ValidationSummary? summary)
         {
-            if (summary.ValidationRows.Count > BrowserPreviewRowLimit * 2)
-                summary.ValidationRows = summary.ValidationRows.Take(BrowserPreviewRowLimit * 2).ToList();
+            if (summary == null)
+                return;
+
+            var allRows = summary.ValidationRows ?? new List<Rule46ValidationRow>();
+            if (allRows.Count == 0)
+            {
+                summary.IsPreviewOnly = false;
+                summary.PreviewLimit = 0;
+                return;
+            }
+
+            var previewRows = BuildPreviewRows(allRows);
+
+            summary.IsPreviewOnly = allRows.Count > previewRows.Count;
+            summary.PreviewLimit = previewRows.Count;
+
+            if (summary.IsPreviewOnly)
+                summary.ValidationRows = previewRows;
+        }
+
+        private static List<Rule46ValidationRow> BuildPreviewRows(List<Rule46ValidationRow> allRows)
+        {
+            if (allRows.Count <= BrowserPreviewTotalLimit)
+                return allRows;
+
+            var previewRows = new List<Rule46ValidationRow>();
+            var selectedRowNumbers = new HashSet<int>();
+
+            void AddRows(IEnumerable<Rule46ValidationRow> rows)
+            {
+                foreach (var row in rows)
+                {
+                    if (previewRows.Count >= BrowserPreviewTotalLimit)
+                        break;
+
+                    if (selectedRowNumbers.Add(row.RowNumber))
+                        previewRows.Add(row);
+                }
+            }
+
+            AddRows(allRows
+                .Where(r => string.Equals(r.ValidationResult, "PASS", StringComparison.OrdinalIgnoreCase))
+                .Take(BrowserPreviewPerResultLimit));
+
+            AddRows(allRows
+                .Where(r => string.Equals(r.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase))
+                .Take(BrowserPreviewPerResultLimit));
+
+            AddRows(allRows);
+
+            return previewRows
+                .OrderBy(r => r.RowNumber)
+                .ToList();
         }
 
         private async Task<Rule46ValidationSummary> AnalyseAsync(Rule46ValidationRequest req)
@@ -185,32 +235,23 @@ namespace HemisAudit.Services
             await using var conn = new SqlConnection(BuildConnectionString(req.Server, req.Database, req.Driver));
             await conn.OpenAsync();
 
-            var c1Rows = await RunControlAsync(conn, req, "Control_1");
-            var c2Rows = await RunControlAsync(conn, req, "Control_2");
-
-            var allRows  = c1Rows.Concat(c2Rows).ToList();
+            var allRows  = await RunValidationRowsAsync(conn, req);
             var total    = allRows.Count;
             var passed   = allRows.Count(r => r.ValidationResult == "PASS");
             var failed   = allRows.Count(r => r.ValidationResult == "FAIL");
             var rate     = total > 0 ? Math.Round((decimal)failed / total * 100, 2) : 0m;
             var overallStatus = failed == 0 ? "PASS" : "FAIL";
 
-            var c1Pass = c1Rows.Count(r => r.ValidationResult == "PASS");
-            var c1Fail = c1Rows.Count(r => r.ValidationResult == "FAIL");
-            var c2Pass = c2Rows.Count(r => r.ValidationResult == "PASS");
-            var c2Fail = c2Rows.Count(r => r.ValidationResult == "FAIL");
-
-            return new Rule46ValidationSummary
+            var summary = new Rule46ValidationSummary
             {
                 Success       = true,
                 Status        = overallStatus,
                 Timestamp     = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 Database      = req.Database,
                 ClientId      = req.ClientId,
-                StudTable     = req.StudTable,    StudKey       = req.StudKey,
+                StudTable     = req.StudTable,    StudKey       = req.StudKey,    StudIdCol = req.StudIdCol, Stud007Col = req.Stud007Col, Stud010Col = req.Stud010Col, Stud012Col = req.Stud012Col, Stud026Col = req.Stud026Col,
                 StudFilterCol = req.StudFilterCol, StudFilterValue = req.StudFilterValue,
                 QualTable     = req.QualTable,    QualKey       = req.QualKey,    QualNameCol = req.QualNameCol,
-                CredTable     = req.CredTable,    CredStudKey   = req.CredStudKey, CredCourseCol = req.CredCourseCol,
                 PqmTable      = req.PqmTable,     PqmNameCol    = req.PqmNameCol,
                 TotalValidated = total,
                 PassCount     = passed,
@@ -220,88 +261,69 @@ namespace HemisAudit.Services
                 {
                     new()
                     {
-                        ControlType   = "Control_1",
-                        ControlLabel  = $"Control 1: Foundation students linked to CRED ({req.StudTable}.{req.StudFilterCol}='{req.StudFilterValue}')",
-                        CriteriaText  = $"SELECT {req.StudTable}.{req.StudKey} → {req.QualTable}.{req.QualKey} → {req.CredTable}.{req.CredStudKey}  WHERE {req.StudTable}.{req.StudFilterCol} = '{req.StudFilterValue}'",
-                        TotalCount    = c1Rows.Count,
-                        PassCount     = c1Pass,
-                        FailCount     = c1Fail,
-                        ExceptionRate = c1Rows.Count > 0 ? Math.Round((decimal)c1Fail / c1Rows.Count * 100, 2) : 0m,
-                        Status        = c1Fail == 0 ? "PASS" : "FAIL"
-                    },
-                    new()
-                    {
-                        ControlType   = "Control_2",
-                        ControlLabel  = $"Control 2: Foundation students qualification in PQM ({req.QualTable}.{req.QualNameCol} = {req.PqmTable}.{req.PqmNameCol})",
-                        CriteriaText  = $"SELECT {req.StudTable}.{req.StudKey} → {req.QualTable}.{req.QualKey} → {req.PqmTable}.{req.PqmNameCol}  WHERE {req.StudTable}.{req.StudFilterCol} = '{req.StudFilterValue}'",
-                        TotalCount    = c2Rows.Count,
-                        PassCount     = c2Pass,
-                        FailCount     = c2Fail,
-                        ExceptionRate = c2Rows.Count > 0 ? Math.Round((decimal)c2Fail / c2Rows.Count * 100, 2) : 0m,
-                        Status        = c2Fail == 0 ? "PASS" : "FAIL"
+                        ControlType   = "Combined",
+                        ControlLabel  = $"Combined Control: {req.StudTable}._001 → {req.QualTable}._001 → {req.PqmTable}",
+                        CriteriaText  = $"Foundation students where {req.StudTable}.{req.StudFilterCol} = '{req.StudFilterValue}' must have a matching QUAL record and the qualification name ({req.QualTable}.{req.QualNameCol}) must exist in {req.PqmTable}.{req.PqmNameCol}.",
+                        TotalCount    = total,
+                        PassCount     = passed,
+                        FailCount     = failed,
+                        ExceptionRate = rate,
+                        Status        = overallStatus
                     }
                 },
                 ValidationRows = allRows
             };
+
+
+            return summary;
         }
 
-        private async Task<List<Rule46ValidationRow>> RunControlAsync(SqlConnection conn, Rule46ValidationRequest req, string controlType)
+        private async Task<List<Rule46ValidationRow>> RunValidationRowsAsync(SqlConnection conn, Rule46ValidationRequest req)
         {
             var st  = Sanitise(req.StudTable);
             var sk  = Sanitise(req.StudKey);
+            var si  = Sanitise(req.StudIdCol);
+            var s07 = Sanitise(req.Stud007Col);
+            var s10 = Sanitise(req.Stud010Col);
+            var s12 = Sanitise(req.Stud012Col);
+            var s26 = Sanitise(req.Stud026Col);
             var sfc = Sanitise(req.StudFilterCol);
             var sfv = (req.StudFilterValue ?? "Y").Replace("'", "''");
             var qt  = Sanitise(req.QualTable);
             var qk  = Sanitise(req.QualKey);
             var qn  = Sanitise(req.QualNameCol);
+            var pt  = Sanitise(req.PqmTable);
+            var pn  = Sanitise(req.PqmNameCol);
 
-            string sql;
-            if (controlType == "Control_1")
-            {
-                var ct  = Sanitise(req.CredTable);
-                var csk = Sanitise(req.CredStudKey);
-                var cc  = Sanitise(req.CredCourseCol);
-                sql = $@"
+            var sql = $@"
 SELECT
     CONVERT(NVARCHAR(255), s.[{sk}])  AS STUD__001,
-    CONVERT(NVARCHAR(50),  s.[{sfc}]) AS STUD__106,
-    CONVERT(NVARCHAR(255), q.[{qk}])  AS QUAL__001,
-    CONVERT(NVARCHAR(500), q.[{qn}])  AS QUAL__003,
-    CONVERT(NVARCHAR(255), c.[{csk}]) AS CRED__001,
-    CONVERT(NVARCHAR(255), c.[{cc}])  AS CRED__030,
-    CASE WHEN c.[{csk}] IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result,
-    CASE WHEN c.[{csk}] IS NOT NULL
-         THEN 'PASS: Foundation student has a CRED record (' + LTRIM(RTRIM(CONVERT(NVARCHAR(255), s.[{sk}]))) + ')'
-         ELSE 'FAIL: No matching CRED record found for student ' + LTRIM(RTRIM(CONVERT(NVARCHAR(255), s.[{sk}])))
-    END AS Result_Detail
-FROM [{st}] s
-LEFT JOIN [{qt}] q ON UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(255), q.[{qk}])))) = UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(255), s.[{sk}]))))
-LEFT JOIN [{ct}] c ON UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(255), c.[{csk}])))) = UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(255), s.[{sk}]))))
-WHERE UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(50), s.[{sfc}])))) = '{sfv.ToUpperInvariant()}'
-ORDER BY s.[{sk}];";
-            }
-            else
-            {
-                var pqm = SanitisePqm(req.PqmTable);
-                var pn  = Sanitise(req.PqmNameCol);
-                sql = $@"
-SELECT
-    CONVERT(NVARCHAR(255), s.[{sk}])  AS STUD__001,
+    CONVERT(NVARCHAR(255), s.[{si}])  AS STUD__008,
+    CONVERT(NVARCHAR(255), s.[{s07}]) AS STUD__007,
+    CONVERT(NVARCHAR(255), s.[{s10}]) AS STUD__010,
+    CONVERT(NVARCHAR(255), s.[{s12}]) AS STUD__012,
+    CONVERT(NVARCHAR(255), s.[{s26}]) AS STUD__026,
     CONVERT(NVARCHAR(50),  s.[{sfc}]) AS STUD__106,
     CONVERT(NVARCHAR(255), q.[{qk}])  AS QUAL__001,
     CONVERT(NVARCHAR(500), q.[{qn}])  AS QUAL__003,
     CONVERT(NVARCHAR(500), p.[{pn}])  AS PQM__NAME,
-    CASE WHEN p.[{pn}] IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result,
-    CASE WHEN p.[{pn}] IS NOT NULL
-         THEN 'PASS: Qualification ''' + LTRIM(RTRIM(CONVERT(NVARCHAR(500), q.[{qn}]))) + ''' found in PQM register'
-         ELSE 'FAIL: Qualification ''' + ISNULL(LTRIM(RTRIM(CONVERT(NVARCHAR(500), q.[{qn}]))), '(null)') + ''' not found in PQM register'
+    CASE
+        WHEN q.[{qk}] IS NULL THEN 'FAIL'
+        WHEN p.[{pn}] IS NULL THEN 'FAIL'
+        ELSE 'PASS'
+    END AS Validation_Result,
+    CASE
+        WHEN q.[{qk}] IS NULL
+            THEN 'FAIL: No QUAL record found for STUD._001 = ' + LTRIM(RTRIM(CONVERT(NVARCHAR(255), s.[{sk}])))
+        WHEN p.[{pn}] IS NULL
+            THEN 'FAIL: QUAL._003 (' + ISNULL(LTRIM(RTRIM(CONVERT(NVARCHAR(500), q.[{qn}]))), '') + ') was not found in PQM.{pn}'
+        ELSE 'PASS: Foundation student has a valid qualification in QUAL and PQM'
     END AS Result_Detail
 FROM [{st}] s
 LEFT JOIN [{qt}] q ON UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(255), q.[{qk}])))) = UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(255), s.[{sk}]))))
-LEFT JOIN {pqm} p ON UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(500), p.[{pn}])))) = UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(500), q.[{qn}]))))
+LEFT JOIN [{pt}] p ON UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(500), p.[{pn}])))) = UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(500), q.[{qn}]))))
 WHERE UPPER(LTRIM(RTRIM(CONVERT(NVARCHAR(50), s.[{sfc}])))) = '{sfv.ToUpperInvariant()}'
 ORDER BY s.[{sk}];";
-            }
 
             await using var cmd = conn.CreateConfiguredCommand();
             cmd.CommandTimeout = SqlLargeDataExtensions.LargeDataCommandTimeoutSeconds;
@@ -322,23 +344,20 @@ ORDER BY s.[{sk}];";
                 var row = new Rule46ValidationRow
                 {
                     RowNumber        = rowNo,
-                    ControlType      = controlType,
+                    ControlType      = "Combined",
                     StudId           = Read("STUD__001"),
+                    StudentId        = Read("STUD__008"),
+                    Stud007          = Read("STUD__007"),
+                    Stud010          = Read("STUD__010"),
+                    Stud012          = Read("STUD__012"),
+                    Stud026          = Read("STUD__026"),
                     StudFilterValue  = Read("STUD__106"),
                     QualId           = Read("QUAL__001"),
                     QualName         = Read("QUAL__003"),
+                    PqmName          = Read("PQM__NAME"),
                     ValidationResult = Read("Validation_Result"),
                     ResultDetail     = Read("Result_Detail")
                 };
-                if (controlType == "Control_1")
-                {
-                    row.CredId     = Read("CRED__001");
-                    row.CredCourse = Read("CRED__030");
-                }
-                else
-                {
-                    row.PqmName = Read("PQM__NAME");
-                }
                 rows.Add(row);
             }
             return rows;
@@ -346,49 +365,40 @@ ORDER BY s.[{sk}];";
 
         // ── SQL generation ─────────────────────────────────────────────────────
 
-        public string GenerateControl1Sql(Rule46ValidationRequest req)
+        public string GenerateValidationSql(Rule46ValidationRequest req)
         {
             var st  = Sanitise(req.StudTable);  var sk  = Sanitise(req.StudKey);
+            var si  = Sanitise(req.StudIdCol);
+            var s07 = Sanitise(req.Stud007Col);
+            var s10 = Sanitise(req.Stud010Col);
+            var s12 = Sanitise(req.Stud012Col);
+            var s26 = Sanitise(req.Stud026Col);
             var sfc = Sanitise(req.StudFilterCol); var sfv = (req.StudFilterValue ?? "Y").Replace("'","''");
             var qt  = Sanitise(req.QualTable);  var qk  = Sanitise(req.QualKey); var qn = Sanitise(req.QualNameCol);
-            var ct  = Sanitise(req.CredTable);  var csk = Sanitise(req.CredStudKey); var cc = Sanitise(req.CredCourseCol);
-            return $@"-- RULE 46 CONTROL 1: Foundation Students → QUAL → CRED
+            var pt  = Sanitise(req.PqmTable);   var pn  = Sanitise(req.PqmNameCol);
+            return $@"-- RULE 46: Foundation Student Qualification Validation
 -- Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}
--- Filter: [{st}].[{sfc}] = '{sfv}'
+-- Chain: [{st}].[{sk}] → [{qt}].[{qk}] → [{pt}].[{pn}]
+-- Foundation filter: [{st}].[{sfc}] = '{sfv}'
 SELECT
     s.[{sk}]  AS [{st}_{sk}],
+    s.[{si}]  AS [{st}_{si}],
+    s.[{s07}] AS [{st}_{s07}],
+    s.[{s10}] AS [{st}_{s10}],
+    s.[{s12}] AS [{st}_{s12}],
+    s.[{s26}] AS [{st}_{s26}],
     s.[{sfc}] AS [{st}_{sfc}],
     q.[{qk}]  AS [{qt}_{qk}],
     q.[{qn}]  AS [{qt}_{qn}],
-    c.[{csk}] AS [{ct}_{csk}],
-    c.[{cc}]  AS [{ct}_{cc}],
-    CASE WHEN c.[{csk}] IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Result
+    p.[{pn}]  AS [{pt}_{pn}],
+    CASE
+        WHEN q.[{qk}] IS NULL THEN 'FAIL'
+        WHEN p.[{pn}] IS NULL THEN 'FAIL'
+        ELSE 'PASS'
+    END AS Result
 FROM [{st}] s
 LEFT JOIN [{qt}] q ON UPPER(LTRIM(RTRIM(CAST(q.[{qk}] AS NVARCHAR(255))))) = UPPER(LTRIM(RTRIM(CAST(s.[{sk}] AS NVARCHAR(255)))))
-LEFT JOIN [{ct}] c ON UPPER(LTRIM(RTRIM(CAST(c.[{csk}] AS NVARCHAR(255))))) = UPPER(LTRIM(RTRIM(CAST(s.[{sk}] AS NVARCHAR(255)))))
-WHERE UPPER(LTRIM(RTRIM(CAST(s.[{sfc}] AS NVARCHAR(50))))) = '{sfv.ToUpperInvariant()}'
-ORDER BY s.[{sk}];".Trim();
-        }
-
-        public string GenerateControl2Sql(Rule46ValidationRequest req)
-        {
-            var st  = Sanitise(req.StudTable);  var sk  = Sanitise(req.StudKey);
-            var sfc = Sanitise(req.StudFilterCol); var sfv = (req.StudFilterValue ?? "Y").Replace("'","''");
-            var qt  = Sanitise(req.QualTable);  var qk  = Sanitise(req.QualKey); var qn = Sanitise(req.QualNameCol);
-            var pqm = SanitisePqm(req.PqmTable); var pn  = Sanitise(req.PqmNameCol);
-            return $@"-- RULE 46 CONTROL 2: Foundation Students → QUAL → PQM
--- Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}
--- Filter: [{st}].[{sfc}] = '{sfv}'
-SELECT
-    s.[{sk}]  AS [{st}_{sk}],
-    s.[{sfc}] AS [{st}_{sfc}],
-    q.[{qk}]  AS [{qt}_{qk}],
-    q.[{qn}]  AS [{qt}_{qn}],
-    p.[{pn}]  AS [PQM_{pn}],
-    CASE WHEN p.[{pn}] IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Result
-FROM [{st}] s
-LEFT JOIN [{qt}] q ON UPPER(LTRIM(RTRIM(CAST(q.[{qk}] AS NVARCHAR(255))))) = UPPER(LTRIM(RTRIM(CAST(s.[{sk}] AS NVARCHAR(255)))))
-LEFT JOIN {pqm} p ON UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500))))) = UPPER(LTRIM(RTRIM(CAST(q.[{qn}] AS NVARCHAR(500)))))
+LEFT JOIN [{pt}] p ON UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500))))) = UPPER(LTRIM(RTRIM(CAST(q.[{qn}] AS NVARCHAR(500)))))
 WHERE UPPER(LTRIM(RTRIM(CAST(s.[{sfc}] AS NVARCHAR(50))))) = '{sfv.ToUpperInvariant()}'
 ORDER BY s.[{sk}];".Trim();
         }
@@ -419,8 +429,8 @@ INSERT INTO dbo.ValidationRuns
 OUTPUT INSERTED.RunID
 VALUES
 (
-    @ClientID, @UserID, 46, 'Foundation Student PQM Validation', @Status, @TotalRecords, @PassCount, @FailCount, @ExceptionRate, GETDATE(),
-    @HemisServer, @AuditDatabase, @StudTable, @QualTable, @CredTable, @PqmTable,
+    @ClientID, @UserID, 46, 'Foundation Student Chain Validation', @Status, @TotalRecords, @PassCount, @FailCount, @ExceptionRate, GETDATE(),
+    @HemisServer, @AuditDatabase, @StudTable, @QualTable, @PqmTable, NULL,
     NULL, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, 1
 );";
             command.Parameters.AddWithValue("@ClientID",     request.ClientId);
@@ -434,7 +444,6 @@ VALUES
             command.Parameters.AddWithValue("@AuditDatabase",request.Database);
             command.Parameters.AddWithValue("@StudTable",    request.StudTable);
             command.Parameters.AddWithValue("@QualTable",    request.QualTable);
-            command.Parameters.AddWithValue("@CredTable",    request.CredTable);
             command.Parameters.AddWithValue("@PqmTable",     request.PqmTable);
             command.Parameters.AddWithValue("@ResultsJSON",  json);
             command.Parameters.AddWithValue("@RunByUserName",(object?)userName ?? (object?)userEmail ?? DBNull.Value);
@@ -475,8 +484,7 @@ SELECT TOP 1
     ISNULL(vr.AuditDatabase,'')    AS [Database],
     ISNULL(vr.StudTable,'dbo_STUD') AS StudTable,
     ISNULL(vr.DeceasedTable,'dbo_QUAL') AS QualTable,
-    ISNULL(vr.StudColumn,'dbo_CRED')    AS CredTable,
-    ISNULL(vr.DeceasedColumn,'[dbo].[PQM]') AS PqmTable,
+    ISNULL(vr.StudColumn,'PQM')         AS PqmTable,
     ISNULL(vr.Status,'')           AS Status,
     vr.LastEditedByUserName, vr.LastEditedAt, vr.ResultsJSON
 FROM dbo.ValidationRuns vr
@@ -487,34 +495,37 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             await using var reader = await command.ExecuteReaderAsync();
             if (!await reader.ReadAsync()) return null;
 
-            var summary = DeserializeSummary(reader.IsDBNull(11) ? null : reader.GetString(11));
+            var summary = DeserializeSummary(reader.IsDBNull(10) ? null : reader.GetString(10));
+            ApplyBrowserPreview(summary);
 
             var workspace = new Rule46WorkspaceStateViewModel
             {
                 ClientId             = reader.GetInt32(1),
                 RunId                = reader.GetInt32(0),
-                Server               = reader.IsDBNull(2)  ? "" : reader.GetString(2),
-                Database             = reader.IsDBNull(3)  ? "" : reader.GetString(3),
-                StudTable            = reader.IsDBNull(4)  ? "dbo_STUD"    : reader.GetString(4),
-                QualTable            = reader.IsDBNull(5)  ? "dbo_QUAL"    : reader.GetString(5),
-                CredTable            = reader.IsDBNull(6)  ? "dbo_CRED"    : reader.GetString(6),
-                PqmTable             = reader.IsDBNull(7)  ? "[dbo].[PQM]" : reader.GetString(7),
-                CurrentStatus        = reader.IsDBNull(8)  ? "" : reader.GetString(8),
-                LastEditedByUserName = reader.IsDBNull(9)  ? null : reader.GetString(9),
-                LastEditedAt         = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
+                Server               = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                Database             = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                StudTable            = reader.IsDBNull(4) ? "dbo_STUD" : reader.GetString(4),
+                QualTable            = reader.IsDBNull(5) ? "dbo_QUAL" : reader.GetString(5),
+                PqmTable             = reader.IsDBNull(6) ? "PQM"      : reader.GetString(6),
+                CurrentStatus        = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                LastEditedByUserName = reader.IsDBNull(8) ? null : reader.GetString(8),
+                LastEditedAt         = reader.IsDBNull(9) ? null : reader.GetDateTime(9),
                 Driver               = "ODBC Driver 17 for SQL Server",
                 Summary              = summary
             };
-            // restore detailed config from summary if available
             if (summary != null)
             {
                 workspace.StudKey         = summary.StudKey;
+                workspace.StudIdCol       = summary.StudIdCol;
+                workspace.Stud007Col      = summary.Stud007Col;
+                workspace.Stud010Col      = summary.Stud010Col;
+                workspace.Stud012Col      = summary.Stud012Col;
+                workspace.Stud026Col      = summary.Stud026Col;
                 workspace.StudFilterCol   = summary.StudFilterCol;
                 workspace.StudFilterValue = summary.StudFilterValue;
                 workspace.QualKey         = summary.QualKey;
                 workspace.QualNameCol     = summary.QualNameCol;
-                workspace.CredStudKey     = summary.CredStudKey;
-                workspace.CredCourseCol   = summary.CredCourseCol;
+                workspace.PqmTable        = summary.PqmTable;
                 workspace.PqmNameCol      = summary.PqmNameCol;
                 workspace.CurrentStatus   = summary.Status;
             }
@@ -600,7 +611,7 @@ WHERE vr.RunID = @RunID AND vr.RuleNumber = 46;";
                 cmd.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET HemisServer = @Server, AuditDatabase = @Database,
-    StudTable = @StudTable, DeceasedTable = @QualTable, StudColumn = @CredTable, DeceasedColumn = @PqmTable,
+    StudTable = @StudTable, DeceasedTable = @QualTable, StudColumn = @PqmTable, DeceasedColumn = NULL,
     LastEditedByUserName = @LastEditedByUserName, LastEditedAt = GETDATE(), WorkspaceSavedAt = GETDATE(),
     PreviousHash = @PreviousHash, RecordHash = @RecordHash, Status = 'Needs Review', IsCurrent = 1
 WHERE RunID = @RunID AND ClientID = @ClientID;";
@@ -610,7 +621,6 @@ WHERE RunID = @RunID AND ClientID = @ClientID;";
                 cmd.Parameters.AddWithValue("@Database",            request.Database);
                 cmd.Parameters.AddWithValue("@StudTable",           request.StudTable);
                 cmd.Parameters.AddWithValue("@QualTable",           request.QualTable);
-                cmd.Parameters.AddWithValue("@CredTable",           request.CredTable);
                 cmd.Parameters.AddWithValue("@PqmTable",            request.PqmTable);
                 cmd.Parameters.AddWithValue("@LastEditedByUserName",(object?)reviewerName ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@PreviousHash",        (object?)previousHash ?? DBNull.Value);
@@ -910,10 +920,11 @@ SELECT
 
         private static void ValidateRequest(Rule46ValidationRequest r)
         {
-            ValidateObjectName(r.StudTable); ValidateObjectName(r.StudKey); ValidateObjectName(r.StudFilterCol);
+            ValidateObjectName(r.StudTable); ValidateObjectName(r.StudKey); ValidateObjectName(r.StudIdCol); ValidateObjectName(r.Stud007Col); ValidateObjectName(r.Stud010Col); ValidateObjectName(r.Stud012Col); ValidateObjectName(r.Stud026Col); ValidateObjectName(r.StudFilterCol);
             ValidateObjectName(r.QualTable); ValidateObjectName(r.QualKey); ValidateObjectName(r.QualNameCol);
-            ValidateObjectName(r.CredTable); ValidateObjectName(r.CredStudKey); ValidateObjectName(r.CredCourseCol);
-            ValidateObjectName(r.PqmNameCol);
+            ValidateObjectName(r.PqmTable); ValidateObjectName(r.PqmNameCol);
+            ValidateObjectName(r.QualTable); ValidateObjectName(r.QualKey); ValidateObjectName(r.QualNameCol);
+            ValidateObjectName(r.PqmTable); ValidateObjectName(r.PqmNameCol);
         }
 
         private static string? FindFirst(IEnumerable<string> values, string[] exactMatches, string[] containsMatches)

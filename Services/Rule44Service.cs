@@ -9,9 +9,6 @@ namespace HemisAudit.Services
 {
     public class Rule44Service : IRule44Service
     {
-        private const int BrowserPreviewRowLimit  = 10;
-        private const int FailRowSaveLimit        = 5000;
-        private const int PassSampleSaveLimit     = 100;
         private const int SqlCommandTimeoutSeconds = SqlLargeDataExtensions.LargeDataCommandTimeoutSeconds;
 
         private readonly IConfiguration _configuration;
@@ -260,8 +257,8 @@ WHERE {(string.IsNullOrWhiteSpace(pgSql) ? "1=0" : $"LTRIM(RTRIM(CAST(Q.[{m.Qual
                 MissingPqmCount  = missingCount,
                 ExceptionRate    = excRate,
                 Status           = (totalCount - passCount == 0) ? "PASS" : "FAIL",
-                PassRows         = passRows.Take(PassSampleSaveLimit).ToList(),
-                FailRows         = failRows.Take(FailRowSaveLimit).ToList()
+                PassRows         = passRows.ToList(),
+                FailRows         = failRows.ToList()
             };
         }
 
@@ -437,7 +434,16 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             if (!await reader.ReadAsync()) return null;
 
             var summary = DeserializeSummary(reader.IsDBNull(11) ? null : reader.GetString(11));
-            if (summary != null) ApplyBrowserPreview(summary);
+            summary = await ExpandSummaryIfNeededAsync(
+                summary,
+                reader.IsDBNull(2) ? "" : reader.GetString(2),
+                reader.IsDBNull(3) ? "" : reader.GetString(3),
+                reader.IsDBNull(4) ? "dbo_STUD" : reader.GetString(4),
+                reader.IsDBNull(5) ? "dbo_QUAL" : reader.GetString(5),
+                reader.IsDBNull(6) ? "PQM" : reader.GetString(6),
+                reader.IsDBNull(7) ? "07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75" : reader.GetString(7),
+                summary?.ColumnMapping ?? new Rule44ColumnMapping(),
+                clientId);
 
             var workspace = new Rule44WorkspaceStateViewModel
             {
@@ -494,9 +500,18 @@ WHERE vr.RunID = @RunID AND vr.RuleNumber = 44;";
 
             var summary = DeserializeSummary(reader.IsDBNull(6) ? null : reader.GetString(6));
             if (summary == null) return null;
-            ApplyBrowserPreview(summary);
-
             var clientId = reader.GetInt32(1);
+            summary = await ExpandSummaryIfNeededAsync(
+                summary,
+                reader.IsDBNull(5) ? "" : reader.GetString(5),
+                summary.Database,
+                summary.StudTable,
+                summary.QualTable,
+                summary.PqmTable,
+                summary.PgTypesText,
+                summary.ColumnMapping,
+                clientId);
+
             var review   = new Rule44RunReviewViewModel
             {
                 RunId         = reader.GetInt32(0),
@@ -666,12 +681,55 @@ ELSE
         private static void ApplyBrowserPreview(Rule44ValidationSummary? s)
         {
             if (s == null) return;
-            var failTake = Math.Min(s.FailRows.Count, BrowserPreviewRowLimit);
-            var passTake = Math.Min(s.PassRows.Count, Math.Max(0, BrowserPreviewRowLimit - failTake));
-            s.FailRows   = s.FailRows.Take(failTake).ToList();
-            s.PassRows   = s.PassRows.Take(passTake).ToList();
-            s.IsPreviewOnly = (s.FailRows.Count + s.PassRows.Count) < s.TotalCount;
-            s.PreviewLimit  = BrowserPreviewRowLimit;
+            s.IsPreviewOnly = false;
+            s.PreviewLimit  = 0;
+        }
+
+        private async Task<Rule44ValidationSummary?> ExpandSummaryIfNeededAsync(
+            Rule44ValidationSummary? summary,
+            string server,
+            string database,
+            string studTable,
+            string qualTable,
+            string pqmTable,
+            string pgTypesText,
+            Rule44ColumnMapping mapping,
+            int clientId)
+        {
+            if (summary == null)
+                return null;
+
+            var isPreviewLimited = summary.IsPreviewOnly ||
+                                   summary.PreviewLimit > 0 ||
+                                   summary.PassRows.Count + summary.FailRows.Count < summary.TotalCount;
+
+            if (!isPreviewLimited)
+                return summary;
+
+            if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(database))
+                return summary;
+
+            try
+            {
+                var expanded = await AnalyseAsync(new Rule44ValidationRequest
+                {
+                    ClientId    = clientId,
+                    Server      = server,
+                    Database    = database,
+                    StudTable   = studTable,
+                    QualTable   = qualTable,
+                    PqmTable    = pqmTable,
+                    PgTypesText = pgTypesText,
+                    ColumnMapping = mapping
+                }, mapping);
+
+                expanded.SavedRunId = summary.SavedRunId;
+                return expanded;
+            }
+            catch
+            {
+                return summary;
+            }
         }
 
         private static Rule44ValidationSummary CloneSummaryForPersistence(Rule44ValidationSummary src)

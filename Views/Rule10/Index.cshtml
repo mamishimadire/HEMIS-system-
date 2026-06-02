@@ -22,6 +22,124 @@
     var needsCrseTable = requiredTables.Contains("CRSE");
 }
 
+<style>
+.integrity-results-shell {
+    border: 1px solid #d7e1ec;
+    border-radius: 16px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, .08);
+}
+
+.integrity-results-shell .table-wrapper {
+    overflow: auto;
+    max-width: 100%;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+.integrity-results-table {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.integrity-results-table thead th {
+    position: static;
+    background: #e6edf5;
+    color: #17324d;
+    border-bottom: 1px solid #c7d4e2;
+    border-right: 1px solid #d6e0ea;
+    text-transform: none;
+    letter-spacing: 0;
+    white-space: nowrap;
+}
+
+.integrity-results-table td {
+    border-bottom: 1px solid #e8eef5;
+    border-right: 1px solid #eef3f8;
+    white-space: nowrap;
+    vertical-align: top;
+    color: #18324a;
+}
+
+.integrity-results-table tbody tr:nth-child(even) td {
+    background: #fbfdff;
+}
+
+.integrity-results-table tbody tr.integrity-row--pass td {
+    background: #f3fbf5;
+}
+
+.integrity-results-table tbody tr.integrity-row--fail td {
+    background: #fff8eb;
+}
+
+.integrity-cell--rule {
+    font-weight: 800;
+    min-width: 72px;
+}
+
+.integrity-cell--result {
+    min-width: 120px;
+    text-align: center;
+}
+
+.integrity-cell--medium {
+    min-width: 150px;
+}
+
+.integrity-cell--code {
+    font-family: Consolas, "Courier New", monospace;
+}
+
+.integrity-cell--wrap {
+    white-space: normal !important;
+    min-width: 220px;
+    max-width: 360px;
+}
+
+.integrity-cell--empty {
+    color: #7b8794;
+    font-style: italic;
+}
+
+.integrity-result-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 70px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .02em;
+}
+
+.integrity-result-badge--pass {
+    background: #e8f7ec;
+    color: #19713e;
+}
+
+.integrity-result-badge--fail {
+    background: #fdecec;
+    color: #b42318;
+}
+
+.integrity-results-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    font-size: 12px;
+    color: #667085;
+    background: #f8fafc;
+    border-top: 1px solid #e8eef5;
+    flex-wrap: wrap;
+}
+</style>
+
 <div id="app" class="rule-page-shell">
     @if (moduleNavigation != null)
     {
@@ -493,6 +611,231 @@ window.toggleAccordion = function (section) {
 
     function formatNumber(value) {
         return Number(value || 0).toLocaleString();
+    }
+
+    function renderResultBadge(result) {
+        const normalized = String(result || '').toUpperCase();
+        if (normalized === 'PASS') {
+            return '<span class="integrity-result-badge integrity-result-badge--pass">PASS</span>';
+        }
+
+        if (normalized === 'FAIL') {
+            return '<span class="integrity-result-badge integrity-result-badge--fail">FAIL</span>';
+        }
+
+        return escapeHtml(result || '-');
+    }
+
+    function readDisplayValue(values, keys) {
+        const source = values || {};
+        for (const key of keys) {
+            const value = source[key];
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                return String(value);
+            }
+        }
+
+        return '';
+    }
+
+    function renderReadableValue(value, fallback = '-') {
+        if (value === null || value === undefined || String(value).trim() === '') {
+            return `<span class="integrity-cell--empty">${escapeHtml(fallback)}</span>`;
+        }
+
+        return escapeHtml(String(value));
+    }
+
+    function buildMixedIntegrityRows(rows) {
+        return rows.map(row => {
+            const values = row.displayValues || {};
+            return {
+                ruleId: row.ruleId,
+                controlLabel: row.controlLabel || values.RULE_LABEL || `Rule ${row.ruleId}`,
+                tableName: readDisplayValue(values, ['TABLE_NAME', 'DATASET']),
+                fieldName: readDisplayValue(values, ['COLUMN_NAME', 'REQUIRED_KEY_COLUMNS']),
+                primaryValue: readDisplayValue(values, ['COLUMN_VALUE', 'DUPLICATE_VALUE', 'LEFT_COLUMN_VALUE', 'STUDENT_COLUMN_VALUE', 'LEFT_STUDENT_COLUMN_VALUE', 'DATASET']),
+                secondaryValue: readDisplayValue(values, ['EXPECTED_VALUE', 'RIGHT_COLUMN_VALUE', 'RIGHT_STUDENT_COLUMN_VALUE', 'MISSING_COLUMNS', 'DUPLICATE_COUNT']),
+                detail: readDisplayValue(values, ['FINAL_RESULT_MESSAGE', 'Exception_Type']) || row.validationExplanation || '',
+                validationResult: row.validationResult || ''
+            };
+        });
+    }
+
+    function getIntegrityCellClass(key) {
+        switch (String(key || '').toUpperCase()) {
+            case 'RULE':
+            case 'RESULT':
+                return key === 'Result' ? 'integrity-cell--result' : 'integrity-cell--rule';
+            case 'CONTROL':
+            case 'DETAIL':
+            case 'EXPLANATION':
+            case 'RESULT DETAIL':
+            case 'QUALIFICATION NAME':
+                return 'integrity-cell--wrap';
+            case 'TABLE':
+            case 'COLUMN':
+            case 'FIELD':
+            case 'PRIMARY VALUE':
+            case 'COMPARED / EXPECTED':
+            case 'VALUE':
+            case 'DUPLICATED VALUE':
+            case 'MISSING COLUMNS':
+            case 'REQUIRED COLUMNS':
+                return 'integrity-cell--medium';
+            default:
+                return '';
+        }
+    }
+
+    function renderIntegrityResultsShell(headers, bodyHtml, rowCount, emptyMessage) {
+        return `
+            <div class="integrity-results-shell">
+                <div class="table-wrapper">
+                    <table class="data-table integrity-results-table">
+                        <thead>
+                            <tr>${headers.map(header => `<th class="${header.className || ''}">${escapeHtml(header.label)}</th>`).join('')}</tr>
+                        </thead>
+                        <tbody>${bodyHtml || `<tr><td colspan="${headers.length}" class="integrity-cell--wrap">${escapeHtml(emptyMessage)}</td></tr>`}</tbody>
+                    </table>
+                </div>
+                <div class="integrity-results-footer">
+                    <span>${formatNumber(rowCount)} row(s) shown.</span>
+                    <span>Scroll horizontally to view all columns.</span>
+                </div>
+            </div>`;
+    }
+
+    function shouldRenderIntegritySection(summaryItem) {
+        if (!summaryItem) {
+            return false;
+        }
+
+        if (state.resultFilter === 'PASS') {
+            return Number(summaryItem.passCount || 0) > 0;
+        }
+
+        if (state.resultFilter === 'FAIL') {
+            return Number(summaryItem.failCount || summaryItem.errorCount || 0) > 0;
+        }
+
+        return true;
+    }
+
+    function getIntegrityVisibleKeys(ruleId, rows) {
+        const excludedKeys = new Set(['Validation_Result', 'Validation_Explanation', 'RULE_LABEL', 'RESULT_BADGE', 'FINAL_RESULT_MESSAGE']);
+        const preferredProfile = resultColumnProfiles[ruleId] || [];
+        const allKeys = Array.from(new Set((rows || []).flatMap(row =>
+            Object.keys(row.displayValues || {}).filter(key => !excludedKeys.has(key)))));
+        const preferredKeys = preferredProfile.filter(item => allKeys.includes(item.key));
+        const visibleKeys = preferredKeys.length
+            ? preferredKeys.map(item => item.key)
+            : (preferredProfile.length ? preferredProfile.map(item => item.key) : allKeys);
+        const keyLabels = Object.fromEntries(preferredProfile.map(item => [item.key, item.label]));
+        return { visibleKeys, keyLabels };
+    }
+
+    function buildIntegrityDuplicateTable(ruleRows, emptyMessage) {
+        const duplicateGroups = new Map();
+        (ruleRows || []).forEach(row => {
+            const displayValues = row.displayValues || {};
+            const duplicateValue = displayValues.DUPLICATE_VALUE || '';
+            const groupKey = `${row.ruleId}|${displayValues.TABLE_NAME || ''}|${displayValues.COLUMN_NAME || ''}|${duplicateValue}`;
+            const duplicateCount = Number(displayValues.DUPLICATE_COUNT || 0);
+            const current = duplicateGroups.get(groupKey);
+            if (!current) {
+                duplicateGroups.set(groupKey, {
+                    ruleId: row.ruleId,
+                    tableName: displayValues.TABLE_NAME || '',
+                    columnName: displayValues.COLUMN_NAME || '',
+                    duplicateValue,
+                    duplicateCount,
+                    validationResult: row.validationResult || '',
+                    validationExplanation: row.validationExplanation || ''
+                });
+                return;
+            }
+
+            if (duplicateCount > current.duplicateCount) {
+                current.duplicateCount = duplicateCount;
+            }
+        });
+
+        const duplicateRows = Array.from(duplicateGroups.values())
+            .sort((left, right) =>
+                right.duplicateCount - left.duplicateCount ||
+                String(left.duplicateValue).localeCompare(String(right.duplicateValue)));
+        const headers = [
+            { label: 'Table', className: 'integrity-cell--medium' },
+            { label: 'Column', className: 'integrity-cell--medium' },
+            { label: 'Duplicated Value', className: 'integrity-cell--medium integrity-cell--code' },
+            { label: 'Duplicate Count', className: 'integrity-cell--medium' },
+            { label: 'Result', className: 'integrity-cell--result' },
+            { label: 'Explanation', className: 'integrity-cell--wrap' }
+        ];
+        const bodyHtml = duplicateRows.map(row => `
+            <tr class="integrity-row--${String(row.validationResult || '').toUpperCase() === 'PASS' ? 'pass' : 'fail'}">
+                <td class="integrity-cell--medium">${renderReadableValue(row.tableName)}</td>
+                <td class="integrity-cell--medium">${renderReadableValue(row.columnName)}</td>
+                <td class="integrity-cell--medium integrity-cell--code">${renderReadableValue(formatDisplayValue(row.duplicateValue))}</td>
+                <td class="integrity-cell--medium">${formatNumber(row.duplicateCount)}</td>
+                <td class="integrity-cell--result">${renderResultBadge(row.validationResult)}</td>
+                <td class="integrity-cell--wrap">${renderReadableValue(row.validationExplanation)}</td>
+            </tr>`).join('');
+
+        return renderIntegrityResultsShell(headers, bodyHtml, duplicateRows.length, emptyMessage);
+    }
+
+    function buildIntegrityRuleTable(ruleId, ruleRows, emptyMessage) {
+        const { visibleKeys, keyLabels } = getIntegrityVisibleKeys(ruleId, ruleRows);
+        const headers = [
+            ...visibleKeys.map(key => ({
+                label: keyLabels[key] || key,
+                className: getIntegrityCellClass(keyLabels[key] || key)
+            })),
+            { label: 'Result', className: 'integrity-cell--result' },
+            { label: 'Detail', className: 'integrity-cell--wrap' }
+        ];
+        const bodyHtml = (ruleRows || []).map(row => `
+            <tr class="integrity-row--${String(row.validationResult || '').toUpperCase() === 'PASS' ? 'pass' : 'fail'}">
+                ${visibleKeys.map(key => {
+                    const label = keyLabels[key] || key;
+                    const className = getIntegrityCellClass(label);
+                    return `<td class="${className}">${renderReadableValue(formatDisplayValue((row.displayValues || {})[key]))}</td>`;
+                }).join('')}
+                <td class="integrity-cell--result">${renderResultBadge(row.validationResult)}</td>
+                <td class="integrity-cell--wrap">${renderReadableValue(row.validationExplanation || readDisplayValue(row.displayValues, ['FINAL_RESULT_MESSAGE']))}</td>
+            </tr>`).join('');
+
+        return renderIntegrityResultsShell(headers, bodyHtml, (ruleRows || []).length, emptyMessage);
+    }
+
+    function renderIntegrityRuleSection(summaryItem, ruleRows) {
+        const ruleId = Number(summaryItem.ruleId || 0);
+        const ruleStatus = String(summaryItem.status || '').toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail';
+        const emptyMessage = state.summary?.isPreviewOnly
+            ? 'No browser sample rows were loaded for this rule. Download Excel or CSV for the full result set.'
+            : 'No rows match the selected result filter for this rule.';
+        const tableHtml = ruleId === 3 || ruleId === 4
+            ? buildIntegrityDuplicateTable(ruleRows, emptyMessage)
+            : buildIntegrityRuleTable(ruleId, ruleRows, emptyMessage);
+
+        return `
+            <div class="card" style="padding:20px;margin-top:18px">
+                <div class="rule20-comparison-card__header">
+                    <div>
+                        <div class="rule20-comparison-card__title">Rule ${ruleId}</div>
+                        <div class="rule20-comparison-card__subtitle">${escapeHtml(summaryItem.criteriaText || summaryItem.controlLabel || '')}</div>
+                    </div>
+                    <div class="rule20-comparison-card__meta">
+                        <span class="badge ${ruleStatus}">${escapeHtml(summaryItem.status || '')}</span>
+                        <span>Issues: ${formatNumber(summaryItem.errorCount)}</span>
+                        <span>Tested: ${formatNumber(summaryItem.totalCount || summaryItem.requestedCount || 0)}</span>
+                        <span>Sample rows: ${formatNumber((ruleRows || []).length)}</span>
+                    </div>
+                </div>
+                ${tableHtml}
+            </div>`;
     }
 
     function formatDisplayValue(value) {
@@ -1206,153 +1549,34 @@ window.toggleAccordion = function (section) {
         }
 
         const rows = state.summary.reviewRows || [];
-        const ruleOptions = ['<option value="ALL">All rules</option>']
-            .concat((state.summary.controlSummaries || []).map(item =>
-                `<option value="${item.ruleId}" ${String(state.ruleFilter) === String(item.ruleId) ? 'selected' : ''}>Rule ${item.ruleId}</option>`))
-            .join('');
+        const filtered = rows.filter(row =>
+            state.resultFilter === 'ALL' || String(row.validationResult || '').toUpperCase() === state.resultFilter);
         const resultOptions = [
             `<option value="ALL" ${state.resultFilter === 'ALL' ? 'selected' : ''}>All results</option>`,
             `<option value="PASS" ${state.resultFilter === 'PASS' ? 'selected' : ''}>PASS</option>`,
             `<option value="FAIL" ${state.resultFilter === 'FAIL' ? 'selected' : ''}>FAIL</option>`
         ].join('');
-
-        const filtered = rows.filter(row =>
-            (state.ruleFilter === 'ALL' || String(row.ruleId) === String(state.ruleFilter)) &&
-            (state.resultFilter === 'ALL' || String(row.validationResult || '').toUpperCase() === state.resultFilter));
-        if (ruleNumber === 3 || ruleNumber === 4) {
-            const duplicateGroups = new Map();
-            filtered.forEach(row => {
-                const displayValues = row.displayValues || {};
-                const duplicateValue = displayValues.DUPLICATE_VALUE || '';
-                const groupKey = `${row.ruleId}|${displayValues.TABLE_NAME || ''}|${displayValues.COLUMN_NAME || ''}|${duplicateValue}`;
-                const duplicateCount = Number(displayValues.DUPLICATE_COUNT || 0);
-                const current = duplicateGroups.get(groupKey);
-                if (!current) {
-                    duplicateGroups.set(groupKey, {
-                        ruleId: row.ruleId,
-                        tableName: displayValues.TABLE_NAME || '',
-                        columnName: displayValues.COLUMN_NAME || '',
-                        duplicateValue,
-                        duplicateCount,
-                        validationResult: row.validationResult || '',
-                        validationExplanation: row.validationExplanation || ''
-                    });
-                    return;
-                }
-
-                if (duplicateCount > current.duplicateCount) {
-                    current.duplicateCount = duplicateCount;
-                }
-            });
-
-            const duplicateRows = Array.from(duplicateGroups.values())
-                .sort((left, right) =>
-                    right.duplicateCount - left.duplicateCount ||
-                    String(left.duplicateValue).localeCompare(String(right.duplicateValue)));
-
-            const duplicateBody = duplicateRows.map(row => `
-                <tr>
-                    <td>${escapeHtml(row.ruleId)}</td>
-                    <td>${escapeHtml(row.tableName)}</td>
-                    <td>${escapeHtml(row.columnName)}</td>
-                    <td>${escapeHtml(formatDisplayValue(row.duplicateValue))}</td>
-                    <td>${formatNumber(row.duplicateCount)}</td>
-                    <td>${escapeHtml(row.validationResult)}</td>
-                    <td>${escapeHtml(row.validationExplanation)}</td>
-                </tr>`).join('');
-
-            els.resultsPane.innerHTML = `
-                <div class="rule11-filterbar">
-                    <div class="field-group" style="margin:0;min-width:220px">
-                        <label for="ruleFilter">Rule Filter</label>
-                        <select id="ruleFilter">${ruleOptions}</select>
-                    </div>
-                    <div class="field-group" style="margin:0;min-width:220px">
-                        <label for="resultFilter">Result Filter</label>
-                        <select id="resultFilter">${resultOptions}</select>
-                    </div>
-                </div>
-                <div class="alert alert--info" style="margin-bottom:16px">
-                    The browser shows a 10-row pass/fail sample. Excel and CSV include the full 100% result set.
-                </div>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Rule</th>
-                                <th>Table</th>
-                                <th>Column</th>
-                                <th>Duplicated Value</th>
-                                <th>Duplicate Count</th>
-                                <th>Validation Result</th>
-                                <th>Explanation</th>
-                            </tr>
-                        </thead>
-                        <tbody>${duplicateBody || '<tr><td colspan="7">No duplicated values were found for the selected filter.</td></tr>'}</tbody>
-                    </table>
-                </div>`;
-
-            document.getElementById('ruleFilter')?.addEventListener('change', event => {
-                state.ruleFilter = event.target.value;
-                renderResults();
-            });
-            document.getElementById('resultFilter')?.addEventListener('change', event => {
-                state.resultFilter = event.target.value;
-                renderResults();
-            });
-            return;
-        }
-
-        const allKeys = Array.from(new Set(filtered.flatMap(row => Object.keys(row.displayValues || {})).filter(key =>
-            !['Validation_Result', 'Validation_Explanation', 'RULE_LABEL', 'RESULT_BADGE'].includes(key))));
-        const preferredProfile = resultColumnProfiles[ruleNumber] || [];
-        const preferredKeys = preferredProfile.filter(item => allKeys.includes(item.key));
-        const visibleKeys = preferredKeys.length ? preferredKeys.map(item => item.key) : allKeys;
-        const keyLabels = Object.fromEntries(preferredProfile.map(item => [item.key, item.label]));
-        const compactComparisonStyle = ruleNumber === 7 || ruleNumber === 8 || ruleNumber === 9 || ruleNumber === 10;
-        const headers = compactComparisonStyle
-            ? [...visibleKeys.map(key => keyLabels[key] || key), 'Validation Result']
-            : ['Rule', ...visibleKeys.map(key => keyLabels[key] || key), 'Validation Result', 'Explanation'];
-        const body = filtered.map(row => {
-            const cells = compactComparisonStyle
-                ? [
-                    ...visibleKeys.map(key => `<td>${escapeHtml(formatDisplayValue((row.displayValues || {})[key]))}</td>`),
-                    `<td>${escapeHtml(row.validationResult || '')}</td>`
-                ]
-                : [
-                    `<td>${escapeHtml(row.ruleId)}</td>`,
-                    ...visibleKeys.map(key => `<td>${escapeHtml(formatDisplayValue((row.displayValues || {})[key]))}</td>`),
-                    `<td>${escapeHtml(row.validationResult || '')}</td>`,
-                    `<td>${escapeHtml(row.validationExplanation || '')}</td>`
-                ];
-            return `<tr>${cells.join('')}</tr>`;
-        }).join('');
+        const previewNotice = state.summary.isPreviewOnly
+            ? `The browser shows a 10-row pass/fail sample across the integrity checks. Excel and CSV include the full 100% result set. Loaded rows: ${formatNumber(state.summary.displayedCount || filtered.length)} of ${formatNumber(state.summary.totalValidated || filtered.length)}.`
+            : 'The browser shows the saved result sample. Excel and CSV include the full 100% result set.';
+        const sections = (state.summary.controlSummaries || [])
+            .filter(shouldRenderIntegritySection)
+            .sort((left, right) => Number(left.ruleId || 0) - Number(right.ruleId || 0))
+            .map(summaryItem => renderIntegrityRuleSection(
+                summaryItem,
+                filtered.filter(row => Number(row.ruleId || 0) === Number(summaryItem.ruleId || 0))))
+            .join('');
 
         els.resultsPane.innerHTML = `
             <div class="rule11-filterbar">
-                <div class="field-group" style="margin:0;min-width:220px">
-                    <label for="ruleFilter">Rule Filter</label>
-                    <select id="ruleFilter">${ruleOptions}</select>
-                </div>
                 <div class="field-group" style="margin:0;min-width:220px">
                     <label for="resultFilter">Result Filter</label>
                     <select id="resultFilter">${resultOptions}</select>
                 </div>
             </div>
-            <div class="alert alert--info" style="margin-bottom:16px">
-                The browser shows a 10-row pass/fail sample. Excel and CSV include the full 100% result set.
-            </div>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
-                    <tbody>${body || `<tr><td colspan="${headers.length}">No exception rows for the selected filter.</td></tr>`}</tbody>
-                </table>
-            </div>`;
+            <div class="alert alert--info" style="margin-bottom:16px">${escapeHtml(previewNotice)}</div>
+            ${sections || '<div class="empty-card"><p>No integrity sections match the selected filter.</p></div>'}`;
 
-        document.getElementById('ruleFilter')?.addEventListener('change', event => {
-            state.ruleFilter = event.target.value;
-            renderResults();
-        });
         document.getElementById('resultFilter')?.addEventListener('change', event => {
             state.resultFilter = event.target.value;
             renderResults();

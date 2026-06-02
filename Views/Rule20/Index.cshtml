@@ -141,6 +141,22 @@
                             <select id="cm_studStudentNo"><option value="_007">_007</option></select>
                         </div>
                         <div class="field-group">
+                            <label for="cm_studColumn008">STUD _008 column <small>(display, default <code>_008</code>)</small></label>
+                            <select id="cm_studColumn008"><option value="_008">_008</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studColumn010">STUD _010 column <small>(display, default <code>_010</code>)</small></label>
+                            <select id="cm_studColumn010"><option value="_010">_010</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studColumn012">STUD _012 column <small>(display, default <code>_012</code>)</small></label>
+                            <select id="cm_studColumn012"><option value="_012">_012</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cm_studColumn026">STUD _026 column <small>(display, default <code>_026</code>)</small></label>
+                            <select id="cm_studColumn026"><option value="_026">_026</option></select>
+                        </div>
+                        <div class="field-group">
                             <label for="cm_studName">Name column <small>(display, default <code>_019</code>)</small></label>
                             <select id="cm_studName"><option value="_019">_019</option></select>
                         </div>
@@ -368,6 +384,10 @@ window.toggleAccordion = function (section) {
         cm_studFoundationValue: document.getElementById('cm_studFoundationValue'),
         cm_studQualCode: document.getElementById('cm_studQualCode'),
         cm_studStudentNo: document.getElementById('cm_studStudentNo'),
+        cm_studColumn008: document.getElementById('cm_studColumn008'),
+        cm_studColumn010: document.getElementById('cm_studColumn010'),
+        cm_studColumn012: document.getElementById('cm_studColumn012'),
+        cm_studColumn026: document.getElementById('cm_studColumn026'),
         cm_studName: document.getElementById('cm_studName'),
         cm_studIdNo: document.getElementById('cm_studIdNo'),
         cm_qualQualCode: document.getElementById('cm_qualQualCode'),
@@ -505,7 +525,7 @@ window.toggleAccordion = function (section) {
                         <table class="data-table rule20-comparison-table rule20-grid-table">
                             <thead>
                                 <tr>
-                                    <th colspan="2"></th>
+                                    <th colspan="7"></th>
                                     <th class="rule20-spacer" rowspan="3"></th>
                                     <th colspan="2">Bridge table</th>
                                     <th class="rule20-spacer" rowspan="3"></th>
@@ -513,11 +533,16 @@ window.toggleAccordion = function (section) {
                                     <th rowspan="3">Results</th>
                                 </tr>
                                 <tr>
-                                    <th colspan="2">dbo_STUD</th>
+                                    <th colspan="7">dbo_STUD</th>
                                     <th colspan="2">dbo_CRED</th>
                                     <th colspan="2">dbo_CRSE</th>
                                 </tr>
                                 <tr>
+                                    <th>_007</th>
+                                    <th>_008</th>
+                                    <th>_010</th>
+                                    <th>_012</th>
+                                    <th>_026</th>
                                     <th>_001</th>
                                     <th>_106</th>
                                     <th>_001</th>
@@ -529,6 +554,11 @@ window.toggleAccordion = function (section) {
                             <tbody>
                                 ${partRows.map(row => `
                                     <tr>
+                                        <td class="rule20-align-center">${escapeHtml(row.studentNumber007)}</td>
+                                        <td class="rule20-align-center">${escapeHtml(row.studentColumn008)}</td>
+                                        <td class="rule20-align-center">${escapeHtml(row.studentColumn010)}</td>
+                                        <td class="rule20-align-center">${escapeHtml(row.studentColumn012)}</td>
+                                        <td class="rule20-align-center">${escapeHtml(row.studentColumn026)}</td>
                                         <td class="rule20-align-center">${escapeHtml(row.qualificationCode001)}</td>
                                         <td class="rule20-align-center">${escapeHtml(row.foundationFlag106)}</td>
                                         <td class="rule20-spacer"></td>
@@ -607,6 +637,10 @@ window.toggleAccordion = function (section) {
     function getColumnMapping() {
         return {
             studStudentNo: els.cm_studStudentNo?.value || '_007',
+            studColumn008: els.cm_studColumn008?.value || '_008',
+            studColumn010: els.cm_studColumn010?.value || '_010',
+            studColumn012: els.cm_studColumn012?.value || '_012',
+            studColumn026: els.cm_studColumn026?.value || '_026',
             studQualCode: els.cm_studQualCode?.value || '_001',
             studName: els.cm_studName?.value || '_019',
             studIdNo: els.cm_studIdNo?.value || '_024',
@@ -627,6 +661,10 @@ window.toggleAccordion = function (section) {
         if (!cm) return;
         const set = (el, val, def) => { if (el) el.value = val || def; };
         set(els.cm_studStudentNo, cm.studStudentNo, '_007');
+        set(els.cm_studColumn008, cm.studColumn008, '_008');
+        set(els.cm_studColumn010, cm.studColumn010, '_010');
+        set(els.cm_studColumn012, cm.studColumn012, '_012');
+        set(els.cm_studColumn026, cm.studColumn026, '_026');
         set(els.cm_studQualCode, cm.studQualCode, '_001');
         set(els.cm_studName, cm.studName, '_019');
         set(els.cm_studIdNo, cm.studIdNo, '_024');
@@ -676,6 +714,42 @@ window.toggleAccordion = function (section) {
             selectGroups.forEach(({ selectEl, defaultValue }) =>
                 populateColumnSelect(selectEl, data.columns, null, defaultValue));
         } catch {}
+    }
+
+    function getStudColumnGroups() {
+        return [
+            { selectEl: els.cm_studFoundationFlag, defaultValue: '_106' },
+            { selectEl: els.cm_studQualCode, defaultValue: '_001' },
+            { selectEl: els.cm_studStudentNo, defaultValue: '_007' },
+            { selectEl: els.cm_studColumn008, defaultValue: '_008' },
+            { selectEl: els.cm_studColumn010, defaultValue: '_010' },
+            { selectEl: els.cm_studColumn012, defaultValue: '_012' },
+            { selectEl: els.cm_studColumn026, defaultValue: '_026' },
+            { selectEl: els.cm_studName, defaultValue: '_019' },
+            { selectEl: els.cm_studIdNo, defaultValue: '_024' }
+        ];
+    }
+
+    function getQualColumnGroups() {
+        return [
+            { selectEl: els.cm_qualQualCode, defaultValue: '_001' },
+            { selectEl: els.cm_qualDescription, defaultValue: '_003' },
+            { selectEl: els.cm_qualType, defaultValue: '_005' }
+        ];
+    }
+
+    function getCregColumnGroups() {
+        return [
+            { selectEl: els.cm_cregQualCode, defaultValue: '_001' },
+            { selectEl: els.cm_cregCourseCode, defaultValue: '_030' }
+        ];
+    }
+
+    function getCrseColumnGroups() {
+        return [
+            { selectEl: els.cm_crseCourseCode, defaultValue: '_030' },
+            { selectEl: els.cm_crseFoundationFlag, defaultValue: '_091' }
+        ];
     }
 
     function getRequest() {
@@ -1090,26 +1164,10 @@ window.toggleAccordion = function (section) {
         els.configOutput.innerHTML = `<div class="alert alert--success">Loaded ${(data.tables || []).length} table(s).</div>`;
 
         await Promise.all([
-            loadColumnsForTable(els.studTable?.value, [
-                { selectEl: els.cm_studFoundationFlag, defaultValue: '_106' },
-                { selectEl: els.cm_studQualCode, defaultValue: '_001' },
-                { selectEl: els.cm_studStudentNo, defaultValue: '_007' },
-                { selectEl: els.cm_studName, defaultValue: '_019' },
-                { selectEl: els.cm_studIdNo, defaultValue: '_024' }
-            ]),
-            loadColumnsForTable(els.qualTable?.value || defaultQualTable, [
-                { selectEl: els.cm_qualQualCode, defaultValue: '_001' },
-                { selectEl: els.cm_qualDescription, defaultValue: '_003' },
-                { selectEl: els.cm_qualType, defaultValue: '_005' }
-            ]),
-            loadColumnsForTable(els.cregTable?.value, [
-                { selectEl: els.cm_cregQualCode, defaultValue: '_001' },
-                { selectEl: els.cm_cregCourseCode, defaultValue: '_030' }
-            ]),
-            loadColumnsForTable(els.crseTable?.value, [
-                { selectEl: els.cm_crseCourseCode, defaultValue: '_030' },
-                { selectEl: els.cm_crseFoundationFlag, defaultValue: '_091' }
-            ])
+            loadColumnsForTable(els.studTable?.value, getStudColumnGroups()),
+            loadColumnsForTable(els.qualTable?.value || defaultQualTable, getQualColumnGroups()),
+            loadColumnsForTable(els.cregTable?.value, getCregColumnGroups()),
+            loadColumnsForTable(els.crseTable?.value, getCrseColumnGroups())
         ]);
     }
 
@@ -1244,6 +1302,10 @@ window.toggleAccordion = function (section) {
     els.database?.addEventListener('change', () => loadTables().catch(err => {
         els.configOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;
     }));
+    els.studTable?.addEventListener('change', () => loadColumnsForTable(els.studTable?.value, getStudColumnGroups()).catch(() => {}));
+    els.qualTable?.addEventListener('change', () => loadColumnsForTable(els.qualTable?.value, getQualColumnGroups()).catch(() => {}));
+    els.cregTable?.addEventListener('change', () => loadColumnsForTable(els.cregTable?.value, getCregColumnGroups()).catch(() => {}));
+    els.crseTable?.addEventListener('change', () => loadColumnsForTable(els.crseTable?.value, getCrseColumnGroups()).catch(() => {}));
     document.getElementById('verifyBtn')?.addEventListener('click', () => verifyTables().catch(err => {
         hideSpinner();
         els.configOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;

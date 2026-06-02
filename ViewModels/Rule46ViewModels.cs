@@ -10,23 +10,19 @@ namespace HemisAudit.ViewModels
         // STUD table
         public string StudTable       { get; set; } = "dbo_STUD";
         public string StudKey         { get; set; } = "_001";
+        public string StudIdCol       { get; set; } = "_008";
+        public string Stud007Col      { get; set; } = "_007";
+        public string Stud010Col      { get; set; } = "_010";
+        public string Stud012Col      { get; set; } = "_012";
+        public string Stud026Col      { get; set; } = "_026";
         public string StudFilterCol   { get; set; } = "_106";
         public string StudFilterValue { get; set; } = "Y";
-        // QUAL bridge table
+        // QUAL table
         public string QualTable   { get; set; } = "dbo_QUAL";
         public string QualKey     { get; set; } = "_001";
         public string QualNameCol { get; set; } = "_003";
-        // CRED table (Control 1)
-        public string CredTable    { get; set; } = "dbo_CRED";
-        public string CredStudKey  { get; set; } = "_001";
-        public string CredCourseCol{ get; set; } = "_030";
-        // CRSE table (Control 1)
-        public string CrseTable          { get; set; } = "dbo_CRSE";
-        public string CrseCourseCol      { get; set; } = "_030";
-        public string CrseIndicatorCol   { get; set; } = "_091";
-        public string CrseIndicatorValue { get; set; } = "Y";
-        // PQM table (both controls)
-        public string PqmTable   { get; set; } = "[dbo].[PQM]";
+        // PQM table
+        public string PqmTable   { get; set; } = "PQM";
         public string PqmNameCol { get; set; } = "Authorised_Qualification_Name";
     }
 
@@ -35,12 +31,18 @@ namespace HemisAudit.ViewModels
         public int    RowNumber       { get; set; }
         public string ControlType     { get; set; } = "";
         public string StudId          { get; set; } = "";
+        public string StudentId       { get; set; } = "";
+        public string Stud007         { get; set; } = "";
+        public string Stud010         { get; set; } = "";
+        public string Stud012         { get; set; } = "";
+        public string Stud026         { get; set; } = "";
         public string StudFilterValue { get; set; } = "";
         public string QualId          { get; set; } = "";
         public string QualName        { get; set; } = "";
+        public string PqmName         { get; set; } = "";
+        // Legacy export compatibility; Rule 46 no longer uses CRED/CRSE.
         public string CredId          { get; set; } = "";
         public string CredCourse      { get; set; } = "";
-        public string PqmName         { get; set; } = "";
         public string ValidationResult{ get; set; } = "PASS";
         public string ResultDetail    { get; set; } = "";
     }
@@ -69,21 +71,25 @@ namespace HemisAudit.ViewModels
         // config echo
         public string StudTable       { get; set; } = "dbo_STUD";
         public string StudKey         { get; set; } = "_001";
+        public string StudIdCol       { get; set; } = "_008";
+        public string Stud007Col      { get; set; } = "_007";
+        public string Stud010Col      { get; set; } = "_010";
+        public string Stud012Col      { get; set; } = "_012";
+        public string Stud026Col      { get; set; } = "_026";
         public string StudFilterCol   { get; set; } = "_106";
         public string StudFilterValue { get; set; } = "Y";
         public string QualTable       { get; set; } = "dbo_QUAL";
         public string QualKey         { get; set; } = "_001";
         public string QualNameCol     { get; set; } = "_003";
-        public string CredTable       { get; set; } = "dbo_CRED";
-        public string CredStudKey     { get; set; } = "_001";
-        public string CredCourseCol   { get; set; } = "_030";
-        public string PqmTable        { get; set; } = "[dbo].[PQM]";
+        public string PqmTable        { get; set; } = "PQM";
         public string PqmNameCol      { get; set; } = "Authorised_Qualification_Name";
         // totals
         public int TotalValidated { get; set; }
         public int PassCount      { get; set; }
         public int FailCount      { get; set; }
         public decimal ExceptionRate { get; set; }
+        public bool IsPreviewOnly { get; set; }
+        public int PreviewLimit   { get; set; }
         // controls
         public List<Rule46ControlSummary> ControlSummaries { get; set; } = new();
         public List<Rule46ValidationRow>  ValidationRows   { get; set; } = new();
@@ -98,15 +104,17 @@ namespace HemisAudit.ViewModels
         public string Driver     { get; set; } = "ODBC Driver 17 for SQL Server";
         public string StudTable       { get; set; } = "dbo_STUD";
         public string StudKey         { get; set; } = "_001";
+        public string StudIdCol       { get; set; } = "_008";
+        public string Stud007Col      { get; set; } = "_007";
+        public string Stud010Col      { get; set; } = "_010";
+        public string Stud012Col      { get; set; } = "_012";
+        public string Stud026Col      { get; set; } = "_026";
         public string StudFilterCol   { get; set; } = "_106";
         public string StudFilterValue { get; set; } = "Y";
         public string QualTable       { get; set; } = "dbo_QUAL";
         public string QualKey         { get; set; } = "_001";
         public string QualNameCol     { get; set; } = "_003";
-        public string CredTable       { get; set; } = "dbo_CRED";
-        public string CredStudKey     { get; set; } = "_001";
-        public string CredCourseCol   { get; set; } = "_030";
-        public string PqmTable        { get; set; } = "[dbo].[PQM]";
+        public string PqmTable        { get; set; } = "PQM";
         public string PqmNameCol      { get; set; } = "Authorised_Qualification_Name";
         public string CurrentStatus              { get; set; } = "";
         public bool   HasDataAnalystSignoff      { get; set; }
@@ -166,7 +174,6 @@ namespace HemisAudit.ViewModels
         public List<string> Tables         { get; set; } = new();
         public string?      AutoStudTable  { get; set; }
         public string?      AutoQualTable  { get; set; }
-        public string?      AutoCredTable  { get; set; }
         public string?      AutoPqmTable   { get; set; }
         public string?      Error          { get; set; }
     }
@@ -183,7 +190,6 @@ namespace HemisAudit.ViewModels
         public bool   Success    { get; set; }
         public int    StudCount  { get; set; }
         public int    QualCount  { get; set; }
-        public int    CredCount  { get; set; }
         public int    PqmCount   { get; set; }
         public string? Error     { get; set; }
     }

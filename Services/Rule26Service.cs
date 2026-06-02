@@ -10,8 +10,8 @@ namespace HemisAudit.Services
     public class Rule26Service : IRule26Service
     {
         private const int RuleNumber = 26;
-        private const string RuleName = "Rule 26 - Complete 5-Control Bi-Directional Validation";
-        private const int BrowserPreviewRowLimit = 10;
+        private const string RuleName = "Rule 26 - dbo_PROF to Payroll_Sample 5-Control Validation";
+        private const int BrowserPreviewRowLimit = 1000;
 
         private readonly IConfiguration _configuration;
         private readonly IPendingValidationCacheService _pendingValidationCache;
@@ -583,11 +583,12 @@ END";
             var payrollBirthExpr = $"TRY_CONVERT(date, [{payrollBirth}])";
 
             var sql = $@"-- ============================================================================
--- HEMIS RULE 26: COMPLETE 5-CONTROL BI-DIRECTIONAL VALIDATION
+-- HEMIS RULE 26: DBO_PROF TO PAYROLL_SAMPLE 5-CONTROL VALIDATION
 -- ============================================================================
--- dbo_PROF <-> Payroll_Sample
--- This script tests BOTH directions in one execution and explains exceptions
--- according to the direction and control being tested.
+-- Base population : dbo_PROF
+-- Reference table : Payroll_Sample
+-- Logic           : same one-direction population-testing pattern as Rules 51/52,
+--                   but across 5 mapped payroll controls.
 -- ============================================================================
 
 IF OBJECT_ID('tempdb..#ProfBase') IS NOT NULL DROP TABLE #ProfBase;
@@ -619,9 +620,14 @@ SELECT 'PROF population' AS Metric, COUNT(*) AS RecordCount FROM #ProfBase
 UNION ALL
 SELECT 'Payroll population', COUNT(*) FROM #PayrollBase
 UNION ALL
-SELECT 'Linked population', COUNT(*) FROM #ProfBase p INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey;
+SELECT 'Linked population', COUNT(*) FROM #ProfBase p INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
+UNION ALL
+SELECT 'PROF without Payroll', COUNT(*)
+FROM #ProfBase p
+LEFT JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
+WHERE py.PersonnelKey IS NULL;
 
--- STEP 2: COMBINED EXCEPTIONS WITH DIRECTION-SPECIFIC EXPLANATIONS
+-- STEP 2: DBO_PROF EXCEPTIONS AGAINST PAYROLL_SAMPLE
 SELECT *
 FROM
 (
@@ -649,7 +655,7 @@ FROM
         py.EmploymentType
     FROM #ProfBase p
     INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
-    WHERE LEFT(p.EmploymentType, 1) <> py.EmploymentType
+    WHERE LEFT(p.EmploymentType, 1) <> LEFT(py.EmploymentType, 1)
 
     UNION ALL
 
@@ -658,12 +664,12 @@ FROM
         3,
         'Gender Consistency',
         p.PersonnelNumber,
-        'dbo_PROF gender does not match Payroll_Sample gender.',
+        'dbo_PROF gender first letter does not match Payroll_Sample GENDER first letter.',
         p.GenderValue,
         py.GenderValue
     FROM #ProfBase p
     INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
-    WHERE p.GenderValue <> py.GenderValue
+    WHERE LEFT(p.GenderValue, 1) <> LEFT(py.GenderValue, 1)
 
     UNION ALL
 
@@ -693,79 +699,8 @@ FROM
     INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
     WHERE p.BirthDateValue IS NOT NULL
       AND (py.BirthDateValue IS NULL OR p.BirthDateValue <> py.BirthDateValue)
-
-    UNION ALL
-
-    SELECT
-        'Payroll_Sample -> dbo_PROF',
-        1,
-        'Personnel Number Existence',
-        py.PersonnelNumber,
-        'Personnel number exists in Payroll_Sample but not in dbo_PROF.',
-        py.PersonnelNumber,
-        ''
-    FROM #PayrollBase py
-    LEFT JOIN #ProfBase p ON p.PersonnelKey = py.PersonnelKey
-    WHERE p.PersonnelKey IS NULL
-
-    UNION ALL
-
-    SELECT
-        'Payroll_Sample -> dbo_PROF',
-        2,
-        'Employment Type Match',
-        py.PersonnelNumber,
-        'Payroll_Sample employment type does not match the first letter of dbo_PROF employment type.',
-        py.EmploymentType,
-        p.EmploymentType
-    FROM #PayrollBase py
-    INNER JOIN #ProfBase p ON p.PersonnelKey = py.PersonnelKey
-    WHERE py.EmploymentType <> LEFT(p.EmploymentType, 1)
-
-    UNION ALL
-
-    SELECT
-        'Payroll_Sample -> dbo_PROF',
-        3,
-        'Gender Consistency',
-        py.PersonnelNumber,
-        'Payroll_Sample gender does not match dbo_PROF gender.',
-        py.GenderValue,
-        p.GenderValue
-    FROM #PayrollBase py
-    INNER JOIN #ProfBase p ON p.PersonnelKey = py.PersonnelKey
-    WHERE py.GenderValue <> p.GenderValue
-
-    UNION ALL
-
-    SELECT
-        'Payroll_Sample -> dbo_PROF',
-        4,
-        'Race/Group Code Accuracy',
-        py.PersonnelNumber,
-        'Payroll_Sample GROUP_NAME first letter does not match dbo_PROF race/group code first letter.',
-        py.GroupValue,
-        p.GroupValue
-    FROM #PayrollBase py
-    INNER JOIN #ProfBase p ON p.PersonnelKey = py.PersonnelKey
-    WHERE LEFT(py.GroupValue, 1) <> LEFT(p.GroupValue, 1)
-
-    UNION ALL
-
-    SELECT
-        'Payroll_Sample -> dbo_PROF',
-        5,
-        'Birth Date Integrity',
-        py.PersonnelNumber,
-        'Payroll_Sample birth date does not match dbo_PROF birth date.',
-        CONVERT(nvarchar(30), py.BirthDateValue, 23),
-        CONVERT(nvarchar(30), p.BirthDateValue, 23)
-    FROM #PayrollBase py
-    INNER JOIN #ProfBase p ON p.PersonnelKey = py.PersonnelKey
-    WHERE p.BirthDateValue IS NOT NULL
-      AND (py.BirthDateValue IS NULL OR py.BirthDateValue <> p.BirthDateValue)
 ) Exceptions
-ORDER BY DirectionLabel, ControlNumber, PersonnelNumber;
+ORDER BY ControlNumber, PersonnelNumber;
 
 DROP TABLE #ProfBase;
 DROP TABLE #PayrollBase;";
@@ -789,16 +724,11 @@ DROP TABLE #PayrollBase;";
                 .Where(r => !string.IsNullOrWhiteSpace(r.PersonnelKey))
                 .GroupBy(r => r.PersonnelKey, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-            var profByPersonnel = profRecords
-                .Where(r => !string.IsNullOrWhiteSpace(r.PersonnelKey))
-                .GroupBy(r => r.PersonnelKey, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
             var direction1 = BuildProfToPayrollDirection(profRecords, payrollByPersonnel, request);
-            var direction2 = BuildPayrollToProfDirection(payrollRecords, profByPersonnel, request);
 
-            var totalValidated = direction1.Controls.Sum(c => c.TotalTested) + direction2.Controls.Sum(c => c.TotalTested);
-            var totalExceptions = direction1.TotalExceptions + direction2.TotalExceptions;
+            var totalValidated = direction1.Controls.Sum(c => c.TotalTested);
+            var totalExceptions = direction1.TotalExceptions;
             var linkedRecordCount = direction1.LinkedRecordCount;
             var passCount = Math.Max(0, totalValidated - totalExceptions);
 
@@ -830,9 +760,9 @@ DROP TABLE #PayrollBase;";
                 PayrollRecordCount = payrollRecords.Count,
                 LinkedRecordCount = linkedRecordCount,
                 ClientId = request.ClientId,
-                Directions = [direction1, direction2],
-                Exceptions = direction1.Exceptions.Concat(direction2.Exceptions).ToList(),
-                PassRows = direction1.PassRows.Concat(direction2.PassRows).Take(BrowserPreviewRowLimit).ToList()
+                Directions = [direction1],
+                Exceptions = direction1.Exceptions.ToList(),
+                PassRows = direction1.PassRows.ToList()
             };
         }
 
@@ -972,76 +902,6 @@ FROM [{payrollTable}];";
                     EmploymentType = pair.Prof.EmploymentType,
                     Gender = pair.Prof.Gender
                 })
-                .Take(BrowserPreviewRowLimit)
-                .ToList();
-
-            return direction;
-        }
-
-        private Rule26DirectionResultViewModel BuildPayrollToProfDirection(
-            List<PayrollRecord> payrollRecords,
-            Dictionary<string, List<ProfRecord>> profByPersonnel,
-            Rule26ValidationRequest request)
-        {
-            var direction = new Rule26DirectionResultViewModel
-            {
-                DirectionKey = "payroll_to_prof",
-                DirectionLabel = "Payroll_Sample -> dbo_PROF",
-                BaseTable = request.PayrollTable,
-                ReferenceTable = request.ProfTable,
-                BaseRecordCount = payrollRecords.Count
-            };
-
-            var controls = CreateControlShell();
-            var linkedPairs = new List<(PayrollRecord Payroll, ProfRecord Prof)>();
-
-            foreach (var payroll in payrollRecords)
-            {
-                if (string.IsNullOrWhiteSpace(payroll.PersonnelKey) || !profByPersonnel.TryGetValue(payroll.PersonnelKey, out var profMatches) || profMatches.Count == 0)
-                {
-                    direction.Exceptions.Add(CreateException(
-                        direction,
-                        controls[0],
-                        payroll.PersonnelNumber,
-                        payroll.PersonnelName,
-                        "Personnel number exists in Payroll_Sample but not in dbo_PROF.",
-                        payroll.PersonnelNumber,
-                        ""));
-                }
-                else
-                {
-                    foreach (var prof in profMatches)
-                        linkedPairs.Add((payroll, prof));
-                }
-            }
-
-            controls[0].TotalTested = payrollRecords.Count;
-            controls[0].ExceptionCount = direction.Exceptions.Count(e => e.ControlNumber == 1);
-            controls[0].Passed = controls[0].ExceptionCount == 0;
-
-            direction.LinkedRecordCount = linkedPairs.Count;
-
-            EvaluateLinkedControlsForPayrollDirection(direction, controls, linkedPairs);
-            direction.Controls = controls;
-            direction.TotalExceptions = direction.Exceptions.Count;
-
-            var exceptionPersonnelPayroll = direction.Exceptions
-                .Select(e => e.PersonnelNumber)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            direction.PassRows = linkedPairs
-                .Where(pair => !exceptionPersonnelPayroll.Contains(pair.Payroll.PersonnelNumber))
-                .GroupBy(pair => pair.Payroll.PersonnelNumber, StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .Select(pair => new Rule26PassRowViewModel
-                {
-                    DirectionKey = direction.DirectionKey,
-                    DirectionLabel = direction.DirectionLabel,
-                    PersonnelNumber = pair.Payroll.PersonnelNumber,
-                    PersonnelName = pair.Payroll.PersonnelName,
-                    EmploymentType = pair.Payroll.EmploymentType,
-                    Gender = pair.Payroll.Gender
-                })
-                .Take(BrowserPreviewRowLimit)
                 .ToList();
 
             return direction;
@@ -1059,13 +919,13 @@ FROM [{payrollTable}];";
             {
                 ControlNumber = 2,
                 ControlName = "Employment Type Match",
-                Explanation = "Compares Payroll PERMANENT_OR_TEMP to the first letter of dbo_PROF _041 for linked personnel."
+                Explanation = "Compares the first letter of dbo_PROF _041 to the first letter of Payroll PERMANENT_OR_TEMP for linked personnel."
             },
             new()
             {
                 ControlNumber = 3,
                 ControlName = "Gender Consistency",
-                Explanation = "Compares Payroll GENDER to dbo_PROF _012 for linked personnel."
+                Explanation = "Compares the first letter of dbo_PROF _012 to the first letter of Payroll GENDER for linked personnel."
             },
             new()
             {
@@ -1088,19 +948,19 @@ FROM [{payrollTable}];";
         {
             foreach (var pair in linkedPairs)
             {
-                if (AreSqlComparableValuesDifferent(GetFirstCharacterValue(pair.Prof.EmploymentType), NormalizeText(pair.Payroll.EmploymentType)))
+                if (AreSqlComparableValuesDifferent(GetFirstCharacterValue(pair.Prof.EmploymentType), GetFirstCharacterValue(pair.Payroll.EmploymentType)))
                 {
                     direction.Exceptions.Add(CreateException(
                         direction, controls[1], pair.Prof.PersonnelNumber, pair.Payroll.PersonnelName,
-                        "dbo_PROF employment type first letter does not match Payroll_Sample PERMANENT_OR_TEMP.",
+                        "dbo_PROF employment type first letter does not match Payroll_Sample PERMANENT_OR_TEMP first letter.",
                         pair.Prof.EmploymentType, pair.Payroll.EmploymentType));
                 }
 
-                if (AreSqlComparableValuesDifferent(NormalizeText(pair.Prof.Gender), NormalizeText(pair.Payroll.Gender)))
+                if (AreSqlComparableValuesDifferent(GetFirstCharacterValue(pair.Prof.Gender), GetFirstCharacterValue(pair.Payroll.Gender)))
                 {
                     direction.Exceptions.Add(CreateException(
                         direction, controls[2], pair.Prof.PersonnelNumber, pair.Payroll.PersonnelName,
-                        "dbo_PROF gender does not match Payroll_Sample gender.",
+                        "dbo_PROF gender first letter does not match Payroll_Sample GENDER first letter.",
                         pair.Prof.Gender, pair.Payroll.Gender));
                 }
 
@@ -1124,56 +984,7 @@ FROM [{payrollTable}];";
 
             for (var i = 1; i < controls.Count; i++)
             {
-                controls[i].TotalTested = direction.BaseRecordCount;
-                controls[i].ExceptionCount = direction.Exceptions.Count(e => e.ControlNumber == controls[i].ControlNumber);
-                controls[i].Passed = controls[i].ExceptionCount == 0;
-            }
-        }
-
-        private void EvaluateLinkedControlsForPayrollDirection(
-            Rule26DirectionResultViewModel direction,
-            List<Rule26ControlSummaryViewModel> controls,
-            List<(PayrollRecord Payroll, ProfRecord Prof)> linkedPairs)
-        {
-            foreach (var pair in linkedPairs)
-            {
-                if (AreSqlComparableValuesDifferent(NormalizeText(pair.Payroll.EmploymentType), GetFirstCharacterValue(pair.Prof.EmploymentType)))
-                {
-                    direction.Exceptions.Add(CreateException(
-                        direction, controls[1], pair.Payroll.PersonnelNumber, pair.Payroll.PersonnelName,
-                        "Payroll_Sample employment type does not match the first letter of dbo_PROF employment type.",
-                        pair.Payroll.EmploymentType, pair.Prof.EmploymentType));
-                }
-
-                if (AreSqlComparableValuesDifferent(NormalizeText(pair.Payroll.Gender), NormalizeText(pair.Prof.Gender)))
-                {
-                    direction.Exceptions.Add(CreateException(
-                        direction, controls[2], pair.Payroll.PersonnelNumber, pair.Payroll.PersonnelName,
-                        "Payroll_Sample gender does not match dbo_PROF gender.",
-                        pair.Payroll.Gender, pair.Prof.Gender));
-                }
-
-                if (AreSqlComparableValuesDifferent(GetFirstCharacterValue(pair.Payroll.GroupName), GetFirstCharacterValue(pair.Prof.GroupCode)))
-                {
-                    direction.Exceptions.Add(CreateException(
-                        direction, controls[3], pair.Payroll.PersonnelNumber, pair.Payroll.PersonnelName,
-                        "Payroll_Sample GROUP_NAME first letter does not match dbo_PROF race/group code first letter.",
-                        pair.Payroll.GroupName, pair.Prof.GroupCode));
-                }
-
-                if (pair.Prof.BirthDate.HasValue &&
-                    (!pair.Payroll.BirthDate.HasValue || pair.Payroll.BirthDate.Value != pair.Prof.BirthDate.Value))
-                {
-                    direction.Exceptions.Add(CreateException(
-                        direction, controls[4], pair.Payroll.PersonnelNumber, pair.Payroll.PersonnelName,
-                        "Payroll_Sample birth date does not match dbo_PROF birth date.",
-                        pair.Payroll.BirthDate?.ToString("yyyy-MM-dd") ?? "", pair.Prof.BirthDate.Value.ToString("yyyy-MM-dd")));
-                }
-            }
-
-            for (var i = 1; i < controls.Count; i++)
-            {
-                controls[i].TotalTested = direction.BaseRecordCount;
+                controls[i].TotalTested = direction.LinkedRecordCount;
                 controls[i].ExceptionCount = direction.Exceptions.Count(e => e.ControlNumber == controls[i].ControlNumber);
                 controls[i].Passed = controls[i].ExceptionCount == 0;
             }

@@ -965,8 +965,8 @@
             if (dbs.success) {
                 const databases = dbs.databases || [];
                 const preferredDatabase =
+                    (workspace.database && findExactValue(databases, workspace.database)) ||
                     findExactValue(databases, preferredDatabaseName) ||
-                    workspace.database ||
                     databases[0] ||
                     null;
                 populateSelect(els.database, databases, preferredDatabase);
@@ -1032,8 +1032,8 @@
 
         const databases = result.databases || [];
         const preferredDatabase =
+            (state.workspace?.database && findExactValue(databases, state.workspace.database)) ||
             findExactValue(databases, preferredDatabaseName) ||
-            (state.workspace && state.workspace.database) ||
             databases[0] ||
             null;
 

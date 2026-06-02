@@ -321,6 +321,16 @@ window.toggleAccordion = function (section) {
         return Number(value || 0).toLocaleString();
     }
 
+    function normalizeTableName(value) {
+        return String(value || '').trim();
+    }
+
+    function normalizeTableList(items) {
+        return [...new Set((items || [])
+            .map(item => normalizeTableName(item))
+            .filter(Boolean))];
+    }
+
     function normalizeBrowserSummary(summary) {
         if (!summary) {
             return summary;
@@ -529,10 +539,10 @@ window.toggleAccordion = function (section) {
             server: els.server?.value?.trim() || '',
             database: els.database?.value || '',
             driver: els.driver?.value || 'ODBC Driver 17 for SQL Server',
-            studTable: els.studTable?.value || '',
-            qualTable: els.qualTable?.value || defaultQualTable,
-            cregTable: els.cregTable?.value || '',
-            crseTable: els.crseTable?.value || '',
+            studTable: normalizeTableName(els.studTable?.value || ''),
+            qualTable: normalizeTableName(els.qualTable?.value || defaultQualTable),
+            cregTable: normalizeTableName(els.cregTable?.value || ''),
+            crseTable: normalizeTableName(els.crseTable?.value || els.cregTable?.value || ''),
             pgTypesText: els.pgTypesText?.value || defaultPgTypesText,
             governingPartCodes: [...defaultGoverningPartCodes]
         };
@@ -540,12 +550,14 @@ window.toggleAccordion = function (section) {
 
     function populateSelect(select, items, selectedValue) {
         if (!select) return;
+        const normalizedItems = normalizeTableList(items);
+        const normalizedSelectedValue = normalizeTableName(selectedValue || '');
         select.innerHTML = '';
-        items.forEach(item => {
+        normalizedItems.forEach(item => {
             const opt = document.createElement('option');
             opt.value = item;
             opt.textContent = item;
-            if (selectedValue && selectedValue === item) opt.selected = true;
+            if (normalizedSelectedValue && normalizedSelectedValue === item) opt.selected = true;
             select.appendChild(opt);
         });
     }
@@ -939,11 +951,12 @@ window.toggleAccordion = function (section) {
         });
         if (!data.success) throw new Error(data.error || 'Failed to load tables.');
 
-        populateSelect(els.studTable, data.tables || [], data.autoStudTable);
-        if (els.qualTable) populateSelect(els.qualTable, data.tables || [], data.autoQualTable || defaultQualTable);
-        populateSelect(els.cregTable, data.tables || [], data.autoCregTable);
-        populateSelect(els.crseTable, data.tables || [], data.autoCrseTable);
-        els.configOutput.innerHTML = `<div class="alert alert--success">Loaded ${(data.tables || []).length} table(s).</div>`;
+        const tables = normalizeTableList(data.tables || []);
+        populateSelect(els.studTable, tables, data.autoStudTable);
+        if (els.qualTable) populateSelect(els.qualTable, tables, data.autoQualTable || defaultQualTable);
+        populateSelect(els.cregTable, tables, data.autoCregTable);
+        populateSelect(els.crseTable, tables, data.autoCrseTable || data.autoCregTable);
+        els.configOutput.innerHTML = `<div class="alert alert--success">Loaded ${tables.length} table(s).</div>`;
     }
 
     async function verifyTables() {

@@ -1,7 +1,7 @@
 @using HemisAudit.Models
 @using HemisAudit.ViewModels
 @{
-    ViewData["Title"] = "Rule 26 - Bi-Directional 5-Control Validation";
+    ViewData["Title"] = "Rule 26 - dbo_PROF to Payroll_Sample 5-Control Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
@@ -46,8 +46,8 @@
     <div class="rule-header">
         <div class="rule-header__icon">R26</div>
         <div>
-            <h1 class="rule-header__title">HEMIS RULE 26: Bi-Directional 5-Control Validation</h1>
-            <p class="rule-header__sub">Tests dbo_PROF and Payroll_Sample in both directions at the same time, with exceptions explained according to the direction and control being tested.</p>
+            <h1 class="rule-header__title">HEMIS RULE 26: dbo_PROF to Payroll_Sample 5-Control Validation</h1>
+            <p class="rule-header__sub">Tests the dbo_PROF population against Payroll_Sample across personnel existence, employment type, gender, race/group, and birth date controls.</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
@@ -95,11 +95,10 @@
             <div class="accordion-body" id="body-mapping" style="display:none">
                 <div class="info-box info-box--red">
                     <strong>Rule 26 logic:</strong><br />
-                    The system tests both directions in one run:
+                    The system tests one direction in one run:
                     <br />1. dbo_PROF -> Payroll_Sample
-                    <br />2. Payroll_Sample -> dbo_PROF
                     <br /><br />
-                    All 5 controls are tested on the full population with direction-specific exception explanations.
+                    Rule 26 follows the same one-direction population-testing pattern as Rules 51 and 52, but across 5 mapped controls from dbo_PROF into Payroll_Sample.
                 </div>
 
                 <div class="form-grid">
@@ -233,7 +232,7 @@
     <div class="results-panel">
         <div class="results-tabs">
             <button class="tab-btn active" type="button" data-tab="results">Analysis</button>
-            <button class="tab-btn" type="button" data-tab="details">Exceptions</button>
+            <button class="tab-btn" type="button" data-tab="details">Results</button>
             <button class="tab-btn" type="button" data-tab="charts">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql">SQL</button>
             <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
@@ -246,7 +245,7 @@
         </div>
         <div class="tab-pane" data-tab-panel="downloads">
             <div class="alert alert--info" style="margin-bottom:16px">
-                Excel includes the population summary, control summary, combined exceptions, and separate direction sheets. CSV includes the combined exceptions list.
+                Excel includes the population summary, control summary, and full PASS/FAIL results for dbo_PROF vs Payroll_Sample. CSV includes all exception rows.
             </div>
             <div class="action-bar" style="justify-content:flex-start;margin:0">
                 <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
@@ -479,7 +478,7 @@
 
         if (!summary) {
             els.resultsPane.innerHTML = '<div class="empty-state"><p>Run validation to see results here.</p></div>';
-            els.detailsPane.innerHTML = '<div class="empty-state"><p>No exceptions yet. Run validation first.</p></div>';
+            els.detailsPane.innerHTML = '<div class="empty-state"><p>Run validation to see PASS and FAIL results here.</p></div>';
             els.chartsPane.innerHTML = '<div class="empty-state"><p>Direction summaries will appear after validation.</p></div>';
             return;
         }
@@ -504,7 +503,7 @@
                 </div>
             </div>
             <div class="card" style="padding:20px">
-                <h3 class="section-title" style="margin-top:0">Direction and Control Summary</h3>
+                <h3 class="section-title" style="margin-top:0">Control Summary</h3>
                 <div style="overflow:auto">
                     <table class="data-table">
                         <thead>
@@ -539,7 +538,7 @@
             <div class="form-grid">
                 ${summary.directions.map((direction, index) => `
                     <div class="card" style="padding:20px">
-                        <h3 class="section-title" style="margin-top:0">Rule 26: Bi-Directional Validation - ${escapeHtml(direction.directionLabel)}</h3>
+                        <h3 class="section-title" style="margin-top:0">Rule 26: dbo_PROF to Payroll_Sample Validation</h3>
                         <div style="margin-bottom:16px;color:#64748b">
                             Base records: ${formatNumber(direction.baseRecordCount)} |
                             Linked records: ${formatNumber(direction.linkedRecordCount)} |
@@ -812,131 +811,90 @@
         const passRows = summary?.passRows || [];
         const hasExceptions = summary?.exceptions && summary.exceptions.length;
 
-        if (!hasExceptions) {
-            els.detailsPane.innerHTML = `
-                <div class="alert alert--success" style="margin-bottom:${passRows.length ? '16px' : '0'}">No exceptions were found — all linked personnel passed all controls.</div>
-                ${renderPassSample(summary)}`;
-            return;
-        }
+        // Build combined rows: PASS rows + FAIL exception rows
+        const failPersonnel = new Set((summary.exceptions || []).map(e => e.personnelNumber));
+        const passRowsCombined = (summary.passRows || []).map(r => ({
+            result: 'PASS',
+            personnelNumber: r.personnelNumber,
+            personnelName: r.personnelName || '-',
+            employmentType: r.employmentType || '-',
+            gender: r.gender || '-',
+            controlNumber: null,
+            controlName: '',
+            exceptionReason: '',
+            baseValue: '',
+            referenceValue: ''
+        }));
+        const failRowsCombined = (summary.exceptions || []).map(e => ({
+            result: 'FAIL',
+            personnelNumber: e.personnelNumber,
+            personnelName: e.personnelName || '-',
+            employmentType: '-',
+            gender: '-',
+            controlNumber: e.controlNumber,
+            controlName: e.controlName || '',
+            exceptionReason: e.exceptionReason || '',
+            baseValue: e.baseValue || '',
+            referenceValue: e.referenceValue || ''
+        }));
 
-        const directionOptions = getDirectionFilterOptions(summary);
-        const controlOptions = getControlFilterOptions(summary);
+        const resultFilter = state.detailsDirectionFilter || 'ALL';
+        let combinedRows = [...passRowsCombined, ...failRowsCombined];
+        if (resultFilter === 'PASS') combinedRows = passRowsCombined;
+        if (resultFilter === 'FAIL') combinedRows = failRowsCombined;
 
-        if (state.detailsDirectionFilter && !directionOptions.some(option => option.value === state.detailsDirectionFilter)) {
-            state.detailsDirectionFilter = '';
-        }
+        const totalPass = passRowsCombined.length;
+        const totalFail = failRowsCombined.length;
 
-        if (state.detailsControlFilter && !controlOptions.some(option => option.value === state.detailsControlFilter)) {
-            state.detailsControlFilter = '';
-        }
-
-        const filteredRows = filterRule26Exceptions(summary).slice(0, 10);
-        const groupedRows = new Map();
-        filteredRows.forEach(row => {
-            const key = String(row.controlNumber);
-            if (!groupedRows.has(key)) {
-                groupedRows.set(key, {
-                    controlNumber: row.controlNumber,
-                    controlName: row.controlName || '',
-                    rows: []
-                });
-            }
-
-            groupedRows.get(key).rows.push(row);
-        });
-
-        const groupsHtml = Array.from(groupedRows.values())
-            .sort((left, right) => left.controlNumber - right.controlNumber)
-            .map(group => `
-                <div class="card" style="padding:20px;margin-top:16px">
-                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-                        <div>
-                            <h3 class="section-title" style="margin:0">Control ${group.controlNumber}: ${escapeHtml(group.controlName)}</h3>
-                            <div style="color:#64748b;margin-top:4px">Exceptions shown: ${formatNumber(group.rows.length)}</div>
-                        </div>
-                    </div>
-                    <div style="overflow:auto">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Direction</th>
-                                    <th>Personnel Number</th>
-                                    <th>Personnel Name</th>
-                                    <th>Exception Reason</th>
-                                    <th>Base Value</th>
-                                    <th>Reference Value</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${group.rows
-                                    .sort((left, right) => {
-                                        const directionCompare = (left.directionLabel || '').localeCompare(right.directionLabel || '');
-                                        if (directionCompare !== 0) return directionCompare;
-                                        return (left.personnelNumber || '').localeCompare(right.personnelNumber || '');
-                                    })
-                                    .map(row => `
-                                        <tr>
-                                            <td>${escapeHtml(row.directionLabel || '')}</td>
-                                            <td>${escapeHtml(row.personnelNumber || '')}</td>
-                                            <td>${escapeHtml(row.personnelName || '-')}</td>
-                                            <td>${escapeHtml(row.exceptionReason || '')}</td>
-                                            <td>${escapeHtml(row.baseValue || '')}</td>
-                                            <td>${escapeHtml(row.referenceValue || '')}</td>
-                                        </tr>
-                                    `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `).join('');
+        const tableRows = combinedRows.map(row => {
+            const isPass = row.result === 'PASS';
+            const badge = isPass
+                ? '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.74rem;font-weight:700;background:#E8F5E9;color:#1E8449">&#10003; PASS</span>'
+                : '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.74rem;font-weight:700;background:#FFEBEE;color:#C0392B">&#10007; FAIL</span>';
+            return `<tr style="background:${isPass ? '#F1F8E9' : '#FFEBEE'}">
+                <td>${badge}</td>
+                <td>${escapeHtml(row.personnelNumber)}</td>
+                <td>${escapeHtml(row.personnelName)}</td>
+                <td>${row.controlNumber != null ? escapeHtml(`C${row.controlNumber} - ${row.controlName}`) : '<span style="color:#888">—</span>'}</td>
+                <td>${escapeHtml(row.exceptionReason) || '<span style="color:#888">—</span>'}</td>
+                <td>${escapeHtml(row.baseValue) || '<span style="color:#888">—</span>'}</td>
+                <td>${escapeHtml(row.referenceValue) || '<span style="color:#888">—</span>'}</td>
+            </tr>`;
+        }).join('');
 
         els.detailsPane.innerHTML = `
-            ${renderPassSample(summary)}
-            <div class="card" style="padding:20px">
-                <div class="alert alert--info" style="margin-bottom:16px">
-                    Exceptions are explained according to the direction of testing. Use the filters below to focus on one direction or one control.
-                </div>
-                <div class="form-grid" style="margin-bottom:8px">
-                    <div class="field-group">
-                        <label for="rule26DetailDirectionFilter">Filter by Direction</label>
-                        <select id="rule26DetailDirectionFilter">
-                            <option value="">All Directions</option>
-                            ${directionOptions.map(option => `
-                                <option value="${escapeHtml(option.value)}"${state.detailsDirectionFilter === option.value ? ' selected' : ''}>${escapeHtml(option.label)}</option>
-                            `).join('')}
-                        </select>
-                    </div>
-                    <div class="field-group">
-                        <label for="rule26DetailControlFilter">Filter by Control</label>
-                        <select id="rule26DetailControlFilter">
-                            <option value="">All Controls</option>
-                            ${controlOptions.map(option => `
-                                <option value="${escapeHtml(option.value)}"${state.detailsControlFilter === option.value ? ' selected' : ''}>${escapeHtml(option.label)}</option>
-                            `).join('')}
-                        </select>
-                    </div>
-                </div>
-                <div style="color:#64748b;margin-bottom:8px">Filtered exceptions: ${formatNumber(filteredRows.length)}</div>
-                ${groupsHtml || '<div class="alert alert--warning" style="margin:0">No exceptions match the selected direction/control filters.</div>'}
-            </div>`;
-
-        const directionFilter = document.getElementById('rule26DetailDirectionFilter');
-        const controlFilter = document.getElementById('rule26DetailControlFilter');
-
-        if (directionFilter) {
-            directionFilter.addEventListener('change', () => {
-                state.detailsDirectionFilter = directionFilter.value || '';
-                renderExceptionDetails(summary);
-            });
-        }
-
-        if (controlFilter) {
-            controlFilter.addEventListener('change', () => {
-                state.detailsControlFilter = controlFilter.value || '';
-                renderExceptionDetails(summary);
-            });
-        }
+            <div style="display:flex;gap:8px;align-items:center;padding:12px 0;flex-wrap:wrap">
+                <label style="font-size:.85rem;font-weight:600">Filter:</label>
+                <button class="btn btn-sm ${resultFilter === 'ALL'  ? 'btn-primary' : 'btn-secondary'}" onclick="setRule26ResultFilter('ALL')">All (${formatNumber(totalPass + totalFail)})</button>
+                <button class="btn btn-sm ${resultFilter === 'PASS' ? 'btn-success' : 'btn-secondary'}" onclick="setRule26ResultFilter('PASS')">PASS (${formatNumber(totalPass)})</button>
+                <button class="btn btn-sm ${resultFilter === 'FAIL' ? 'btn-danger' : 'btn-secondary'}" onclick="setRule26ResultFilter('FAIL')">FAIL (${formatNumber(totalFail)})</button>
+            </div>
+            ${combinedRows.length === 0
+                ? '<div class="empty-state"><p>No records match the selected filter.</p></div>'
+                : `<div style="overflow-x:auto">
+                    <table class="data-table">
+                        <thead><tr>
+                            <th>Result</th>
+                            <th>Personnel Number</th>
+                            <th>Personnel Name</th>
+                            <th>Control</th>
+                            <th>Exception Reason</th>
+                            <th>PROF Value</th>
+                            <th>Payroll Value</th>
+                        </tr></thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                    <p style="font-size:.78rem;color:#777;padding:4px 0">
+                        Showing ${formatNumber(combinedRows.length)} row(s) — ${formatNumber(totalPass)} PASS, ${formatNumber(totalFail)} FAIL.
+                    </p>
+                  </div>`
+            }`;
     }
+
+    window.setRule26ResultFilter = function(filter) {
+        state.detailsDirectionFilter = filter === 'ALL' ? '' : filter;
+        if (state.summary) renderExceptionDetails(state.summary);
+    };
 
     function hydrateWorkspace(workspace, resetDirty) {
         state.isHydrating = true;
@@ -1062,6 +1020,7 @@
     }
 
     async function connectServer(preserveSelection) {
+        const savedDb = state.summary?.database || (preserveSelection ? els.database.value : null);
         try {
             showSpinner('Loading databases...');
             const result = await postJson(`${apiBasePath}/GetDatabases`, {
@@ -1070,8 +1029,8 @@
             });
             if (!result.success) throw new Error(result.error || 'Could not load databases.');
             populateSelect(els.database, result.databases || []);
-            if (preserveSelection && state.summary?.database) {
-                ensureOptionSelected(els.database, state.summary.database);
+            if (preserveSelection && savedDb) {
+                ensureOptionSelected(els.database, savedDb);
             } else if ((result.databases || []).includes(preferredDatabaseName)) {
                 els.database.value = preferredDatabaseName;
             }
@@ -1144,8 +1103,7 @@
                     PROF records: ${formatNumber(result.profRecordCount)}<br />
                     Payroll records: ${formatNumber(result.payrollRecordCount)}<br />
                     Linked records: ${formatNumber(result.linkedRecordCount)}<br />
-                    PROF without Payroll: ${formatNumber(result.profWithoutPayrollCount)}<br />
-                    Payroll without PROF: ${formatNumber(result.payrollWithoutProfCount)}
+                    PROF without Payroll: ${formatNumber(result.profWithoutPayrollCount)}
                 </div>`;
         } catch (error) {
             els.connectionOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(toFriendlyRequestError(error))}</div>`;
@@ -1162,7 +1120,7 @@
         }
 
         try {
-            showSpinner('Running Rule 26 in both directions...');
+            showSpinner('Running Rule 26 on dbo_PROF against Payroll_Sample...');
             const result = await postJson(`${apiBasePath}/RunValidation`, request);
             if (!result.success) throw new Error(result.error || 'Validation failed.');
             state.summary = result;
@@ -1273,13 +1231,13 @@
         try {
             showSpinner('Preparing downloads...');
             if (document.getElementById('chkExcel').checked) {
-                await downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, `Rule26_BiDirectional_Validation_${fileStamp()}.xlsx`);
+                await downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, `Rule26_ProfToPayroll_Validation_${fileStamp()}.xlsx`);
             }
             if (document.getElementById('chkCsv').checked) {
-                await downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, `Rule26_BiDirectional_Exceptions_${fileStamp()}.csv`);
+                await downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, `Rule26_ProfToPayroll_Exceptions_${fileStamp()}.csv`);
             }
             if (document.getElementById('chkSql').checked) {
-                await downloadPost(`${apiBasePath}/DownloadSql`, buildValidationRequest(), `Rule26_BiDirectional_Validation_${fileStamp()}.sql`);
+                await downloadPost(`${apiBasePath}/DownloadSql`, buildValidationRequest(), `Rule26_ProfToPayroll_Validation_${fileStamp()}.sql`);
             }
             switchTab('downloads');
         } catch (error) {
@@ -1336,14 +1294,14 @@
     els.downloadAllBtn.addEventListener('click', downloadAll);
     els.downloadExcelBtn.addEventListener('click', async () => {
         if (!state.summary) return;
-        await downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, `Rule26_BiDirectional_Validation_${fileStamp()}.xlsx`);
+        await downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, `Rule26_ProfToPayroll_Validation_${fileStamp()}.xlsx`);
     });
     els.downloadCsvBtn.addEventListener('click', async () => {
         if (!state.summary) return;
-        await downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, `Rule26_BiDirectional_Exceptions_${fileStamp()}.csv`);
+        await downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, `Rule26_ProfToPayroll_Exceptions_${fileStamp()}.csv`);
     });
     els.downloadSqlBtn.addEventListener('click', async () => {
-        await downloadPost(`${apiBasePath}/DownloadSql`, buildValidationRequest(), `Rule26_BiDirectional_Validation_${fileStamp()}.sql`);
+        await downloadPost(`${apiBasePath}/DownloadSql`, buildValidationRequest(), `Rule26_ProfToPayroll_Validation_${fileStamp()}.sql`);
     });
 
     hydrateWorkspace(null, true);

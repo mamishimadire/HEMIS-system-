@@ -359,7 +359,7 @@ namespace HemisAudit.Controllers
                 return Json(new { success = false, error = ex.Message });
             }
 
-            var workspace = await _rule30.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: false);
+            var workspace = await _rule30.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: true);
             var resultsVisible = CanViewWorkspaceResults(role, workspace);
             if (workspace != null) workspace.ResultsVisible = resultsVisible;
             return Json(new { success = true, message = "Signoff saved.", resultsVisible, workspace });
@@ -397,7 +397,7 @@ namespace HemisAudit.Controllers
                 return Json(new { success = false, error = ex.Message });
             }
 
-            var workspace = await _rule30.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: false);
+            var workspace = await _rule30.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email, includeSummary: true);
             var resultsVisible = CanViewWorkspaceResults(role, workspace);
             if (workspace != null) workspace.ResultsVisible = resultsVisible;
             var reopenedRunId = workspace?.RunId;

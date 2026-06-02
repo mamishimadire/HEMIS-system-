@@ -5,6 +5,7 @@ using HemisAudit.Helpers;
 using HemisAudit.Models;
 using HemisAudit.Services;
 using HemisAudit.ViewModels;
+using Newtonsoft.Json;
 
 namespace HemisAudit.Controllers
 {
@@ -130,6 +131,8 @@ namespace HemisAudit.Controllers
                 return RedirectToAction("Index", "Dashboard");
             }
 
+            review.Summary = BuildDisplaySummary(review.Summary);
+
             ViewBag.IsAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
             ViewBag.CanDownloadSavedRun = CanDownloadSavedRun(review, role);
             ViewBag.CanManageEngagement =
@@ -155,10 +158,17 @@ namespace HemisAudit.Controllers
                 ClientId            = review.ClientId,
                 Database            = review.Summary.Database,
                 StudTable           = review.Summary.StudTable,
+                QualTable           = review.Summary.QualTable,
                 NalTable            = review.Summary.NalTable,
                 StudQualRefColumn   = review.Summary.StudQualRefColumn,
+                Stud007Column       = review.Summary.Stud007Column,
+                Stud008Column       = review.Summary.Stud008Column,
                 StudFirstTimeColumn = review.Summary.StudFirstTimeColumn,
+                Stud012Column       = review.Summary.Stud012Column,
+                Stud026Column       = review.Summary.Stud026Column,
                 StudFirstTimeValue  = review.Summary.StudFirstTimeValue,
+                QualCodeColumn      = review.Summary.QualCodeColumn,
+                QualNameColumn      = review.Summary.QualNameColumn,
                 NalRefColumn        = review.Summary.NalRefColumn,
                 NalNameColumn       = review.Summary.NalNameColumn,
                 NalAlignedColumn    = review.Summary.NalAlignedColumn,
@@ -520,10 +530,17 @@ namespace HemisAudit.Controllers
                 ClientId            = review.ClientId,
                 Database            = review.Summary.Database,
                 StudTable           = review.Summary.StudTable,
+                QualTable           = review.Summary.QualTable,
                 NalTable            = review.Summary.NalTable,
                 StudQualRefColumn   = review.Summary.StudQualRefColumn,
+                Stud007Column       = review.Summary.Stud007Column,
+                Stud008Column       = review.Summary.Stud008Column,
                 StudFirstTimeColumn = review.Summary.StudFirstTimeColumn,
+                Stud012Column       = review.Summary.Stud012Column,
+                Stud026Column       = review.Summary.Stud026Column,
                 StudFirstTimeValue  = review.Summary.StudFirstTimeValue,
+                QualCodeColumn      = review.Summary.QualCodeColumn,
+                QualNameColumn      = review.Summary.QualNameColumn,
                 NalRefColumn        = review.Summary.NalRefColumn,
                 NalNameColumn       = review.Summary.NalNameColumn,
                 NalAlignedColumn    = review.Summary.NalAlignedColumn,
@@ -656,5 +673,21 @@ namespace HemisAudit.Controllers
         }
 
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+        private static Rule39ValidationSummary BuildDisplaySummary(Rule39ValidationSummary summary)
+        {
+            var json = JsonConvert.SerializeObject(summary);
+            var copy = JsonConvert.DeserializeObject<Rule39ValidationSummary>(json) ?? summary;
+
+            var flagged = copy.FlaggedRows ?? new List<Rule39ValidationRowViewModel>();
+            var clear = copy.ClearSampleRows ?? new List<Rule39ValidationRowViewModel>();
+
+            copy.FlaggedRows = flagged.Take(10).ToList();
+            copy.ClearSampleRows = clear.Take(10).ToList();
+            copy.IsPreviewOnly = flagged.Count > copy.FlaggedRows.Count || clear.Count > copy.ClearSampleRows.Count;
+            copy.PreviewLimit = 10;
+
+            return copy;
+        }
     }
 }

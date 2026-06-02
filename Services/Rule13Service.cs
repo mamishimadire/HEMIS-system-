@@ -61,7 +61,14 @@ namespace HemisAudit.Services
 
                 var tables = new List<string>();
                 while (await reader.ReadAsync())
-                    tables.Add(reader.GetString(0));
+                {
+                    var tableName = NormalizeObjectName(reader.GetString(0));
+                    if (!string.IsNullOrWhiteSpace(tableName) &&
+                        !tables.Contains(tableName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        tables.Add(tableName);
+                    }
+                }
 
                 return new Rule13TableDiscoveryResult
                 {
@@ -210,17 +217,20 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             {
                 ClientId = reader.GetInt32(1),
                 RunId = reader.GetInt32(0),
-                Server = reader.IsDBNull(2) ? "" : reader.GetString(2),
-                Database = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                StudTable = reader.IsDBNull(4) ? "dbo_CESM" : reader.GetString(4),
-                QualTable = reader.IsDBNull(5) ? "dbo_QUAL" : reader.GetString(5),
-                CregTable = reader.IsDBNull(6) ? "dbo_STUD" : reader.GetString(6),
-                CrseTable = reader.IsDBNull(7) ? "dbo_STUD" : reader.GetString(7),
-                CurrentStatus = reader.IsDBNull(8) ? "" : reader.GetString(8),
+                Server = reader.IsDBNull(2) ? "" : reader.GetString(2).Trim(),
+                Database = reader.IsDBNull(3) ? "" : reader.GetString(3).Trim(),
+                StudTable = NormalizeObjectName(reader.IsDBNull(4) ? "dbo_CESM" : reader.GetString(4), "dbo_CESM"),
+                QualTable = NormalizeObjectName(reader.IsDBNull(5) ? "dbo_QUAL" : reader.GetString(5), "dbo_QUAL"),
+                CregTable = NormalizeObjectName(reader.IsDBNull(6) ? "dbo_STUD" : reader.GetString(6), "dbo_STUD"),
+                CrseTable = NormalizeObjectName(reader.IsDBNull(7) ? "dbo_STUD" : reader.GetString(7), "dbo_STUD"),
+                CurrentStatus = reader.IsDBNull(8) ? "" : reader.GetString(8).Trim(),
                 LastEditedByUserName = reader.IsDBNull(9) ? null : reader.GetString(9),
                 LastEditedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10),
                 Summary = summary
             };
+
+            if (string.IsNullOrWhiteSpace(workspace.CrseTable))
+                workspace.CrseTable = workspace.CregTable;
 
             if (summary != null)
                 workspace.CurrentStatus = summary.Status;
@@ -1086,6 +1096,7 @@ ORDER BY S.[_007];";
 
         private async Task<List<string>> GetTableColumnsAsync(string server, string database, string driver, string tableName)
         {
+            tableName = NormalizeObjectName(tableName);
             ValidateObjectName(tableName);
 
             var connStr = BuildConnectionString(server, database, driver);
@@ -1105,7 +1116,7 @@ ORDER BY ORDINAL_POSITION;";
             while (await reader.ReadAsync())
             {
                 if (!reader.IsDBNull(0))
-                    columns.Add(reader.GetString(0));
+                    columns.Add(reader.GetString(0).Trim());
             }
 
             return columns;
@@ -1122,6 +1133,8 @@ ORDER BY ORDINAL_POSITION;";
 
         private static void ValidateRequest(Rule13ValidationRequest request)
         {
+            NormalizeRequest(request);
+
             if (string.IsNullOrWhiteSpace(request.Server))
                 throw new InvalidOperationException("Server name is required.");
             if (string.IsNullOrWhiteSpace(request.Database))
@@ -1703,6 +1716,27 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
         private static string Sanitise(string name) =>
             name.Replace("]", "").Replace("[", "").Replace("'", "").Replace(";", "").Trim();
 
+        private static string NormalizeObjectName(string? name, string fallback = "")
+        {
+            var normalized = string.IsNullOrWhiteSpace(name) ? "" : Sanitise(name);
+            return string.IsNullOrWhiteSpace(normalized) ? fallback : normalized;
+        }
+
+        private static void NormalizeRequest(Rule13ValidationRequest request)
+        {
+            request.Server = request.Server?.Trim() ?? "";
+            request.Database = request.Database?.Trim() ?? "";
+            request.Driver = string.IsNullOrWhiteSpace(request.Driver)
+                ? "ODBC Driver 17 for SQL Server"
+                : request.Driver.Trim();
+            request.StudTable = NormalizeObjectName(request.StudTable);
+            request.QualTable = NormalizeObjectName(request.QualTable);
+            request.CregTable = NormalizeObjectName(request.CregTable);
+            request.CrseTable = NormalizeObjectName(request.CrseTable, request.CregTable);
+            request.PgTypesText = request.PgTypesText?.Trim() ?? "";
+            request.GoverningPartCodes = NormalizeGoverningPartCodes(request.GoverningPartCodes);
+        }
+
         private static void ValidateObjectName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -1750,6 +1784,15 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[_030] = CRSE.[_030]";
 
         private static Rule13ValidationSummary NormalizeSummary(Rule13ValidationSummary summary)
         {
+            summary.Database = summary.Database?.Trim() ?? "";
+            summary.StudTable = NormalizeObjectName(summary.StudTable, "dbo_CESM");
+            summary.QualTable = NormalizeObjectName(summary.QualTable, "dbo_QUAL");
+            summary.CregTable = NormalizeObjectName(summary.CregTable, "dbo_STUD");
+            summary.CrseTable = NormalizeObjectName(summary.CrseTable, summary.CregTable);
+            summary.Timestamp = summary.Timestamp?.Trim() ?? "";
+            summary.Status = summary.Status?.Trim() ?? "";
+            summary.Warning = string.IsNullOrWhiteSpace(summary.Warning) ? summary.Warning : summary.Warning.Trim();
+            summary.Error = string.IsNullOrWhiteSpace(summary.Error) ? summary.Error : summary.Error.Trim();
             summary.PgTypes ??= new List<string>();
             if (summary.PgTypes.Count == 0)
                 summary.PgTypes = ParsePgTypes(summary.PgTypesText);

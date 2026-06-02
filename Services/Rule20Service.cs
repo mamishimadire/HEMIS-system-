@@ -581,6 +581,11 @@ END";
 {BuildFoundationStudentCountQuery(studTable, qualTable, bridgeTable, crseTable, m)}
 
 SELECT
+    S.[{m.StudStudentNo}] AS STUD_Student_Number_007,
+    S.[{m.StudColumn008}] AS STUD_Column_008,
+    S.[{m.StudColumn010}] AS STUD_Column_010,
+    S.[{m.StudColumn012}] AS STUD_Column_012,
+    S.[{m.StudColumn026}] AS STUD_Column_026,
     S.[{m.StudQualCode}] AS STUD_Qualification_Code,
     S.[{m.StudFoundationFlag}] AS STUD_Foundation_Flag,
     BRIDGE.[{m.CregQualCode}] AS CRED_Qualification_Code,
@@ -748,7 +753,8 @@ WHERE RunID = @RunID;";
             string cregTable,
             string crseTable,
             List<string> pgTypes,
-            string pgTypeSqlList)
+            string pgTypeSqlList,
+            Rule20ColumnMapping? m = null)
         {
             var rowsByPart = new Dictionary<string, List<Rule20ReviewRowViewModel>>(StringComparer.OrdinalIgnoreCase);
             foreach (var partCode in PartOrder)
@@ -761,7 +767,8 @@ WHERE RunID = @RunID;";
                     cregTable,
                     crseTable,
                     pgTypes,
-                    pgTypeSqlList);
+                    pgTypeSqlList,
+                    m);
             }
 
             return rowsByPart;
@@ -775,44 +782,34 @@ WHERE RunID = @RunID;";
             string cregTable,
             string crseTable,
             List<string> pgTypes,
-            string pgTypeSqlList)
+            string pgTypeSqlList,
+            Rule20ColumnMapping? m = null)
         {
             await using var command = connection.CreateConfiguredCommand();
             command.CommandTimeout = SqlCommandTimeoutSeconds;
-            command.CommandText = BuildNotebookPartQuery(partCode, studTable, qualTable, cregTable, crseTable, pgTypeSqlList);
+            command.CommandText = BuildNotebookPartQuery(partCode, studTable, qualTable, cregTable, crseTable, pgTypeSqlList, m);
 
             await using var reader = await command.ExecuteReaderAsync();
             var rows = new List<Rule20ReviewRowViewModel>();
             while (await reader.ReadAsync())
             {
-                var qualificationType = ReadString(reader, 6);
-                var foundationCourse = ReadString(reader, 10);
+                var qualificationType = ReadString(reader, "QualificationType005");
+                var foundationCourse = ReadString(reader, "FoundationCourse091");
                 var notebookStatus = IsNotebookFoundationCourse(foundationCourse) ? "VALID" : "INVALID";
-
-                rows.Add(new Rule20ReviewRowViewModel
-                {
-                    PartCode = partCode,
-                    PartTitle = GetPartTitle(partCode),
-                    PartDescription = GetPartDescription(partCode),
-                    StudentNumber007 = ReadString(reader, 0),
-                    QualificationCode001 = ReadString(reader, 1),
-                    Name019 = ReadString(reader, 2),
-                    IdNumber024 = ReadString(reader, 3),
-                    FoundationFlag106 = ReadString(reader, 4),
-                    QualificationDescription003 = ReadString(reader, 5),
-                    QualificationType005 = qualificationType,
-                    BridgeQualificationCode001 = ReadString(reader, 7),
-                    CourseCode030 = ReadString(reader, 8),
-                    CrseCourseCode030 = ReadString(reader, 9),
-                    FoundationCourse091 = foundationCourse,
-                    StudentType = GetNotebookStudentType(partCode, qualificationType, pgTypes),
-                    NotebookStatus = notebookStatus,
-                    ValidationResult = notebookStatus == "VALID" ? "PASS" : "FAIL",
-                    ValidationExplanation = BuildValidationExplanation(
-                        ReadString(reader, 4),
-                        ReadString(reader, 8),
-                        foundationCourse)
-                });
+                var row = MapRule20ReviewRow(reader);
+                row.PartCode = partCode;
+                row.PartTitle = GetPartTitle(partCode);
+                row.PartDescription = GetPartDescription(partCode);
+                row.QualificationType005 = qualificationType;
+                row.FoundationCourse091 = foundationCourse;
+                row.StudentType = GetNotebookStudentType(partCode, qualificationType, pgTypes);
+                row.NotebookStatus = notebookStatus;
+                row.ValidationResult = notebookStatus == "VALID" ? "PASS" : "FAIL";
+                row.ValidationExplanation = BuildValidationExplanation(
+                    row.FoundationFlag106,
+                    row.CourseCode030,
+                    foundationCourse);
+                rows.Add(row);
             }
 
             return rows;
@@ -829,7 +826,14 @@ WHERE RunID = @RunID;";
         {
             return $@"
 SELECT
+    '{partCode}' AS PartCode,
+    '{GetPartTitle(partCode)}' AS PartTitle,
+    '{GetPartDescription(partCode)}' AS PartDescription,
     CAST(S.[{ColOrDefault(m?.StudStudentNo, "_007")}] AS nvarchar(255)) AS StudentNumber007,
+    CAST(S.[{ColOrDefault(m?.StudColumn008, "_008")}] AS nvarchar(255)) AS StudentColumn008,
+    CAST(S.[{ColOrDefault(m?.StudColumn010, "_010")}] AS nvarchar(255)) AS StudentColumn010,
+    CAST(S.[{ColOrDefault(m?.StudColumn012, "_012")}] AS nvarchar(255)) AS StudentColumn012,
+    CAST(S.[{ColOrDefault(m?.StudColumn026, "_026")}] AS nvarchar(255)) AS StudentColumn026,
     CAST(S.[{ColOrDefault(m?.StudQualCode, "_001")}] AS nvarchar(255)) AS QualificationCode001,
     CAST(S.[{ColOrDefault(m?.StudName, "_019")}] AS nvarchar(255)) AS Name019,
     CAST(S.[{ColOrDefault(m?.StudIdNo, "_024")}] AS nvarchar(255)) AS IdNumber024,
@@ -839,7 +843,10 @@ SELECT
     CAST(BRIDGE.[{ColOrDefault(m?.CregQualCode, "_001")}] AS nvarchar(255)) AS BridgeQualificationCode001,
     CAST(BRIDGE.[{ColOrDefault(m?.CregCourseCode, "_030")}] AS nvarchar(255)) AS CourseCode030,
     CAST(CRSE.[{ColOrDefault(m?.CrseCourseCode, "_030")}] AS nvarchar(255)) AS CrseCourseCode030,
-    CAST(CRSE.[{ColOrDefault(m?.CrseFoundationFlag, "_091")}] AS nvarchar(255)) AS FoundationCourse091
+    CAST(CRSE.[{ColOrDefault(m?.CrseFoundationFlag, "_091")}] AS nvarchar(255)) AS FoundationCourse091,
+    CASE WHEN {IsPostgraduateQualificationCondition("Q", pgTypeSqlList, m)} THEN 'Postgraduate' ELSE 'Undergraduate' END AS StudentType,
+    CASE WHEN {IsFoundationValidationPassCondition("CRSE", m)} THEN 'VALID' ELSE 'INVALID' END AS NotebookStatus,
+    CASE WHEN {IsFoundationValidationPassCondition("CRSE", m)} THEN 'PASS' ELSE 'FAIL' END AS ValidationResult
 {BuildBaseJoinClause(studTable, qualTable, cregTable, crseTable, m)}
 WHERE {FoundationStudentCondition("S", m)}
   AND {IsFoundationCourseCondition("CRSE", m)}
@@ -908,30 +915,7 @@ ORDER BY S.[{ColOrDefault(m?.StudStudentNo, "_007")}];";
             {
                 while (await reader.ReadAsync())
                 {
-                    reviewRows.Add(new Rule20ReviewRowViewModel
-                    {
-                        PartCode = ReadString(reader, 1),
-                        PartTitle = ReadString(reader, 2),
-                        PartDescription = ReadString(reader, 3),
-                        StudentNumber007 = ReadString(reader, 4),
-                        QualificationCode001 = ReadString(reader, 5),
-                        Name019 = ReadString(reader, 6),
-                        IdNumber024 = ReadString(reader, 7),
-                        FoundationFlag106 = ReadString(reader, 8),
-                        QualificationDescription003 = ReadString(reader, 9),
-                        QualificationType005 = ReadString(reader, 10),
-                        BridgeQualificationCode001 = ReadString(reader, 11),
-                        CourseCode030 = ReadString(reader, 12),
-                        CrseCourseCode030 = ReadString(reader, 13),
-                        FoundationCourse091 = ReadString(reader, 14),
-                        StudentType = ReadString(reader, 15),
-                        NotebookStatus = ReadString(reader, 16),
-                        ValidationResult = ReadString(reader, 17),
-                        ValidationExplanation = BuildValidationExplanation(
-                            ReadString(reader, 8),
-                            ReadString(reader, 12),
-                            ReadString(reader, 14))
-                    });
+                    reviewRows.Add(MapRule20ReviewRow(reader));
                 }
             }
 
@@ -964,30 +948,7 @@ ORDER BY S.[{ColOrDefault(m?.StudStudentNo, "_007")}];";
             var rows = new List<Rule20ReviewRowViewModel>();
             while (await reader.ReadAsync())
             {
-                rows.Add(new Rule20ReviewRowViewModel
-                {
-                    PartCode = ReadString(reader, 1),
-                    PartTitle = ReadString(reader, 2),
-                    PartDescription = ReadString(reader, 3),
-                    StudentNumber007 = ReadString(reader, 4),
-                    QualificationCode001 = ReadString(reader, 5),
-                    Name019 = ReadString(reader, 6),
-                    IdNumber024 = ReadString(reader, 7),
-                    FoundationFlag106 = ReadString(reader, 8),
-                    QualificationDescription003 = ReadString(reader, 9),
-                    QualificationType005 = ReadString(reader, 10),
-                    BridgeQualificationCode001 = ReadString(reader, 11),
-                    CourseCode030 = ReadString(reader, 12),
-                    CrseCourseCode030 = ReadString(reader, 13),
-                    FoundationCourse091 = ReadString(reader, 14),
-                    StudentType = ReadString(reader, 15),
-                    NotebookStatus = ReadString(reader, 16),
-                    ValidationResult = ReadString(reader, 17),
-                    ValidationExplanation = BuildValidationExplanation(
-                        ReadString(reader, 8),
-                        ReadString(reader, 12),
-                        ReadString(reader, 14))
-                });
+                rows.Add(MapRule20ReviewRow(reader));
             }
 
             return rows;
@@ -1012,6 +973,47 @@ ORDER BY S.[{ColOrDefault(m?.StudStudentNo, "_007")}];";
         private static string ReadString(SqlDataReader reader, int ordinal) =>
             reader.IsDBNull(ordinal) ? "" : Convert.ToString(reader.GetValue(ordinal)) ?? "";
 
+        private static string ReadString(SqlDataReader reader, string columnName)
+        {
+            var ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? "" : Convert.ToString(reader.GetValue(ordinal)) ?? "";
+        }
+
+        private static Rule20ReviewRowViewModel MapRule20ReviewRow(SqlDataReader reader)
+        {
+            var row = new Rule20ReviewRowViewModel
+            {
+                PartCode = ReadString(reader, "PartCode"),
+                PartTitle = ReadString(reader, "PartTitle"),
+                PartDescription = ReadString(reader, "PartDescription"),
+                StudentNumber007 = ReadString(reader, "StudentNumber007"),
+                StudentColumn008 = ReadString(reader, "StudentColumn008"),
+                StudentColumn010 = ReadString(reader, "StudentColumn010"),
+                StudentColumn012 = ReadString(reader, "StudentColumn012"),
+                StudentColumn026 = ReadString(reader, "StudentColumn026"),
+                QualificationCode001 = ReadString(reader, "QualificationCode001"),
+                Name019 = ReadString(reader, "Name019"),
+                IdNumber024 = ReadString(reader, "IdNumber024"),
+                FoundationFlag106 = ReadString(reader, "FoundationFlag106"),
+                QualificationDescription003 = ReadString(reader, "QualificationDescription003"),
+                QualificationType005 = ReadString(reader, "QualificationType005"),
+                BridgeQualificationCode001 = ReadString(reader, "BridgeQualificationCode001"),
+                CourseCode030 = ReadString(reader, "CourseCode030"),
+                CrseCourseCode030 = ReadString(reader, "CrseCourseCode030"),
+                FoundationCourse091 = ReadString(reader, "FoundationCourse091"),
+                StudentType = ReadString(reader, "StudentType"),
+                NotebookStatus = ReadString(reader, "NotebookStatus"),
+                ValidationResult = ReadString(reader, "ValidationResult")
+            };
+
+            row.ValidationExplanation = BuildValidationExplanation(
+                row.FoundationFlag106,
+                row.CourseCode030,
+                row.FoundationCourse091);
+
+            return row;
+        }
+
         private async Task EnsureColumnsExistAsync(string server, string database, string driver, string studTable, string qualTable, string cregTable, string crseTable, Rule20ColumnMapping? m = null)
         {
             m ??= new Rule20ColumnMapping();
@@ -1020,7 +1022,7 @@ ORDER BY S.[{ColOrDefault(m?.StudStudentNo, "_007")}];";
             var cregColumns = await GetTableColumnsAsync(server, database, driver, cregTable);
             var crseColumns = await GetTableColumnsAsync(server, database, driver, crseTable);
 
-            EnsureRequiredColumns(studTable, studColumns, [m.StudStudentNo, m.StudQualCode, m.StudName, m.StudIdNo, m.StudFoundationFlag]);
+            EnsureRequiredColumns(studTable, studColumns, [m.StudStudentNo, m.StudColumn008, m.StudColumn010, m.StudColumn012, m.StudColumn026, m.StudQualCode, m.StudName, m.StudIdNo, m.StudFoundationFlag]);
             EnsureRequiredColumns(qualTable, qualColumns, [m.QualQualCode, m.QualDescription, m.QualType]);
             EnsureRequiredColumns(cregTable, cregColumns, [m.CregQualCode, m.CregCourseCode]);
             EnsureRequiredColumns(crseTable, crseColumns, [m.CrseCourseCode, m.CrseFoundationFlag]);
@@ -1095,6 +1097,10 @@ ORDER BY ORDINAL_POSITION;";
         private static void NormalizeColumnMapping(Rule20ColumnMapping m)
         {
             m.StudStudentNo = ColOrDefault(m.StudStudentNo, "_007");
+            m.StudColumn008 = ColOrDefault(m.StudColumn008, "_008");
+            m.StudColumn010 = ColOrDefault(m.StudColumn010, "_010");
+            m.StudColumn012 = ColOrDefault(m.StudColumn012, "_012");
+            m.StudColumn026 = ColOrDefault(m.StudColumn026, "_026");
             m.StudQualCode = ColOrDefault(m.StudQualCode, "_001");
             m.StudName = ColOrDefault(m.StudName, "_019");
             m.StudIdNo = ColOrDefault(m.StudIdNo, "_024");
@@ -1110,6 +1116,10 @@ ORDER BY ORDINAL_POSITION;";
             m.CrseFoundationValue = ValOrDefault(m.CrseFoundationValue, "Y");
 
             ValidateColumnName(m.StudStudentNo);
+            ValidateColumnName(m.StudColumn008);
+            ValidateColumnName(m.StudColumn010);
+            ValidateColumnName(m.StudColumn012);
+            ValidateColumnName(m.StudColumn026);
             ValidateColumnName(m.StudQualCode);
             ValidateColumnName(m.StudName);
             ValidateColumnName(m.StudIdNo);
@@ -1403,6 +1413,10 @@ SELECT
     PartTitle,
     PartDescription,
     StudentNumber007,
+    StudentColumn008,
+    StudentColumn010,
+    StudentColumn012,
+    StudentColumn026,
     QualificationCode001,
     Name019,
     IdNumber024,
@@ -1436,6 +1450,10 @@ SELECT
     PartTitle,
     PartDescription,
     StudentNumber007,
+    StudentColumn008,
+    StudentColumn010,
+    StudentColumn012,
+    StudentColumn026,
     QualificationCode001,
     Name019,
     IdNumber024,
@@ -1470,6 +1488,10 @@ WITH Ranked AS (
         PartTitle,
         PartDescription,
         StudentNumber007,
+        StudentColumn008,
+        StudentColumn010,
+        StudentColumn012,
+        StudentColumn026,
         QualificationCode001,
         Name019,
         IdNumber024,
@@ -1499,6 +1521,10 @@ SELECT
     PartTitle,
     PartDescription,
     StudentNumber007,
+    StudentColumn008,
+    StudentColumn010,
+    StudentColumn012,
+    StudentColumn026,
     QualificationCode001,
     Name019,
     IdNumber024,
@@ -1531,6 +1557,10 @@ SELECT
     '{ScopeTitle}' AS PartTitle,
     '{ScopeDescription}' AS PartDescription,
     CAST(S.[{ColOrDefault(m?.StudStudentNo, "_007")}] AS nvarchar(255)) AS StudentNumber007,
+    CAST(S.[{ColOrDefault(m?.StudColumn008, "_008")}] AS nvarchar(255)) AS StudentColumn008,
+    CAST(S.[{ColOrDefault(m?.StudColumn010, "_010")}] AS nvarchar(255)) AS StudentColumn010,
+    CAST(S.[{ColOrDefault(m?.StudColumn012, "_012")}] AS nvarchar(255)) AS StudentColumn012,
+    CAST(S.[{ColOrDefault(m?.StudColumn026, "_026")}] AS nvarchar(255)) AS StudentColumn026,
     CAST(S.[{ColOrDefault(m?.StudQualCode, "_001")}] AS nvarchar(255)) AS QualificationCode001,
     CAST(S.[{ColOrDefault(m?.StudName, "_019")}] AS nvarchar(255)) AS Name019,
     CAST(S.[{ColOrDefault(m?.StudIdNo, "_024")}] AS nvarchar(255)) AS IdNumber024,
@@ -1960,7 +1990,13 @@ LEFT JOIN [{crseTable}] CRSE ON BRIDGE.[{ColOrDefault(m?.CregCourseCode, "_030")
             for (var i = 0; i < normalizedRows.Count; i++)
             {
                 normalizedRows[i].StudentNumber007 = NormalizeRowText(normalizedRows[i].StudentNumber007);
+                normalizedRows[i].StudentColumn008 = NormalizeRowText(normalizedRows[i].StudentColumn008);
+                normalizedRows[i].StudentColumn010 = NormalizeRowText(normalizedRows[i].StudentColumn010);
+                normalizedRows[i].StudentColumn012 = NormalizeRowText(normalizedRows[i].StudentColumn012);
+                normalizedRows[i].StudentColumn026 = NormalizeRowText(normalizedRows[i].StudentColumn026);
                 normalizedRows[i].QualificationCode001 = NormalizeRowText(normalizedRows[i].QualificationCode001);
+                normalizedRows[i].Name019 = NormalizeRowText(normalizedRows[i].Name019);
+                normalizedRows[i].IdNumber024 = NormalizeRowText(normalizedRows[i].IdNumber024);
                 normalizedRows[i].FoundationFlag106 = NormalizeRowText(normalizedRows[i].FoundationFlag106);
                 normalizedRows[i].QualificationDescription003 = NormalizeRowText(normalizedRows[i].QualificationDescription003);
                 normalizedRows[i].QualificationType005 = NormalizeRowText(normalizedRows[i].QualificationType005);

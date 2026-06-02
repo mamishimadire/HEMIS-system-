@@ -88,6 +88,10 @@
             <div style="font-size:11px;color:#64748b">@s.StudFirstTimeColumn = '@s.StudFirstTimeValue'</div>
         </div>
         <div class="viz-card">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">QUAL Records</div>
+            <div style="font-size:28px;font-weight:800">@s.QualTotalCount.ToString("N0")</div>
+        </div>
+        <div class="viz-card">
             <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">NAL Category Records</div>
             <div style="font-size:28px;font-weight:800">@s.NalCategoryCount.ToString("N0")</div>
             <div style="font-size:11px;color:#64748b">Category = '@s.NalCategoryValue'</div>
@@ -108,11 +112,18 @@
     </div>
 </div>
 
+@if (s.IsPreviewOnly)
+{
+    <div class="alert alert--info" style="margin-bottom:16px">
+        Browser preview only: showing up to @s.PreviewLimit rows per result set. Download Excel for the full population.
+    </div>
+}
+
 <!-- Tabs -->
 <div class="results-panel">
     <div class="results-tabs">
         <button class="tab-btn active" onclick="switchTab('flagged')">FLAGGED (@s.FlaggedCount.ToString("N0"))</button>
-        <button class="tab-btn" onclick="switchTab('clear')">CLEAR Sample (@s.ClearSampleRows.Count)</button>
+        <button class="tab-btn" onclick="switchTab('clear')">CLEAR (@s.ClearCount.ToString("N0"))</button>
         <button class="tab-btn" onclick="switchTab('config')">Configuration</button>
         <button class="tab-btn" onclick="switchTab('signoffs')">Signoffs</button>
         <button class="tab-btn" onclick="switchTab('sql')">SQL Code</button>
@@ -138,7 +149,13 @@
                             <tr>
                                 <th>#</th>
                                 <th>STUD Qual Ref</th>
+                                <th>STUD _007</th>
+                                <th>STUD _008</th>
                                 <th>FTE Value</th>
+                                <th>STUD _012</th>
+                                <th>STUD _026</th>
+                                <th>QUAL Code</th>
+                                <th>QUAL Name</th>
                                 <th>NAL Qual Name</th>
                                 <th>Aligned Name</th>
                                 <th>Category</th>
@@ -157,7 +174,13 @@
                                 <tr>
                                     <td>@row.RowNumber</td>
                                     <td><strong>@row.StudQualRef</strong></td>
+                                    <td>@row.Stud007Value</td>
+                                    <td>@row.Stud008Value</td>
                                     <td>@row.Stud010Value</td>
+                                    <td>@row.Stud012Value</td>
+                                    <td>@row.Stud026Value</td>
+                                    <td>@row.QualCodeValue</td>
+                                    <td>@row.QualNameValue</td>
                                     <td>@row.NalQualName</td>
                                     <td>@row.NalAlignedName</td>
                                     <td>@row.NalCategory</td>
@@ -183,7 +206,7 @@
 
     <!-- CLEAR rows -->
     <div class="tab-pane" id="tab-clear">
-        <h3 style="margin-bottom:1rem">CLEAR Rows (Sample)</h3>
+        <h3 style="margin-bottom:1rem">CLEAR Rows</h3>
         @if (!s.ClearSampleRows.Any())
         {
             <div class="alert alert--warning">No CLEAR rows available in this saved run.</div>
@@ -197,7 +220,21 @@
                             <tr>
                                 <th>#</th>
                                 <th>STUD Qual Ref</th>
+                                <th>STUD _007</th>
+                                <th>STUD _008</th>
                                 <th>FTE Value</th>
+                                <th>STUD _012</th>
+                                <th>STUD _026</th>
+                                <th>QUAL Code</th>
+                                <th>QUAL Name</th>
+                                <th>NAL Qual Name</th>
+                                <th>Aligned Name</th>
+                                <th>Category</th>
+                                @if (!string.IsNullOrWhiteSpace(s.NalHeqsfRefColumn)) { <th>HEQSF Ref</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalSaqaIdColumn)) { <th>SAQA ID</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalNqfColumn)) { <th>NQF</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalCreditsColumn)) { <th>Credits</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalOutcomeColumn)) { <th>Outcome</th> }
                                 <th>Result</th>
                             </tr>
                         </thead>
@@ -207,14 +244,31 @@
                                 <tr>
                                     <td>@row.RowNumber</td>
                                     <td><strong>@row.StudQualRef</strong></td>
+                                    <td>@row.Stud007Value</td>
+                                    <td>@row.Stud008Value</td>
                                     <td>@row.Stud010Value</td>
+                                    <td>@row.Stud012Value</td>
+                                    <td>@row.Stud026Value</td>
+                                    <td>@row.QualCodeValue</td>
+                                    <td>@row.QualNameValue</td>
+                                    <td>@row.NalQualName</td>
+                                    <td>@row.NalAlignedName</td>
+                                    <td>@row.NalCategory</td>
+                                    @if (!string.IsNullOrWhiteSpace(s.NalHeqsfRefColumn)) { <td>@row.NalHeqsfRef</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalSaqaIdColumn)) { <td>@row.NalSaqaId</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalNqfColumn)) { <td>@row.NalNqf</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalCreditsColumn)) { <td>@row.NalCredits</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalOutcomeColumn)) { <td>@row.NalOutcome</td> }
                                     <td><span class="badge badge--pass">CLEAR</span></td>
                                 </tr>
                             }
                         </tbody>
                     </table>
                 </div>
-                <div class="table-footer">Sample of @s.ClearSampleRows.Count rows from @s.ClearCount.ToString("N0") total CLEAR rows. Download CSV for the full list.</div>
+                @if (s.ClearSampleRows.Count < s.ClearCount)
+                {
+                    <div class="table-footer">Showing @s.ClearSampleRows.Count of @s.ClearCount.ToString("N0") CLEAR rows. Download the Excel or CSV for the full list.</div>
+                }
             </div>
         }
     </div>
@@ -228,6 +282,13 @@
                 <tr><td style="font-weight:600">STUD Table</td><td>@s.StudTable</td></tr>
                 <tr><td style="font-weight:600">First-Time Column</td><td>@s.StudFirstTimeColumn = '@s.StudFirstTimeValue'</td></tr>
                 <tr><td style="font-weight:600">STUD Qual Ref Column</td><td>@s.StudQualRefColumn</td></tr>
+                @if (!string.IsNullOrWhiteSpace(s.Stud007Column)) { <tr><td style="font-weight:600">STUD _007 Column</td><td>@s.Stud007Column</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.Stud008Column)) { <tr><td style="font-weight:600">STUD _008 Column</td><td>@s.Stud008Column</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.Stud012Column)) { <tr><td style="font-weight:600">STUD _012 Column</td><td>@s.Stud012Column</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.Stud026Column)) { <tr><td style="font-weight:600">STUD _026 Column</td><td>@s.Stud026Column</td></tr> }
+                <tr><td style="font-weight:600">QUAL Table</td><td>@s.QualTable</td></tr>
+                <tr><td style="font-weight:600">QUAL Code Column</td><td>@s.QualCodeColumn</td></tr>
+                <tr><td style="font-weight:600">QUAL Name Column</td><td>@s.QualNameColumn</td></tr>
                 <tr><td style="font-weight:600">NAL Table</td><td>@s.NalTable</td></tr>
                 <tr><td style="font-weight:600">NAL Ref Column</td><td>@s.NalRefColumn</td></tr>
                 <tr><td style="font-weight:600">NAL Name Column</td><td>@s.NalNameColumn</td></tr>

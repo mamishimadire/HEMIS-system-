@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using ClosedXML.Excel;
 using HemisAudit.Helpers;
 using HemisAudit.Models;
 using HemisAudit.Services;
@@ -240,7 +241,7 @@ namespace HemisAudit.Controllers
             return Json(new Rule46SqlResult
             {
                 Success = true,
-                Sql     = _rule46.GenerateControl1Sql(request) + "\n\n" + _rule46.GenerateControl2Sql(request)
+                Sql     = _rule46.GenerateValidationSql(request)
             });
         }
 
@@ -256,8 +257,25 @@ namespace HemisAudit.Controllers
                 TempData["Error"] = "The assigned data analyst must sign off before downloading.";
                 return RedirectToAction(nameof(Index));
             }
-            var bytes = BuildCsvBytes(review.Summary!);
-            return File(bytes, "text/csv", $"Rule46_Foundation_PQM_Run_{runId}.csv");
+            var bytes = BuildCombinedCsvBytes(review.Summary!);
+            return File(bytes, "text/csv", $"Rule46_Foundation_Chain_Run_{runId}.csv");
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> DownloadExcel([FromQuery] int runId)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+            var review = await _rule46.GetSavedRunAsync(runId, user?.Email);
+            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role)) return NotFound();
+            if (!ValidationRunAccessPolicy.CanDownloadSignedResults(role, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff))
+            {
+                TempData["Error"] = "The assigned data analyst must sign off before downloading.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var bytes = BuildExcelExport(review.Summary!);
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule46_Foundation_Chain_Run_{runId}.xlsx");
         }
 
         [HttpGet]
@@ -270,15 +288,18 @@ namespace HemisAudit.Controllers
             var s = review.Summary!;
             var req = new Rule46ValidationRequest
             {
-                Database = s.Database, StudTable = s.StudTable, StudKey = s.StudKey,
+                Database = s.Database, StudTable = s.StudTable, StudKey = s.StudKey, StudIdCol = s.StudIdCol,
+                Stud007Col = s.Stud007Col,
+                Stud010Col = s.Stud010Col,
+                Stud012Col = s.Stud012Col,
+                Stud026Col = s.Stud026Col,
                 StudFilterCol = s.StudFilterCol, StudFilterValue = s.StudFilterValue,
                 QualTable = s.QualTable, QualKey = s.QualKey, QualNameCol = s.QualNameCol,
-                CredTable = s.CredTable, CredStudKey = s.CredStudKey, CredCourseCol = s.CredCourseCol,
                 PqmTable = s.PqmTable, PqmNameCol = s.PqmNameCol
             };
-            var sqlText = _rule46.GenerateControl1Sql(req) + "\n\n" + _rule46.GenerateControl2Sql(req);
+            var sqlText = _rule46.GenerateValidationSql(req);
             var bytes = _export.ExportSql(sqlText);
-            return File(bytes, "application/sql", $"Rule46_Foundation_PQM_Run_{runId}.sql");
+            return File(bytes, "application/sql", $"Rule46_Foundation_Chain_Run_{runId}.sql");
         }
 
         private static byte[] BuildCsvBytes(Rule46ValidationSummary summary)
@@ -290,14 +311,141 @@ namespace HemisAudit.Controllers
             sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
             sw.WriteLine($"\"Total\",{summary.TotalValidated},\"Pass\",{summary.PassCount},\"Fail\",{summary.FailCount},\"Exception Rate\",{summary.ExceptionRate:0.00}%");
             sw.WriteLine();
-            sw.WriteLine("\"Row\",\"Control\",\"Stud_ID\",\"Stud_Filter\",\"Qual_ID\",\"Qual_Name\",\"Cred_ID\",\"Cred_Course\",\"PQM_Name\",\"Result\",\"Detail\"");
+            sw.WriteLine("\"Row\",\"Stud_ID\",\"Stud_Filter\",\"Qual_ID\",\"Qual_Name\",\"PQM_Name\",\"Result\",\"Detail\"");
             foreach (var row in summary.ValidationRows)
             {
                 static string Q(string? v) => "\"" + (v ?? "").Replace("\"", "\"\"") + "\"";
-                sw.WriteLine($"{row.RowNumber},{Q(row.ControlType)},{Q(row.StudId)},{Q(row.StudFilterValue)},{Q(row.QualId)},{Q(row.QualName)},{Q(row.CredId)},{Q(row.CredCourse)},{Q(row.PqmName)},{Q(row.ValidationResult)},{Q(row.ResultDetail)}");
+                sw.WriteLine($"{row.RowNumber},{Q(row.StudId)},{Q(row.StudFilterValue)},{Q(row.QualId)},{Q(row.QualName)},{Q(row.PqmName)},{Q(row.ValidationResult)},{Q(row.ResultDetail)}");
             }
             sw.Flush();
             return ms.ToArray();
+        }
+
+        private static byte[] BuildCombinedCsvBytes(Rule46ValidationSummary summary)
+        {
+            using var ms = new System.IO.MemoryStream();
+            using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
+            sw.WriteLine($"\"HEMIS RULE 46 - Foundation Student Chain Validation\"");
+            sw.WriteLine($"\"Database\",\"{summary.Database}\"");
+            sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
+            sw.WriteLine($"\"Total\",{summary.TotalValidated},\"Pass\",{summary.PassCount},\"Fail\",{summary.FailCount},\"Exception Rate\",{summary.ExceptionRate:0.00}%");
+            sw.WriteLine();
+            sw.WriteLine("\"Row\",\"Stud_Key\",\"Stud__008\",\"Stud__007\",\"Stud__010\",\"Stud__012\",\"Stud__026\",\"STUD__106\",\"Qual_Key\",\"Qual_Name\",\"PQM_Name\",\"Result\",\"Detail\"");
+            foreach (var row in summary.ValidationRows)
+            {
+                static string Q(string? v) => "\"" + (v ?? "").Replace("\"", "\"\"") + "\"";
+                sw.WriteLine($"{row.RowNumber},{Q(row.StudId)},{Q(row.StudentId)},{Q(row.Stud007)},{Q(row.Stud010)},{Q(row.Stud012)},{Q(row.Stud026)},{Q(row.StudFilterValue)},{Q(row.QualId)},{Q(row.QualName)},{Q(row.PqmName)},{Q(row.ValidationResult)},{Q(row.ResultDetail)}");
+            }
+            sw.Flush();
+            return ms.ToArray();
+        }
+
+        private static byte[] BuildExcelExport(Rule46ValidationSummary summary)
+        {
+            using var workbook = new XLWorkbook();
+
+            var summarySheet = workbook.Worksheets.Add("Summary");
+            summarySheet.Cell(1, 1).Value = "HEMIS RULE 46 - Foundation Student Chain Validation";
+            summarySheet.Range(1, 1, 1, 2).Merge();
+            summarySheet.Cell(1, 1).Style.Font.Bold = true;
+            summarySheet.Cell(1, 1).Style.Font.FontSize = 14;
+
+            var summaryRows = new (string Label, string Value)[]
+            {
+                ("Database", summary.Database),
+                ("Timestamp", summary.Timestamp),
+                ("STUD Table", summary.StudTable),
+                ("STUD Key", summary.StudKey),
+                ("STUD ID Column", summary.StudIdCol),
+                ("STUD _007 Column", summary.Stud007Col),
+                ("STUD _010 Column", summary.Stud010Col),
+                ("STUD _012 Column", summary.Stud012Col),
+                ("STUD _026 Column", summary.Stud026Col),
+                ("Foundation Filter", $"{summary.StudTable}.{summary.StudFilterCol} = '{summary.StudFilterValue}'"),
+                ("QUAL Table", summary.QualTable),
+                ("PQM Table", summary.PqmTable),
+                ("PQM Match Rule", $"{summary.QualTable}.{summary.QualNameCol} = {summary.PqmTable}.{summary.PqmNameCol}"),
+                ("Total Count", summary.TotalValidated.ToString()),
+                ("Pass Count", summary.PassCount.ToString()),
+                ("Fail Count", summary.FailCount.ToString()),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status)
+            };
+
+            summarySheet.Cell(3, 1).Value = "Field";
+            summarySheet.Cell(3, 2).Value = "Value";
+            summarySheet.Range(3, 1, 3, 2).Style.Font.Bold = true;
+            summarySheet.Range(3, 1, 3, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+
+            var summaryRowIndex = 4;
+            foreach (var item in summaryRows)
+            {
+                summarySheet.Cell(summaryRowIndex, 1).Value = item.Label;
+                summarySheet.Cell(summaryRowIndex, 2).Value = item.Value;
+                summaryRowIndex++;
+            }
+            summarySheet.Columns(1, 2).AdjustToContents();
+
+            var allRows = summary.ValidationRows ?? new List<Rule46ValidationRow>();
+            WriteExcelWorksheet(workbook, "All", allRows);
+            WriteExcelWorksheet(workbook, "PASS only",
+                allRows.Where(r => string.Equals(r.ValidationResult, "PASS", StringComparison.OrdinalIgnoreCase)));
+            WriteExcelWorksheet(workbook, "FAIL only",
+                allRows.Where(r => string.Equals(r.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)));
+
+            using var ms = new System.IO.MemoryStream();
+            workbook.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        private static void WriteExcelWorksheet(XLWorkbook workbook, string sheetName, IEnumerable<Rule46ValidationRow> rows)
+        {
+            var worksheet = workbook.Worksheets.Add(sheetName);
+            var headers = new[]
+            {
+                "Row",
+                "STUD Key",
+                "STUD._008",
+                "STUD._007",
+                "STUD._010",
+                "STUD._012",
+                "STUD._026",
+                "STUD._106",
+                "QUAL Key",
+                "QUAL Name",
+                "PQM.Authorised_Qualification_Name",
+                "Result",
+                "Detail"
+            };
+
+            for (var i = 0; i < headers.Length; i++)
+            {
+                var cell = worksheet.Cell(1, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+            }
+
+            var rowIndex = 2;
+            foreach (var row in rows)
+            {
+                worksheet.Cell(rowIndex, 1).Value  = row.RowNumber;
+                worksheet.Cell(rowIndex, 2).Value  = row.StudId;
+                worksheet.Cell(rowIndex, 3).Value  = row.StudentId;
+                worksheet.Cell(rowIndex, 4).Value  = row.Stud007;
+                worksheet.Cell(rowIndex, 5).Value  = row.Stud010;
+                worksheet.Cell(rowIndex, 6).Value  = row.Stud012;
+                worksheet.Cell(rowIndex, 7).Value  = row.Stud026;
+                worksheet.Cell(rowIndex, 8).Value  = row.StudFilterValue;
+                worksheet.Cell(rowIndex, 9).Value  = row.QualId;
+                worksheet.Cell(rowIndex, 10).Value = row.QualName;
+                worksheet.Cell(rowIndex, 11).Value = row.PqmName;
+                worksheet.Cell(rowIndex, 12).Value = row.ValidationResult;
+                worksheet.Cell(rowIndex, 13).Value = row.ResultDetail;
+                rowIndex++;
+            }
+
+            worksheet.Columns().AdjustToContents();
         }
 
         private static bool CanViewWorkspaceResults(string role, Rule46WorkspaceStateViewModel? workspace)

@@ -107,9 +107,6 @@ namespace HemisAudit.Controllers
 
             if (!ModelState.IsValid) return View(model);
 
-            // Force a session cookie so reopening the browser requires login again.
-            model.RememberMe = false;
-
             var user = await _users.FindByEmailAsync(model.Email);
             if (user == null || !user.IsActive)
             {

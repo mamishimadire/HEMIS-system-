@@ -7,10 +7,8 @@ namespace HemisAudit.Services
 {
     public class Rule39Service : IRule39Service
     {
-        private const int BrowserPreviewRowLimit = 10;
-        private const int FlaggedRowSaveLimit = 5000;
-        private const int ClearSampleLimit = 100;
         private const int SqlCommandTimeoutSeconds = SqlLargeDataExtensions.LargeDataCommandTimeoutSeconds;
+        private const int BrowserPreviewPerResultLimit = 10;
         private readonly IConfiguration _configuration;
         private readonly IPendingValidationCacheService _pendingValidationCache;
 
@@ -58,6 +56,9 @@ namespace HemisAudit.Services
                     AutoStudTable = FindFirst(tables,
                         ["dbo_STUD", "STUD"],
                         ["stud"]),
+                    AutoQualTable = FindFirst(tables,
+                        ["dbo_QUAL", "QUAL"],
+                        ["qual"]),
                     AutoNalTable = FindFirst(tables,
                         ["Non_Aligned_Qualifications", "NonAligned_Qualifications", "NON_ALIGNED_QUALIFICATIONS"],
                         ["non_aligned", "nonaligned", "nal_qual"])
@@ -80,6 +81,15 @@ namespace HemisAudit.Services
                 {
                     result.AutoQualRefColumn  = FindFirst(columns, ["_001"], ["_001", "qual_ref", "qualcode"]);
                     result.AutoFirstTimeColumn = FindFirst(columns, ["_010"], ["_010", "firsttime", "first_time"]);
+                    result.AutoStud007Column = FindFirst(columns, ["_007"], ["_007"]);
+                    result.AutoStud008Column = FindFirst(columns, ["_008"], ["_008"]);
+                    result.AutoStud012Column = FindFirst(columns, ["_012"], ["_012"]);
+                    result.AutoStud026Column = FindFirst(columns, ["_026"], ["_026"]);
+                }
+                else if (string.Equals(tableRole, "qual", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.AutoQualCodeColumn = FindFirst(columns, ["_001"], ["_001", "qual_code", "qualification_code"]);
+                    result.AutoQualNameColumn = FindFirst(columns, ["_003"], ["_003", "qual_name", "qualification_name"]);
                 }
                 else
                 {
@@ -142,8 +152,8 @@ namespace HemisAudit.Services
                 await conn.OpenAsync();
 
                 var st = Sanitise(request.StudTable);
+                var qt = Sanitise(request.QualTable);
                 var nt = Sanitise(request.NalTable);
-                var sc = Sanitise(request.StudQualRefColumn);
                 var s10 = Sanitise(request.StudFirstTimeColumn);
                 var nc = Sanitise(request.NalCategoryColumn);
                 var ftv = request.StudFirstTimeValue.Replace("'", "''");
@@ -155,6 +165,7 @@ namespace HemisAudit.Services
                     StudTotalCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{st}];"),
                     StudFilteredCount = await CountAsync(conn,
                         $"SELECT COUNT(*) FROM [{st}] WHERE UPPER(LTRIM(RTRIM(CAST([{s10}] AS nvarchar(50))))) = UPPER('{ftv}');"),
+                    QualTotalCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{qt}];"),
                     NalTotalCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{nt}];"),
                     NalFilteredCount = await CountAsync(conn,
                         $"SELECT COUNT(*) FROM [{nt}] WHERE UPPER(LTRIM(RTRIM(CAST([{nc}] AS nvarchar(50))))) = UPPER('{catv}');")
@@ -241,6 +252,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 Server = reader.IsDBNull(2) ? "" : reader.GetString(2),
                 Database = reader.IsDBNull(3) ? "" : reader.GetString(3),
                 StudTable = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                QualTable = "dbo_QUAL",
                 NalTable = reader.IsDBNull(5) ? "" : reader.GetString(5),
                 StudQualRefColumn = reader.IsDBNull(6) ? "_001" : reader.GetString(6),
                 StudFirstTimeColumn = reader.IsDBNull(7) ? "_010" : reader.GetString(7),
@@ -253,6 +265,13 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             if (deserializedSummary != null)
             {
                 workspace.StudFirstTimeValue = deserializedSummary.StudFirstTimeValue;
+                workspace.QualTable          = deserializedSummary.QualTable;
+                workspace.QualCodeColumn     = deserializedSummary.QualCodeColumn;
+                workspace.QualNameColumn     = deserializedSummary.QualNameColumn;
+                workspace.Stud007Column      = deserializedSummary.Stud007Column;
+                workspace.Stud008Column      = deserializedSummary.Stud008Column;
+                workspace.Stud012Column      = deserializedSummary.Stud012Column;
+                workspace.Stud026Column      = deserializedSummary.Stud026Column;
                 workspace.NalRefColumn       = deserializedSummary.NalRefColumn;
                 workspace.NalNameColumn      = deserializedSummary.NalNameColumn;
                 workspace.NalAlignedColumn   = deserializedSummary.NalAlignedColumn;
@@ -368,7 +387,7 @@ WHERE RunID = @RunID AND ClientID = @ClientID;";
                 command.Parameters.AddWithValue("@StudFirstTimeColumn", request.StudFirstTimeColumn);
                 command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
                 command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
-                command.Parameters.AddWithValue("@RecordHash", ComputeHash($"WorkspaceSave|Rule39|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.StudTable}|{request.NalTable}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
+                command.Parameters.AddWithValue("@RecordHash", ComputeHash($"WorkspaceSave|Rule39|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.StudTable}|{request.QualTable}|{request.NalTable}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
                 await command.ExecuteNonQueryAsync();
 
                 var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail);
@@ -510,9 +529,12 @@ END";
         public string GenerateSql(Rule39ValidationRequest request)
         {
             var st  = Sanitise(request.StudTable);
+            var qt  = Sanitise(request.QualTable);
             var nt  = Sanitise(request.NalTable);
             var sc  = Sanitise(request.StudQualRefColumn);
             var s10 = Sanitise(request.StudFirstTimeColumn);
+            var qc  = Sanitise(request.QualCodeColumn);
+            var qn  = Sanitise(request.QualNameColumn);
             var nr  = Sanitise(request.NalRefColumn);
             var nn  = Sanitise(request.NalNameColumn);
             var na  = Sanitise(request.NalAlignedColumn);
@@ -520,29 +542,42 @@ END";
             var ftv = request.StudFirstTimeValue.Replace("'", "''");
             var catv = request.NalCategoryValue.Replace("'", "''");
 
-            var optionalNalCols = BuildOptionalNalColsSql(request, "n");
+            var optionalStudCols = BuildOptionalStudColsSql(request, "");
 
             return $@"-- ================================================================
 -- HEMIS RULE 39: First-Time Entering Students vs Non-Aligned Qualifications
 -- ================================================================
 -- Database : {request.Database}
 -- STUD Table: [{st}]  |  Filter: [{s10}] = '{ftv}'
+-- QUAL Table: [{qt}]  |  Join: STUD.[{sc}] = QUAL.[{qc}]
 -- NAL Table : [{nt}]  |  Filter: [{nc}] = '{catv}'
--- Join key  : STUD.[{sc}] = NAL.[{nr}]
+-- Join key  : QUAL.[{qc}] = NAL.[{nr}]
 -- ================================================================
 
-IF OBJECT_ID('tempdb..#FTE_Quals')  IS NOT NULL DROP TABLE #FTE_Quals;
+IF OBJECT_ID('tempdb..#FTE_Stud')   IS NOT NULL DROP TABLE #FTE_Stud;
+IF OBJECT_ID('tempdb..#QUAL_Map')   IS NOT NULL DROP TABLE #QUAL_Map;
 IF OBJECT_ID('tempdb..#NAL_Cat')    IS NOT NULL DROP TABLE #NAL_Cat;
 
 -- Step 1: First-Time Entering students (Procedure 5.3)
-SELECT [{sc}] AS STUD_QualRef, [{s10}] AS STUD_010
-INTO #FTE_Quals
+SELECT
+    [{sc}] AS STUD_QualRef,
+    {optionalStudCols}[{s10}] AS STUD_010
+INTO #FTE_Stud
 FROM [{st}]
 WHERE UPPER(LTRIM(RTRIM(CAST([{s10}] AS nvarchar(50))))) = UPPER('{ftv}');
 
-SELECT COUNT(*) AS FTE_Count FROM #FTE_Quals;
+SELECT COUNT(*) AS FTE_Count FROM #FTE_Stud;
 
--- Step 2: Category '{catv}' Non-Aligned Qualifications (Procedure 5.3.1)
+-- Step 2: Qualification lookup for names (QUAL._001 -> QUAL._003)
+SELECT
+    [{qc}] AS QUAL_Code,
+    [{qn}] AS QUAL_Name
+INTO #QUAL_Map
+FROM [{qt}];
+
+SELECT COUNT(*) AS QUAL_Count FROM #QUAL_Map;
+
+-- Step 3: Category '{catv}' Non-Aligned Qualifications (Procedure 5.3.1)
 SELECT [{nr}] AS NAL_QualRef, [{nn}] AS NAL_QualName, [{na}] AS NAL_AlignedName, [{nc}] AS NAL_Category
 INTO #NAL_Cat
 FROM [{nt}]
@@ -550,38 +585,51 @@ WHERE UPPER(LTRIM(RTRIM(CAST([{nc}] AS nvarchar(50))))) = UPPER('{catv}');
 
 SELECT COUNT(*) AS NAL_Category_Count FROM #NAL_Cat;
 
--- Step 3: Cross-match and flag (Procedure 5.3.2)
+-- Step 4: Cross-match and flag (Procedure 5.3.2)
 SELECT
-    ROW_NUMBER() OVER (ORDER BY s.STUD_QualRef) AS Row_No,
+    ROW_NUMBER() OVER (ORDER BY s.STUD_QualRef, q.QUAL_Name) AS Row_No,
     s.STUD_QualRef,
+    s.Stud007Value,
+    s.Stud008Value,
     s.STUD_010,
+    s.Stud012Value,
+    s.Stud026Value,
+    q.QUAL_Code,
+    q.QUAL_Name,
     n.NAL_QualName,
     n.NAL_AlignedName,
     n.NAL_Category,
     CASE WHEN n.NAL_QualRef IS NOT NULL THEN 'FLAGGED' ELSE 'CLEAR' END AS Result,
     CASE WHEN n.NAL_QualRef IS NOT NULL
-         THEN N'Qualification ' + CAST(s.STUD_QualRef AS nvarchar) +
+         THEN N'Qualification ' + CAST(COALESCE(NULLIF(CAST(q.QUAL_Code AS nvarchar(255)), ''), CAST(s.STUD_QualRef AS nvarchar(255))) AS nvarchar(255)) +
+              N' (' + ISNULL(CAST(q.QUAL_Name AS nvarchar(500)), N'Unknown qualification') + N')' +
               N' found in Category {catv} Non-Aligned list: ' + ISNULL(n.NAL_QualName, '')
          ELSE NULL
     END AS Exception_Reason
-FROM #FTE_Quals s
-LEFT JOIN #NAL_Cat n
+FROM #FTE_Stud s
+LEFT JOIN #QUAL_Map q
     ON UPPER(LTRIM(RTRIM(CAST(s.STUD_QualRef AS nvarchar(255)))))
+     = UPPER(LTRIM(RTRIM(CAST(q.QUAL_Code AS nvarchar(255)))))
+LEFT JOIN #NAL_Cat n
+    ON UPPER(COALESCE(NULLIF(LTRIM(RTRIM(CAST(q.QUAL_Code AS nvarchar(255)))), ''), LTRIM(RTRIM(CAST(s.STUD_QualRef AS nvarchar(255))))))
      = UPPER(LTRIM(RTRIM(CAST(n.NAL_QualRef AS nvarchar(255)))));
 
--- Step 4: Summary
+-- Step 5: Summary
 SELECT
     COUNT(*) AS Total_FTE,
     SUM(CASE WHEN n.NAL_QualRef IS NOT NULL THEN 1 ELSE 0 END) AS FLAGGED,
     SUM(CASE WHEN n.NAL_QualRef IS NULL THEN 1 ELSE 0 END) AS CLEAR,
     CAST(SUM(CASE WHEN n.NAL_QualRef IS NOT NULL THEN 1 ELSE 0 END)
          * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,2)) AS Exception_Rate_Pct
-FROM #FTE_Quals s
-LEFT JOIN #NAL_Cat n
+FROM #FTE_Stud s
+LEFT JOIN #QUAL_Map q
     ON UPPER(LTRIM(RTRIM(CAST(s.STUD_QualRef AS nvarchar(255)))))
+     = UPPER(LTRIM(RTRIM(CAST(q.QUAL_Code AS nvarchar(255)))))
+LEFT JOIN #NAL_Cat n
+    ON UPPER(COALESCE(NULLIF(LTRIM(RTRIM(CAST(q.QUAL_Code AS nvarchar(255)))), ''), LTRIM(RTRIM(CAST(s.STUD_QualRef AS nvarchar(255))))))
      = UPPER(LTRIM(RTRIM(CAST(n.NAL_QualRef AS nvarchar(255)))));
 
-DROP TABLE #FTE_Quals; DROP TABLE #NAL_Cat;
+DROP TABLE #FTE_Stud; DROP TABLE #QUAL_Map; DROP TABLE #NAL_Cat;
 -- ================================================================
 -- END RULE 39
 -- ================================================================".Trim();
@@ -596,9 +644,12 @@ DROP TABLE #FTE_Quals; DROP TABLE #NAL_Cat;
             await conn.OpenAsync();
 
             var st  = Sanitise(request.StudTable);
+            var qt  = Sanitise(request.QualTable);
             var nt  = Sanitise(request.NalTable);
             var sc  = Sanitise(request.StudQualRefColumn);
             var s10 = Sanitise(request.StudFirstTimeColumn);
+            var qc  = Sanitise(request.QualCodeColumn);
+            var qn  = Sanitise(request.QualNameColumn);
             var nr  = Sanitise(request.NalRefColumn);
             var nn  = Sanitise(request.NalNameColumn);
             var na  = Sanitise(request.NalAlignedColumn);
@@ -609,28 +660,36 @@ DROP TABLE #FTE_Quals; DROP TABLE #NAL_Cat;
             var studTotal    = await CountAsync(conn, $"SELECT COUNT(*) FROM [{st}];");
             var studFiltered = await CountAsync(conn,
                 $"SELECT COUNT(*) FROM [{st}] WHERE UPPER(LTRIM(RTRIM(CAST([{s10}] AS nvarchar(50))))) = UPPER('{ftv}');");
+            var qualTotal    = await CountAsync(conn, $"SELECT COUNT(*) FROM [{qt}];");
             var nalCategory  = await CountAsync(conn,
                 $"SELECT COUNT(*) FROM [{nt}] WHERE UPPER(LTRIM(RTRIM(CAST([{nc}] AS nvarchar(50))))) = UPPER('{catv}');");
 
+            var optionalStudCols = BuildOptionalStudColsSql(request, "s");
             var optionalNalCols = BuildOptionalNalColsSql(request, "n");
 
             var sql = $@"
-SELECT TOP ({FlaggedRowSaveLimit + ClearSampleLimit})
-    ROW_NUMBER() OVER (ORDER BY s.[{sc}]) AS RowNumber,
+SELECT
+    ROW_NUMBER() OVER (ORDER BY s.[{sc}], q.[{qn}]) AS RowNumber,
     CAST(s.[{sc}] AS nvarchar(255)) AS StudQualRef,
+    {optionalStudCols}
     CAST(s.[{s10}] AS nvarchar(50)) AS Stud010Value,
+    CAST(q.[{qc}] AS nvarchar(255)) AS QualCodeValue,
+    CAST(q.[{qn}] AS nvarchar(500)) AS QualNameValue,
     CAST(n.[{nn}] AS nvarchar(500)) AS NalQualName,
     CAST(n.[{na}] AS nvarchar(500)) AS NalAlignedName,
     CAST(n.[{nc}] AS nvarchar(50)) AS NalCategory,
     {optionalNalCols}
     CASE WHEN n.[{nr}] IS NOT NULL THEN 'FLAGGED' ELSE 'CLEAR' END AS Result
 FROM [{st}] s
-LEFT JOIN [{nt}] n
+LEFT JOIN [{qt}] q
     ON UPPER(LTRIM(RTRIM(CAST(s.[{sc}] AS nvarchar(255)))))
+     = UPPER(LTRIM(RTRIM(CAST(q.[{qc}] AS nvarchar(255)))))
+LEFT JOIN [{nt}] n
+    ON UPPER(COALESCE(NULLIF(LTRIM(RTRIM(CAST(q.[{qc}] AS nvarchar(255)))), ''), LTRIM(RTRIM(CAST(s.[{sc}] AS nvarchar(255))))))
      = UPPER(LTRIM(RTRIM(CAST(n.[{nr}] AS nvarchar(255)))))
     AND UPPER(LTRIM(RTRIM(CAST(n.[{nc}] AS nvarchar(50))))) = UPPER('{catv}')
 WHERE UPPER(LTRIM(RTRIM(CAST(s.[{s10}] AS nvarchar(50))))) = UPPER('{ftv}')
-ORDER BY CASE WHEN n.[{nr}] IS NOT NULL THEN 0 ELSE 1 END, s.[{sc}];";
+ORDER BY CASE WHEN n.[{nr}] IS NOT NULL THEN 0 ELSE 1 END, s.[{sc}], q.[{qn}];";
 
             await using var cmd = conn.CreateConfiguredCommand();
             cmd.CommandTimeout = SqlCommandTimeoutSeconds;
@@ -643,35 +702,44 @@ ORDER BY CASE WHEN n.[{nr}] IS NOT NULL THEN 0 ELSE 1 END, s.[{sc}];";
             while (await reader.ReadAsync())
             {
                 rowNum++;
-                // ordinals: 0=RowNumber,1=StudQualRef,2=Stud010Value,3=NalQualName,4=NalAlignedName,
-                //           5=NalCategory,6=NalHeqsfRef,7=NalSaqaId,8=NalNqf,9=NalCredits,10=NalOutcome,11=Result
-                var result = reader.IsDBNull(11) ? "CLEAR" : reader.GetString(11);
+                // ordinals: 0=RowNumber,1=StudQualRef,2=Stud007Value,3=Stud008Value,4=Stud012Value,5=Stud026Value,
+                //           6=Stud010Value,7=QualCodeValue,8=QualNameValue,9=NalQualName,10=NalAlignedName,11=NalCategory,
+                //           12=NalHeqsfRef,13=NalSaqaId,14=NalNqf,15=NalCredits,16=NalOutcome,17=Result
+                var result = reader.IsDBNull(17) ? "CLEAR" : reader.GetString(17);
                 var qualRef = reader.IsDBNull(1) ? "" : reader.GetString(1);
-                var nalName = reader.IsDBNull(3) ? null : reader.GetString(3);
-                var cat     = reader.IsDBNull(5) ? null : reader.GetString(5);
+                var qualCode = reader.IsDBNull(7) ? "" : reader.GetString(7);
+                var qualName = reader.IsDBNull(8) ? null : reader.GetString(8);
+                var nalName = reader.IsDBNull(9) ? null : reader.GetString(9);
+                var cat     = reader.IsDBNull(11) ? null : reader.GetString(11);
 
                 allRows.Add(new Rule39ValidationRowViewModel
                 {
                     RowNumber    = rowNum,
                     StudQualRef  = qualRef,
-                    Stud010Value = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    Stud007Value = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    Stud008Value = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    Stud012Value = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    Stud026Value = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                    Stud010Value = reader.IsDBNull(6) ? "" : reader.GetString(6),
+                    QualCodeValue = qualCode,
+                    QualNameValue = qualName ?? "",
                     NalQualName  = nalName,
-                    NalAlignedName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    NalAlignedName = reader.IsDBNull(10) ? null : reader.GetString(10),
                     NalCategory  = cat,
-                    NalHeqsfRef  = ReadOptional(reader, 6),
-                    NalSaqaId    = ReadOptional(reader, 7),
-                    NalNqf       = ReadOptional(reader, 8),
-                    NalCredits   = ReadOptional(reader, 9),
-                    NalOutcome   = ReadOptional(reader, 10),
+                    NalHeqsfRef  = ReadOptional(reader, 12),
+                    NalSaqaId    = ReadOptional(reader, 13),
+                    NalNqf       = ReadOptional(reader, 14),
+                    NalCredits   = ReadOptional(reader, 15),
+                    NalOutcome   = ReadOptional(reader, 16),
                     Result       = result,
                     ExceptionReason = string.Equals(result, "FLAGGED", StringComparison.OrdinalIgnoreCase)
-                        ? $"Qualification '{qualRef}' found in Category '{cat}' Non-Aligned list: '{nalName}'"
+                        ? $"Qualification '{(string.IsNullOrWhiteSpace(qualCode) ? qualRef : qualCode)}' ({(string.IsNullOrWhiteSpace(qualName) ? "Unknown qualification" : qualName)}) found in Category '{cat}' Non-Aligned list: '{nalName}'"
                         : null
                 });
             }
 
-            var flaggedRows  = allRows.Where(r => string.Equals(r.Result, "FLAGGED", StringComparison.OrdinalIgnoreCase)).Take(FlaggedRowSaveLimit).ToList();
-            var clearSample  = allRows.Where(r => string.Equals(r.Result, "CLEAR", StringComparison.OrdinalIgnoreCase)).Take(ClearSampleLimit).ToList();
+            var flaggedRows  = allRows.Where(r => string.Equals(r.Result, "FLAGGED", StringComparison.OrdinalIgnoreCase)).ToList();
+            var clearSample  = allRows.Where(r => string.Equals(r.Result, "CLEAR", StringComparison.OrdinalIgnoreCase)).ToList();
             var flaggedCount = flaggedRows.Count;
             var totalFte     = studFiltered;
             var clearCount   = totalFte - flaggedCount;
@@ -688,10 +756,17 @@ ORDER BY CASE WHEN n.[{nr}] IS NOT NULL THEN 0 ELSE 1 END, s.[{sc}];";
                 Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 Database = request.Database,
                 StudTable = request.StudTable,
+                QualTable = request.QualTable,
                 NalTable = request.NalTable,
                 StudQualRefColumn = request.StudQualRefColumn,
+                Stud007Column = request.Stud007Column,
+                Stud008Column = request.Stud008Column,
                 StudFirstTimeColumn = request.StudFirstTimeColumn,
+                Stud012Column = request.Stud012Column,
+                Stud026Column = request.Stud026Column,
                 StudFirstTimeValue = request.StudFirstTimeValue,
+                QualCodeColumn = request.QualCodeColumn,
+                QualNameColumn = request.QualNameColumn,
                 NalRefColumn = request.NalRefColumn,
                 NalNameColumn = request.NalNameColumn,
                 NalAlignedColumn = request.NalAlignedColumn,
@@ -703,11 +778,34 @@ ORDER BY CASE WHEN n.[{nr}] IS NOT NULL THEN 0 ELSE 1 END, s.[{sc}];";
                 NalCreditsColumn = request.NalCreditsColumn,
                 NalOutcomeColumn = request.NalOutcomeColumn,
                 StudTotalCount = studTotal,
+                QualTotalCount = qualTotal,
                 NalCategoryCount = nalCategory,
                 ClientId = request.ClientId,
                 FlaggedRows = flaggedRows,
                 ClearSampleRows = clearSample
             };
+        }
+
+        private static string BuildOptionalStudColsSql(Rule39ValidationRequest request, string alias)
+        {
+            string Build(string? columnName, string targetAlias)
+            {
+                if (string.IsNullOrWhiteSpace(columnName))
+                    return $"CAST(NULL AS nvarchar(255)) AS {targetAlias}";
+
+                var source = string.IsNullOrWhiteSpace(alias)
+                    ? $"[{Sanitise(columnName)}]"
+                    : $"{alias}.[{Sanitise(columnName)}]";
+                return $"CAST({source} AS nvarchar(255)) AS {targetAlias}";
+            }
+
+            return string.Join(",\n    ", new[]
+            {
+                Build(request.Stud007Column, "Stud007Value"),
+                Build(request.Stud008Column, "Stud008Value"),
+                Build(request.Stud012Column, "Stud012Value"),
+                Build(request.Stud026Column, "Stud026Value")
+            }) + ",\n    ";
         }
 
         private static string BuildOptionalNalColsSql(Rule39ValidationRequest request, string alias)
@@ -750,20 +848,23 @@ ORDER BY CASE WHEN n.[{nr}] IS NOT NULL THEN 0 ELSE 1 END, s.[{sc}];";
 
         private static void ApplyBrowserPreview(Rule39ValidationSummary? summary)
         {
-            if (summary == null) return;
+            if (summary == null)
+                return;
 
-            var flaggedTake = Math.Min(summary.FlaggedRows.Count, Math.Max(BrowserPreviewRowLimit / 2, 1));
-            var clearTake   = Math.Min(summary.ClearSampleRows.Count, BrowserPreviewRowLimit - flaggedTake);
-            if (flaggedTake == 0) clearTake = Math.Min(summary.ClearSampleRows.Count, BrowserPreviewRowLimit);
-            else if (clearTake == 0) flaggedTake = Math.Min(summary.FlaggedRows.Count, BrowserPreviewRowLimit);
+            var flaggedRows = summary.FlaggedRows ?? new List<Rule39ValidationRowViewModel>();
+            var clearRows = summary.ClearSampleRows ?? new List<Rule39ValidationRowViewModel>();
 
-            summary.FlaggedRows    = summary.FlaggedRows.Take(flaggedTake).ToList();
-            summary.ClearSampleRows = summary.ClearSampleRows.Take(clearTake).ToList();
+            if (flaggedRows.Count <= BrowserPreviewPerResultLimit && clearRows.Count <= BrowserPreviewPerResultLimit)
+            {
+                summary.IsPreviewOnly = false;
+                summary.PreviewLimit = BrowserPreviewPerResultLimit;
+                return;
+            }
 
-            if (summary.FlaggedRows.Count + summary.ClearSampleRows.Count < summary.TotalValidated)
-                summary.IsPreviewOnly = true;
-
-            summary.PreviewLimit = BrowserPreviewRowLimit;
+            summary.FlaggedRows = flaggedRows.Take(BrowserPreviewPerResultLimit).ToList();
+            summary.ClearSampleRows = clearRows.Take(BrowserPreviewPerResultLimit).ToList();
+            summary.IsPreviewOnly = true;
+            summary.PreviewLimit = BrowserPreviewPerResultLimit;
         }
 
         // ── Save / Load ───────────────────────────────────────────────────────
@@ -779,9 +880,6 @@ ORDER BY CASE WHEN n.[{nr}] IS NOT NULL THEN 0 ELSE 1 END, s.[{sc}];";
                 throw new InvalidOperationException("The current analyst could not be resolved in the system database.");
 
             var previousHash = await GetLatestValidationHashAsync(connection, request.ClientId, 39);
-
-            var persistedSummary = CloneSummary(summary);
-            ApplyBrowserPreview(persistedSummary);
 
             await using var command = connection.CreateConfiguredCommand();
             command.CommandText = @"
@@ -811,8 +909,8 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@NalTable", request.NalTable);
             command.Parameters.AddWithValue("@StudQualRefColumn", request.StudQualRefColumn);
             command.Parameters.AddWithValue("@StudFirstTimeColumn", request.StudFirstTimeColumn);
-            command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary.FlaggedRows)));
-            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary)));
+            command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary.FlaggedRows)));
+            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary)));
             command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
 
@@ -1060,17 +1158,23 @@ SELECT CASE WHEN EXISTS (
 
         private static void ValidateObjectNames(Rule39VerifyRequest r)
         {
-            ValidateObjectName(r.StudTable); ValidateObjectName(r.NalTable);
+            ValidateObjectName(r.StudTable); ValidateObjectName(r.QualTable); ValidateObjectName(r.NalTable);
             ValidateObjectName(r.StudQualRefColumn); ValidateObjectName(r.StudFirstTimeColumn);
+            ValidateObjectName(r.QualCodeColumn); ValidateObjectName(r.QualNameColumn);
             ValidateObjectName(r.NalCategoryColumn);
         }
 
         private static void ValidateObjectNames(Rule39ValidationRequest r)
         {
-            ValidateObjectName(r.StudTable); ValidateObjectName(r.NalTable);
+            ValidateObjectName(r.StudTable); ValidateObjectName(r.QualTable); ValidateObjectName(r.NalTable);
             ValidateObjectName(r.StudQualRefColumn); ValidateObjectName(r.StudFirstTimeColumn);
+            ValidateObjectName(r.QualCodeColumn); ValidateObjectName(r.QualNameColumn);
             ValidateObjectName(r.NalRefColumn); ValidateObjectName(r.NalNameColumn);
             ValidateObjectName(r.NalCategoryColumn);
+            if (!string.IsNullOrWhiteSpace(r.Stud007Column))      ValidateObjectName(r.Stud007Column);
+            if (!string.IsNullOrWhiteSpace(r.Stud008Column))      ValidateObjectName(r.Stud008Column);
+            if (!string.IsNullOrWhiteSpace(r.Stud012Column))      ValidateObjectName(r.Stud012Column);
+            if (!string.IsNullOrWhiteSpace(r.Stud026Column))      ValidateObjectName(r.Stud026Column);
             if (!string.IsNullOrWhiteSpace(r.NalAlignedColumn))  ValidateObjectName(r.NalAlignedColumn);
             if (!string.IsNullOrWhiteSpace(r.NalHeqsfRefColumn)) ValidateObjectName(r.NalHeqsfRefColumn);
             if (!string.IsNullOrWhiteSpace(r.NalSaqaIdColumn))   ValidateObjectName(r.NalSaqaIdColumn);

@@ -18,6 +18,10 @@
         partTitle = row.PartTitle,
         partDescription = row.PartDescription,
         studentNumber007 = row.StudentNumber007,
+        studentColumn008 = row.StudentColumn008,
+        studentColumn010 = row.StudentColumn010,
+        studentColumn012 = row.StudentColumn012,
+        studentColumn026 = row.StudentColumn026,
         qualificationCode001 = row.QualificationCode001,
         foundationFlag106 = row.FoundationFlag106,
         qualificationDescription003 = row.QualificationDescription003,
@@ -348,7 +352,7 @@
                             <table class="data-table rule20-comparison-table rule20-grid-table">
                                 <thead>
                                     <tr>
-                                        <th colspan="2"></th>
+                                        <th colspan="7"></th>
                                         <th class="rule20-spacer" rowspan="3"></th>
                                         <th colspan="2">Bridge table</th>
                                         <th class="rule20-spacer" rowspan="3"></th>
@@ -356,11 +360,16 @@
                                         <th rowspan="3">Results</th>
                                     </tr>
                                     <tr>
-                                        <th colspan="2">dbo_STUD</th>
+                                        <th colspan="7">dbo_STUD</th>
                                         <th colspan="2">dbo_CRED</th>
                                         <th colspan="2">dbo_CRSE</th>
                                     </tr>
                                     <tr>
+                                        <th>_007</th>
+                                        <th>_008</th>
+                                        <th>_010</th>
+                                        <th>_012</th>
+                                        <th>_026</th>
                                         <th>_001</th>
                                         <th>_106</th>
                                         <th>_001</th>
@@ -372,6 +381,11 @@
                                 <tbody>
                                     ${partRows.map(row => `
                                         <tr>
+                                            <td class="rule20-align-center">${escapeHtml(row.studentNumber007)}</td>
+                                            <td class="rule20-align-center">${escapeHtml(row.studentColumn008)}</td>
+                                            <td class="rule20-align-center">${escapeHtml(row.studentColumn010)}</td>
+                                            <td class="rule20-align-center">${escapeHtml(row.studentColumn012)}</td>
+                                            <td class="rule20-align-center">${escapeHtml(row.studentColumn026)}</td>
                                             <td class="rule20-align-center">${escapeHtml(row.qualificationCode001)}</td>
                                             <td class="rule20-align-center">${escapeHtml(row.foundationFlag106)}</td>
                                             <td class="rule20-spacer"></td>

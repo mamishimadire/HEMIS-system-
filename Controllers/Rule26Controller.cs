@@ -570,7 +570,7 @@ namespace HemisAudit.Controllers
             var bytes = _export.ExportExcel(review.Summary);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"Rule26_BiDirectional_Validation_Run_{runId}.xlsx");
+                $"Rule26_ProfToPayroll_Validation_Run_{runId}.xlsx");
         }
 
         [HttpGet]
@@ -581,7 +581,7 @@ namespace HemisAudit.Controllers
                 return RedirectToAction(nameof(Run), new { id = runId });
 
             var bytes = _export.ExportCsv(review.Summary);
-            return File(bytes, "text/csv", $"Rule26_BiDirectional_Exceptions_Run_{runId}.csv");
+            return File(bytes, "text/csv", $"Rule26_ProfToPayroll_Exceptions_Run_{runId}.csv");
         }
 
         [HttpGet]
@@ -610,14 +610,14 @@ namespace HemisAudit.Controllers
             };
 
             var bytes = _export.ExportSql(await _rule26.GenerateSqlAsync(request));
-            return File(bytes, "application/sql", $"Rule26_BiDirectional_Validation_{runId}.sql");
+            return File(bytes, "application/sql", $"Rule26_ProfToPayroll_Validation_{runId}.sql");
         }
 
         [HttpPost]
         public async Task<IActionResult> DownloadExcel([FromBody] Rule26ValidationSummary summary)
         {
             summary = await ResolveExportSummaryAsync(summary);
-            var fileName = $"Rule26_BiDirectional_Validation_{Ts()}.xlsx";
+            var fileName = $"Rule26_ProfToPayroll_Validation_{Ts()}.xlsx";
             var bytes = _export.ExportExcel(summary);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
         }
@@ -626,7 +626,7 @@ namespace HemisAudit.Controllers
         public async Task<IActionResult> DownloadCsv([FromBody] Rule26ValidationSummary summary)
         {
             summary = await ResolveExportSummaryAsync(summary);
-            var fileName = $"Rule26_BiDirectional_Exceptions_{Ts()}.csv";
+            var fileName = $"Rule26_ProfToPayroll_Exceptions_{Ts()}.csv";
             var bytes = _export.ExportCsv(summary);
             return File(bytes, "text/csv", fileName);
         }
@@ -639,7 +639,7 @@ namespace HemisAudit.Controllers
             if (!string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
                 return Json(new { success = false, error = "Only the assigned data analyst can download the SQL script." });
 
-            var fileName = $"Rule26_BiDirectional_Validation_{Ts()}.sql";
+            var fileName = $"Rule26_ProfToPayroll_Validation_{Ts()}.sql";
             var bytes = _export.ExportSql(await _rule26.GenerateSqlAsync(request));
             return File(bytes, "application/sql", fileName);
         }

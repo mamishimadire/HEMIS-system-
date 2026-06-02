@@ -5,7 +5,7 @@ $projectRoot = Split-Path -Parent $scriptRoot
 Set-Location $projectRoot
 
 $preferredPort = 5076
-$launchPath = "/Account/Login"
+$launchPath = "/Dashboard"
 $baseUrl = "http://localhost:$preferredPort"
 $runRoot = Join-Path $projectRoot ".run"
 $buildFolder = Join-Path $runRoot "build"
@@ -99,8 +99,8 @@ function Open-Browser {
     if ($edgeCandidates.Count -gt 0) {
         try {
             $edgePath = $edgeCandidates | Select-Object -First 1
-            Start-Process -FilePath $edgePath -ArgumentList @("--inprivate", $Url)
-            Write-Host "Opened latest HemisAudit build in Edge InPrivate: $Url" -ForegroundColor Green
+            Start-Process -FilePath $edgePath -ArgumentList @($Url)
+            Write-Host "Opened latest HemisAudit build in Edge: $Url" -ForegroundColor Green
             $launched = $true
         } catch { }
     }
@@ -114,8 +114,8 @@ function Open-Browser {
         if ($chromeCandidates.Count -gt 0) {
             try {
                 $chromePath = $chromeCandidates | Select-Object -First 1
-                Start-Process -FilePath $chromePath -ArgumentList @("--incognito", $Url)
-                Write-Host "Opened latest HemisAudit build in Chrome Incognito: $Url" -ForegroundColor Green
+                Start-Process -FilePath $chromePath -ArgumentList @($Url)
+                Write-Host "Opened latest HemisAudit build in Chrome: $Url" -ForegroundColor Green
                 $launched = $true
             } catch { }
         }

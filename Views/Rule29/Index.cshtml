@@ -516,6 +516,7 @@
                 return;
             }
 
+            const currentDatabase = els.database.value;
             els.database.innerHTML = '<option value="">Select database</option>';
             data.databases.forEach(db => {
                 const option = document.createElement('option');
@@ -524,9 +525,11 @@
                 els.database.appendChild(option);
             });
 
-            const preferred = data.databases.find(db => db === preferredDatabaseName) || '';
-            if (preferred) {
-                els.database.value = preferred;
+            const toSelect = (currentDatabase && data.databases.includes(currentDatabase))
+                ? currentDatabase
+                : (data.databases.find(db => db === preferredDatabaseName) || '');
+            if (toSelect) {
+                els.database.value = toSelect;
                 await loadTables();
             }
 

@@ -184,7 +184,7 @@
         </div>
 
         <div class="card" style="padding:20px">
-            <h3 class="section-title" style="margin-top:0">Direction and Control Summary</h3>
+            <h3 class="section-title" style="margin-top:0">Control Summary</h3>
             <div style="overflow:auto">
                 <table class="data-table">
                     <thead>
@@ -223,7 +223,7 @@
         {
             <div class="card" style="padding:20px" id="rule26ReviewExceptionsHost">
                 <div class="alert alert--info" style="margin-bottom:16px">
-                    Exceptions are explained according to the direction of testing. Use the filters below to focus on one direction or one control.
+                    Exceptions show where dbo_PROF values are missing or mismatched in Payroll_Sample. Use the filters below to focus on one control.
                 </div>
                 <div class="form-grid" style="margin-bottom:8px">
                     <div class="field-group">
@@ -269,7 +269,7 @@
         <div class="card" style="padding:20px">
             <h3 class="section-title" style="margin-top:0">Downloads</h3>
             <div class="alert alert--info" style="margin-bottom:16px">
-                Excel includes the population summary, control summary, combined exceptions, and separate sheets for each direction. CSV includes the combined exceptions list.
+                Excel includes the population summary, control summary, combined exceptions, and the dbo_PROF to Payroll_Sample exception sheet. CSV includes the combined exceptions list.
             </div>
             @if (canDownload)
             {
@@ -501,7 +501,7 @@
             <div class="form-grid">
                 ${directionSummaries.map((direction, index) => `
                     <div class="card" style="padding:20px">
-                        <h3 class="section-title" style="margin-top:0">Rule 26: Bi-Directional Validation - ${escapeHtml(direction.DirectionLabel)}</h3>
+                        <h3 class="section-title" style="margin-top:0">Rule 26: dbo_PROF to Payroll_Sample Validation</h3>
                         <div style="margin-bottom:16px;color:#64748b">
                             Base records: ${formatNumber(direction.BaseRecordCount)} |
                             Linked records: ${formatNumber(direction.LinkedRecordCount)} |

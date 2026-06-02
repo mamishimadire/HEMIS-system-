@@ -500,7 +500,7 @@ namespace HemisAudit.Services
             using var wb = new XLWorkbook();
 
             var wsSummary = wb.Worksheets.Add("Summary");
-            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 26: BI-DIRECTIONAL 5-CONTROL VALIDATION", 2);
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 26: DBO_PROF TO PAYROLL_SAMPLE 5-CONTROL VALIDATION", 2);
             var summaryData = new[]
             {
                 ("Database", summary.Database),
@@ -601,7 +601,7 @@ namespace HemisAudit.Services
 
             foreach (var direction in summary.Directions)
             {
-                var sheetName = direction.DirectionKey == "prof_to_payroll" ? "PROF to Payroll" : "Payroll to PROF";
+                var sheetName = direction.DirectionKey == "prof_to_payroll" ? "PROF to Payroll" : direction.DirectionLabel;
                 var wsDirection = wb.Worksheets.Add(sheetName);
                 StyleHeaderRow(wsDirection, 1, $"{direction.DirectionLabel} EXCEPTIONS", exceptionHeaders.Length);
                 for (var i = 0; i < exceptionHeaders.Length; i++)
@@ -3382,6 +3382,11 @@ namespace HemisAudit.Services
             {
                 sb.AppendLine(string.Join(",", headers.Select(header => CsvEscape(header switch
                 {
+                    "DBO_STUD__007" => row.StudentNumber007,
+                    "DBO_STUD__008" => row.StudentColumn008,
+                    "DBO_STUD__010" => row.StudentColumn010,
+                    "DBO_STUD__012" => row.StudentColumn012,
+                    "DBO_STUD__026" => row.StudentColumn026,
                     "DBO_STUD__001" => row.QualificationCode001,
                     "DBO_STUD__106" => row.FoundationFlag106,
                     "DBO_CRED__001" => row.BridgeQualificationCode001,
@@ -3528,8 +3533,13 @@ namespace HemisAudit.Services
         {
             using var wb = new XLWorkbook();
 
-            var headers = new[] { "#", "STUD Qual Ref", "First-Time Value", "NAL Qual Name", "NAL Aligned Name", "NAL Category", "HEQSF Ref", "SAQA ID", "NQF Level", "Credits", "Outcome", "Result" };
-            const int colCount = 12;
+            var headers = new[]
+            {
+                "#", "STUD Qual Ref", "STUD _007", "STUD _008", "FTE Value", "STUD _012", "STUD _026",
+                "QUAL Code", "QUAL Name", "NAL Qual Name", "NAL Aligned Name", "NAL Category", "HEQSF Ref",
+                "SAQA ID", "NQF Level", "Credits", "Outcome", "Result", "Reason"
+            };
+            const int colCount = 19;
 
             var wsAll = wb.Worksheets.Add("Validation Results");
             StyleHeaderRow(wsAll, 1, "RULE 39 — FIRST-TIME ENTERING STUDENTS vs NON-ALIGNED QUALIFICATIONS", colCount);
@@ -3542,7 +3552,7 @@ namespace HemisAudit.Services
                 cell.Style.Font.FontColor = XLColor.White;
             }
             int rowIdx = 3;
-            foreach (var r in summary.FlaggedRows.Concat(summary.ClearSampleRows))
+            foreach (var r in summary.FlaggedRows.Concat(summary.ClearSampleRows).OrderBy(r => r.RowNumber))
                 WriteRule39ExcelRow(wsAll, rowIdx++, r);
             for (int c = 1; c <= colCount; c++) wsAll.Column(c).AdjustToContents();
 
@@ -3562,23 +3572,32 @@ namespace HemisAudit.Services
 
             var wsSummary = wb.Worksheets.Add("Summary");
             StyleHeaderRow(wsSummary, 1, "HEMIS RULE 39: FIRST-TIME ENTERING vs NON-ALIGNED QUALIFICATIONS", 2);
-            var summaryData = new[]
+            var summaryData = new List<(string Label, string Value)>
             {
                 ("Database",                  summary.Database),
                 ("STUD Table",                $"{summary.StudTable} | First-time column: {summary.StudFirstTimeColumn} = '{summary.StudFirstTimeValue}'"),
+                ("STUD Qual Ref Column",      summary.StudQualRefColumn),
+                ("QUAL Table",                summary.QualTable),
+                ("QUAL Code Column",          summary.QualCodeColumn),
+                ("QUAL Name Column",          summary.QualNameColumn),
                 ("NAL Table",                 $"{summary.NalTable} | Category column: {summary.NalCategoryColumn} = '{summary.NalCategoryValue}'"),
-                ("Join Key",                  $"STUD.{summary.StudQualRefColumn} = NAL.{summary.NalRefColumn}"),
+                ("Join Key",                  $"STUD.{summary.StudQualRefColumn} = QUAL.{summary.QualCodeColumn} -> NAL.{summary.NalRefColumn}"),
                 ("Validation Date",           summary.Timestamp),
                 ("",                          ""),
                 ("VALIDATION RESULTS",        ""),
                 ("STUD Total Records",        summary.StudTotalCount.ToString("N0")),
                 ("First-Time Entering (FTE)", summary.TotalValidated.ToString("N0")),
+                ("QUAL Total Records",        summary.QualTotalCount.ToString("N0")),
                 ("NAL Category Count",        summary.NalCategoryCount.ToString("N0")),
                 ("FLAGGED (Non-Aligned)",     summary.FlaggedCount.ToString("N0")),
                 ("CLEAR (Not Found)",         summary.ClearCount.ToString("N0")),
                 ("Exception Rate",            $"{summary.ExceptionRate:F2}%"),
                 ("Status",                    summary.Status)
             };
+            if (!string.IsNullOrWhiteSpace(summary.Stud007Column)) summaryData.Insert(3, ("STUD _007 Column", summary.Stud007Column));
+            if (!string.IsNullOrWhiteSpace(summary.Stud008Column)) summaryData.Insert(4, ("STUD _008 Column", summary.Stud008Column));
+            if (!string.IsNullOrWhiteSpace(summary.Stud012Column)) summaryData.Insert(5, ("STUD _012 Column", summary.Stud012Column));
+            if (!string.IsNullOrWhiteSpace(summary.Stud026Column)) summaryData.Insert(6, ("STUD _026 Column", summary.Stud026Column));
             int sumRow = 2;
             foreach (var (label, value) in summaryData)
             {
@@ -3618,37 +3637,50 @@ namespace HemisAudit.Services
         {
             ws.Cell(rowIdx, 1).Value  = row.RowNumber;
             ws.Cell(rowIdx, 2).Value  = row.StudQualRef;
-            ws.Cell(rowIdx, 3).Value  = row.Stud010Value;
-            ws.Cell(rowIdx, 4).Value  = row.NalQualName ?? "";
-            ws.Cell(rowIdx, 5).Value  = row.NalAlignedName ?? "";
-            ws.Cell(rowIdx, 6).Value  = row.NalCategory ?? "";
-            ws.Cell(rowIdx, 7).Value  = row.NalHeqsfRef ?? "";
-            ws.Cell(rowIdx, 8).Value  = row.NalSaqaId ?? "";
-            ws.Cell(rowIdx, 9).Value  = row.NalNqf ?? "";
-            ws.Cell(rowIdx, 10).Value = row.NalCredits ?? "";
-            ws.Cell(rowIdx, 11).Value = row.NalOutcome ?? "";
-            ws.Cell(rowIdx, 12).Value = row.Result;
+            ws.Cell(rowIdx, 3).Value  = row.Stud007Value ?? "";
+            ws.Cell(rowIdx, 4).Value  = row.Stud008Value ?? "";
+            ws.Cell(rowIdx, 5).Value  = row.Stud010Value;
+            ws.Cell(rowIdx, 6).Value  = row.Stud012Value ?? "";
+            ws.Cell(rowIdx, 7).Value  = row.Stud026Value ?? "";
+            ws.Cell(rowIdx, 8).Value  = row.QualCodeValue ?? "";
+            ws.Cell(rowIdx, 9).Value  = row.QualNameValue ?? "";
+            ws.Cell(rowIdx, 10).Value = row.NalQualName ?? "";
+            ws.Cell(rowIdx, 11).Value = row.NalAlignedName ?? "";
+            ws.Cell(rowIdx, 12).Value = row.NalCategory ?? "";
+            ws.Cell(rowIdx, 13).Value = row.NalHeqsfRef ?? "";
+            ws.Cell(rowIdx, 14).Value = row.NalSaqaId ?? "";
+            ws.Cell(rowIdx, 15).Value = row.NalNqf ?? "";
+            ws.Cell(rowIdx, 16).Value = row.NalCredits ?? "";
+            ws.Cell(rowIdx, 17).Value = row.NalOutcome ?? "";
+            ws.Cell(rowIdx, 18).Value = row.Result;
+            ws.Cell(rowIdx, 19).Value = row.ExceptionReason ?? "";
 
             var isFlagged = string.Equals(row.Result, "FLAGGED", StringComparison.OrdinalIgnoreCase);
             var bg = isFlagged ? XLColor.FromHtml("#FFF3F3") : XLColor.FromHtml("#F3FFF3");
-            ws.Range(rowIdx, 1, rowIdx, 12).Style.Fill.BackgroundColor = bg;
-            ws.Cell(rowIdx, 12).Style.Font.Bold = true;
-            ws.Cell(rowIdx, 12).Style.Font.FontColor = isFlagged ? XLColor.FromHtml("#B71C1C") : XLColor.FromHtml("#1B5E20");
+            ws.Range(rowIdx, 1, rowIdx, 19).Style.Fill.BackgroundColor = bg;
+            ws.Cell(rowIdx, 18).Style.Font.Bold = true;
+            ws.Cell(rowIdx, 18).Style.Font.FontColor = isFlagged ? XLColor.FromHtml("#B71C1C") : XLColor.FromHtml("#1B5E20");
         }
 
         public byte[] ExportRule39Csv(Rule39ValidationSummary summary, bool exceptionsOnly = false)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Row_No,STUD_Qual_Ref,First_Time_Value,NAL_Qual_Name,NAL_Aligned_Name,NAL_Category,HEQSF_Ref,SAQA_ID,NQF_Level,Credits,Outcome,Result,Exception_Reason");
+            sb.AppendLine("Row_No,STUD_Qual_Ref,STUD_007,STUD_008,First_Time_Value,STUD_012,STUD_026,QUAL_Code,QUAL_Name,NAL_Qual_Name,NAL_Aligned_Name,NAL_Category,HEQSF_Ref,SAQA_ID,NQF_Level,Credits,Outcome,Result,Exception_Reason");
             var rows = exceptionsOnly
                 ? summary.FlaggedRows.AsEnumerable()
-                : summary.FlaggedRows.Concat(summary.ClearSampleRows);
+                : summary.FlaggedRows.Concat(summary.ClearSampleRows).OrderBy(row => row.RowNumber);
             foreach (var row in rows)
             {
                 sb.AppendLine(string.Join(",",
                     row.RowNumber,
                     CsvEscape(row.StudQualRef),
+                    CsvEscape(row.Stud007Value),
+                    CsvEscape(row.Stud008Value),
                     CsvEscape(row.Stud010Value),
+                    CsvEscape(row.Stud012Value),
+                    CsvEscape(row.Stud026Value),
+                    CsvEscape(row.QualCodeValue),
+                    CsvEscape(row.QualNameValue),
                     CsvEscape(row.NalQualName),
                     CsvEscape(row.NalAlignedName),
                     CsvEscape(row.NalCategory),
@@ -4046,6 +4078,10 @@ namespace HemisAudit.Services
                 "Part_Title",
                 "Part_Description",
                 "Student_Number_007",
+                "Student_Column_008",
+                "Student_Column_010",
+                "Student_Column_012",
+                "Student_Column_026",
                 "Qualification_Code_001",
                 "Foundation_Flag_106",
                 "Bridge_Qualification_Code_001",
@@ -4065,6 +4101,11 @@ namespace HemisAudit.Services
         private static List<string> GetRule20DashboardHeaders() =>
             new()
             {
+                "DBO_STUD__007",
+                "DBO_STUD__008",
+                "DBO_STUD__010",
+                "DBO_STUD__012",
+                "DBO_STUD__026",
                 "DBO_STUD__001",
                 "DBO_STUD__106",
                 "DBO_CRED__001",
@@ -4595,6 +4636,10 @@ namespace HemisAudit.Services
                         "Part_Title" => row.PartTitle,
                         "Part_Description" => row.PartDescription,
                         "Student_Number_007" => row.StudentNumber007,
+                        "Student_Column_008" => row.StudentColumn008,
+                        "Student_Column_010" => row.StudentColumn010,
+                        "Student_Column_012" => row.StudentColumn012,
+                        "Student_Column_026" => row.StudentColumn026,
                         "Qualification_Code_001" => row.QualificationCode001,
                         "Foundation_Flag_106" => row.FoundationFlag106,
                         "Bridge_Qualification_Code_001" => row.BridgeQualificationCode001,
@@ -4648,6 +4693,11 @@ namespace HemisAudit.Services
                     var header = headers[i];
                     var value = header switch
                     {
+                        "DBO_STUD__007" => row.StudentNumber007,
+                        "DBO_STUD__008" => row.StudentColumn008,
+                        "DBO_STUD__010" => row.StudentColumn010,
+                        "DBO_STUD__012" => row.StudentColumn012,
+                        "DBO_STUD__026" => row.StudentColumn026,
                         "DBO_STUD__001" => row.QualificationCode001,
                         "DBO_STUD__106" => row.FoundationFlag106,
                         "DBO_CRED__001" => row.BridgeQualificationCode001,

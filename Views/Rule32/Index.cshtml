@@ -477,6 +477,18 @@
         });
     }
 
+    function resolveWorkspaceResultsVisible(result) {
+        if (Object.prototype.hasOwnProperty.call(result, 'resultsVisible')) {
+            return !!result.resultsVisible;
+        }
+
+        if (result.workspace && Object.prototype.hasOwnProperty.call(result.workspace, 'resultsVisible')) {
+            return !!result.workspace.resultsVisible;
+        }
+
+        return !!(result.workspace && result.workspace.summary);
+    }
+
     function normalizeSmartFilterValue(value) {
         const trimmed = String(value || '').trim();
         if (!trimmed) return '';
@@ -980,9 +992,7 @@
                 state.currentUserHasSignedOff = false;
             state.isWorkspaceSaved = false;
                 state.hasDataAnalystSignoff = false;
-                const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
-                    ? !!result.resultsVisible
-                    : !!result.workspace?.resultsVisible;
+                const workspaceResultsVisible = resolveWorkspaceResultsVisible(result);
                 if (result.workspace) {
                     applyWorkspace(result.workspace, workspaceResultsVisible);
                 }
@@ -1039,8 +1049,8 @@
             if (dbs.success) {
                 const databases = dbs.databases || [];
                 const preferredDatabase =
+                    (workspace.database && findExactValue(databases, workspace.database)) ||
                     findExactValue(databases, preferredDatabaseName) ||
-                    workspace.database ||
                     databases[0] ||
                     null;
                 populateSelect(els.database, databases, preferredDatabase);
@@ -1106,8 +1116,8 @@
 
         const databases = result.databases || [];
         const preferredDatabase =
+            (state.workspace?.database && findExactValue(databases, state.workspace.database)) ||
             findExactValue(databases, preferredDatabaseName) ||
-            (state.workspace && state.workspace.database) ||
             databases[0] ||
             null;
 
@@ -1307,9 +1317,7 @@
                 return;
             }
 
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
-                ? !!result.resultsVisible
-                : !!result.workspace?.resultsVisible;
+            const workspaceResultsVisible = resolveWorkspaceResultsVisible(result);
             applyWorkspace(result.workspace, workspaceResultsVisible);
             setInfo(result.message || 'Workspace saved.', 'success');
         } catch (error) {
@@ -1328,9 +1336,7 @@
                 return;
             }
 
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
-                ? !!result.resultsVisible
-                : !!result.workspace?.resultsVisible;
+            const workspaceResultsVisible = resolveWorkspaceResultsVisible(result);
             applyWorkspace(result.workspace, workspaceResultsVisible);
             state.editWarningAccepted = true;
             state.isDirty = true;
@@ -1357,9 +1363,7 @@
             }
 
             state.currentUserHasSignedOff = true;
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
-                ? !!result.resultsVisible
-                : !!result.workspace?.resultsVisible;
+            const workspaceResultsVisible = resolveWorkspaceResultsVisible(result);
             applyWorkspace(result.workspace, workspaceResultsVisible);
             renderWorkspaceState();
             setInfo(result.message || 'Signoff saved.', 'success');
@@ -1386,9 +1390,7 @@
 
             state.currentUserHasSignedOff = false;
             state.isWorkspaceSaved = false;
-            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible')
-                ? !!result.resultsVisible
-                : !!result.workspace?.resultsVisible;
+            const workspaceResultsVisible = resolveWorkspaceResultsVisible(result);
             applyWorkspace(result.workspace, workspaceResultsVisible);
             renderWorkspaceState();
             setInfo(result.message || 'Signoff removed.', 'success');
@@ -1399,24 +1401,72 @@
         }
     }
 
+    function downloadSavedGet(actionName) {
+        if (!state.currentRunId) {
+            setInfo('Run analysis first before downloading.', 'error');
+            return Promise.resolve(false);
+        }
+
+        const link = document.createElement('a');
+        link.href = `${apiBasePath}/${actionName}?runId=${encodeURIComponent(state.currentRunId)}`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return Promise.resolve(true);
+    }
+
+    async function downloadCurrentOrSaved(postPath, payload, savedAction, fileName) {
+        if (state.currentRunId) {
+            const started = await downloadSavedGet(savedAction);
+            if (!started) {
+                setInfo('Run analysis first before downloading.', 'error');
+            }
+            return;
+        }
+
+        if (payload) {
+            await downloadPost(postPath, payload, fileName);
+            return;
+        }
+
+        setInfo('Run analysis first before downloading.', 'error');
+    }
+
     async function downloadAll() {
-        if (!state.validationResult) {
+        if (!state.validationResult && !state.currentRunId) {
             setInfo('Run analysis first before downloading.', 'error');
             return;
         }
 
         const actions = [];
         if (document.getElementById('chkExcel')?.checked) {
-            actions.push(() => downloadPost(`${apiBasePath}/DownloadExcel`, state.validationResult, `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.xlsx`));
+            actions.push(() => downloadCurrentOrSaved(
+                `${apiBasePath}/DownloadExcel`,
+                state.validationResult,
+                'DownloadSavedExcel',
+                `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.xlsx`));
         }
         if (document.getElementById('chkCsv')?.checked) {
-            actions.push(() => downloadPost(`${apiBasePath}/DownloadCsv`, state.validationResult, `${ruleFilePrefix}_Excluded_and_Remaining_${fileStamp()}.csv`));
+            actions.push(() => downloadCurrentOrSaved(
+                `${apiBasePath}/DownloadCsv`,
+                state.validationResult,
+                'DownloadSavedCsv',
+                `${ruleFilePrefix}_Excluded_and_Remaining_${fileStamp()}.csv`));
         }
         if (document.getElementById('chkRemainingCsv')?.checked) {
-            actions.push(() => downloadPost(`${apiBasePath}/DownloadExceptionsCsv`, state.validationResult, `${ruleFilePrefix}_Remaining_${fileStamp()}.csv`));
+            actions.push(() => downloadCurrentOrSaved(
+                `${apiBasePath}/DownloadExceptionsCsv`,
+                state.validationResult,
+                'DownloadSavedExceptionsCsv',
+                `${ruleFilePrefix}_Remaining_${fileStamp()}.csv`));
         }
         if (document.getElementById('chkSql')?.checked) {
-            actions.push(() => downloadPost(`${apiBasePath}/DownloadSql`, buildRequest(), `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.sql`));
+            actions.push(() => downloadCurrentOrSaved(
+                `${apiBasePath}/DownloadSql`,
+                state.validationResult ? buildRequest() : null,
+                'DownloadSavedSql',
+                `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.sql`));
         }
 
         for (const action of actions) {
@@ -1497,19 +1547,32 @@
     document.getElementById('refreshFilterBtn').addEventListener('click', loadFilterValues);
     document.getElementById('downloadAllBtn').addEventListener('click', downloadAll);
     document.getElementById('downloadExcelBtn').addEventListener('click', async function () {
-        if (!state.validationResult) return;
-        await downloadPost(`${apiBasePath}/DownloadExcel`, state.validationResult, `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.xlsx`);
+        await downloadCurrentOrSaved(
+            `${apiBasePath}/DownloadExcel`,
+            state.validationResult,
+            'DownloadSavedExcel',
+            `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.xlsx`);
     });
     document.getElementById('downloadCsvBtn').addEventListener('click', async function () {
-        if (!state.validationResult) return;
-        await downloadPost(`${apiBasePath}/DownloadCsv`, state.validationResult, `${ruleFilePrefix}_Excluded_and_Remaining_${fileStamp()}.csv`);
+        await downloadCurrentOrSaved(
+            `${apiBasePath}/DownloadCsv`,
+            state.validationResult,
+            'DownloadSavedCsv',
+            `${ruleFilePrefix}_Excluded_and_Remaining_${fileStamp()}.csv`);
     });
     document.getElementById('downloadRemainingBtn').addEventListener('click', async function () {
-        if (!state.validationResult) return;
-        await downloadPost(`${apiBasePath}/DownloadExceptionsCsv`, state.validationResult, `${ruleFilePrefix}_Remaining_${fileStamp()}.csv`);
+        await downloadCurrentOrSaved(
+            `${apiBasePath}/DownloadExceptionsCsv`,
+            state.validationResult,
+            'DownloadSavedExceptionsCsv',
+            `${ruleFilePrefix}_Remaining_${fileStamp()}.csv`);
     });
     document.getElementById('downloadSqlBtn').addEventListener('click', async function () {
-        await downloadPost(`${apiBasePath}/DownloadSql`, buildRequest(), `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.sql`);
+        await downloadCurrentOrSaved(
+            `${apiBasePath}/DownloadSql`,
+            state.validationResult ? buildRequest() : null,
+            'DownloadSavedSql',
+            `${ruleFilePrefix}_Fatal_Errors_${fileStamp()}.sql`);
     });
 
     renderSummary(null);

@@ -483,7 +483,9 @@ WHERE RunID = @RunID
                 command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule28|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.TableName}|{request.ErrorTypeColumn}|{request.ErrorColumn}|{request.ErrorTypeValue}|{request.ExclusionCodes}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
                 await command.ExecuteNonQueryAsync();
 
-                var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
+                var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: true);
+                if (workspace != null)
+                    workspace.ResultsVisible = true;
                 return new Rule32WorkspaceSaveResult
                 {
                     Success = true,
@@ -541,7 +543,9 @@ WHERE RunID = @RunID;";
                 markEdit.Parameters.AddWithValue("@RecordHash", ComputeHash($@"BeginWorkspaceEdit|Rule28|{runId}|{reviewerEmail}|{DateTime.UtcNow:o}|{previousHash}"));
                 await markEdit.ExecuteNonQueryAsync();
 
-                var workspace = await GetCurrentWorkspaceStateAsync(clientId.Value, reviewerEmail, includeSummary: false);
+                var workspace = await GetCurrentWorkspaceStateAsync(clientId.Value, reviewerEmail, includeSummary: true);
+                if (workspace != null)
+                    workspace.ResultsVisible = true;
                 return new Rule32WorkspaceSaveResult
                 {
                     Success = true,

@@ -161,7 +161,8 @@ namespace HemisAudit.Controllers
                 CregTable = review.Summary.CregTable,
                 CrseTable = review.Summary.CrseTable,
                 PgTypesText = review.Summary.PgTypesText,
-                GoverningPartCodes = review.Summary.GoverningPartCodes
+                GoverningPartCodes = review.Summary.GoverningPartCodes,
+                ColumnMapping = review.Summary.ColumnMapping ?? new Rule20ColumnMapping()
             });
 
             return View(review);
@@ -613,7 +614,8 @@ namespace HemisAudit.Controllers
                 CregTable = review.Summary.CregTable,
                 CrseTable = review.Summary.CrseTable,
                 PgTypesText = review.Summary.PgTypesText,
-                GoverningPartCodes = review.Summary.GoverningPartCodes
+                GoverningPartCodes = review.Summary.GoverningPartCodes,
+                ColumnMapping = review.Summary.ColumnMapping ?? new Rule20ColumnMapping()
             };
 
             var bytes = _export.ExportSql(await _rule20.GenerateSqlAsync(request));

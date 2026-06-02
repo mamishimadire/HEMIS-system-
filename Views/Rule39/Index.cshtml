@@ -22,6 +22,119 @@
     </style>
 }
 
+<style>
+    .rule39-results-shell {
+        border: 1px solid #dbe4f0;
+        border-radius: 18px;
+        overflow: hidden;
+        background: linear-gradient(180deg, #ffffff, #f8fbff);
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+    }
+
+    .rule39-results-shell .table-wrapper {
+        max-height: 520px;
+        overflow: auto;
+    }
+
+    .rule39-results-table {
+        width: max-content;
+        min-width: 1880px;
+        table-layout: auto;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 13px;
+    }
+
+    .rule39-results-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #f8fbff;
+        color: #334155;
+        border-bottom: 1px solid #dbe4f0;
+        white-space: nowrap;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .rule39-results-table td {
+        white-space: nowrap;
+        overflow-wrap: normal;
+        word-break: normal;
+        vertical-align: top;
+        color: #0f172a;
+    }
+
+    .rule39-results-table td.rule39-cell--name,
+    .rule39-results-table td.rule39-cell--reason {
+        white-space: normal;
+        line-height: 1.45;
+    }
+
+    .rule39-results-table td.rule39-cell--ref {
+        min-width: 110px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .rule39-results-table td.rule39-cell--small {
+        min-width: 72px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rule39-results-table td.rule39-cell--code {
+        min-width: 105px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rule39-results-table td.rule39-cell--name {
+        min-width: 220px;
+        max-width: 260px;
+    }
+
+    .rule39-results-table td.rule39-cell--meta {
+        min-width: 92px;
+    }
+
+    .rule39-results-table td.rule39-cell--result,
+    .rule39-results-table th.rule39-col--result {
+        text-align: center;
+        min-width: 92px;
+    }
+
+    .rule39-results-table td.rule39-cell--reason {
+        min-width: 300px;
+        max-width: 360px;
+        color: #475569;
+    }
+
+    .rule39-results-table .rule39-cell--empty {
+        color: #94a3b8;
+        font-style: italic;
+    }
+
+    .rule39-results-shell .table-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 16px;
+        border-top: 1px solid #e2e8f0;
+        background: #f8fafc;
+        font-size: 12px;
+        color: #64748b;
+    }
+
+    @@media (max-width: 900px) {
+        .rule39-results-table {
+            min-width: 1560px;
+        }
+    }
+</style>
+
 <div id="app" class="rule-page-shell">
     @if (moduleNavigation != null)
     {
@@ -45,7 +158,7 @@
         <div class="rule-header__icon">R39</div>
         <div>
             <h1 class="rule-header__title">HEMIS RULE 39: First-Time Entering Students vs Non-Aligned Qualifications</h1>
-            <p class="rule-header__sub">Procedure 5.3 — Cross-match FTE students against the Non-Aligned Qualifications reference | Flags students enrolled in non-aligned qualifications</p>
+            <p class="rule-header__sub">Procedure 5.3 — Cross-match FTE students through QUAL against the Non-Aligned Qualifications reference | Flags students enrolled in non-aligned qualifications</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
@@ -95,13 +208,19 @@
             <div class="accordion-body" id="body-tables" style="display:none">
                 <div class="info-box info-box--red">
                     <strong>Rule 39 Procedure 5.3:</strong> Filter <code>dbo_STUD</code> on first-time entering flag (<code>_010 = 'F'</code>).
-                    Cross-match their qualification reference against the Non-Aligned Qualifications list (Category = 'C').
+                    Join the student qualification code to <code>dbo_QUAL</code>, then cross-match the qualification code against the Non-Aligned Qualifications list (Category = 'C').
                     Any match is flagged as an exception.
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
                         <label>STUD Table <span class="auto-tag" id="studAutoTag" style="display:none">auto-detected</span></label>
                         <select id="studTableSelect">
+                            <option value="">Select table</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>QUAL Table <span class="auto-tag" id="qualAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="qualTableSelect">
                             <option value="">Select table</option>
                         </select>
                     </div>
@@ -125,8 +244,8 @@
             </button>
             <div class="accordion-body" id="body-columns" style="display:none">
                 <div class="info-box info-box--dark">
-                    Map the qualification reference column in STUD to the reference column in the NAL table.
-                    The first-time flag column (typically <code>_010</code>) filters FTE students.
+                    Map the qualification code in STUD to QUAL, then map the QUAL code to the NAL reference table.
+                    The first-time flag column (typically <code>_010</code>) filters FTE students and QUAL provides the qualification name.
                 </div>
 
                 <h4 style="margin:1rem 0 0.5rem">STUD Table Columns</h4>
@@ -138,15 +257,55 @@
                         </select>
                     </div>
                     <div class="field-group">
+                        <label>STUD _007 Column <span class="auto-tag" id="stud007AutoTag" style="display:none">auto-selected</span></label>
+                        <select id="stud007Col" onchange="updatePreview(); markWorkspaceDirty()">
+                            <option value="">Select column (optional)</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>STUD _008 Column <span class="auto-tag" id="stud008AutoTag" style="display:none">auto-selected</span></label>
+                        <select id="stud008Col" onchange="updatePreview(); markWorkspaceDirty()">
+                            <option value="">Select column (optional)</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
                         <label>First-Time Entering Column <span class="auto-tag" id="studFirstTimeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studFirstTimeCol" onchange="updateDistinctValues('stud010'); markWorkspaceDirty()">
                             <option value="">Select column</option>
                         </select>
                     </div>
                     <div class="field-group">
+                        <label>STUD _012 Column <span class="auto-tag" id="stud012AutoTag" style="display:none">auto-selected</span></label>
+                        <select id="stud012Col" onchange="updatePreview(); markWorkspaceDirty()">
+                            <option value="">Select column (optional)</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>STUD _026 Column <span class="auto-tag" id="stud026AutoTag" style="display:none">auto-selected</span></label>
+                        <select id="stud026Col" onchange="updatePreview(); markWorkspaceDirty()">
+                            <option value="">Select column (optional)</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
                         <label>First-Time Value <span class="auto-tag" id="studFtvAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studFirstTimeValue" onchange="updatePreview(); markWorkspaceDirty()">
                             <option value="">Select value</option>
+                        </select>
+                    </div>
+                </div>
+
+                <h4 style="margin:1rem 0 0.5rem">QUAL Table Columns</h4>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Qualification Code Column <span class="auto-tag" id="qualCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualCodeCol" onchange="updatePreview(); markWorkspaceDirty()">
+                            <option value="">Select column</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>Qualification Name Column <span class="auto-tag" id="qualNameAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualNameCol" onchange="updatePreview(); markWorkspaceDirty()">
+                            <option value="">Select column</option>
                         </select>
                     </div>
                 </div>
@@ -322,10 +481,17 @@ const state = {
     database: '',
     driver: 'ODBC Driver 17 for SQL Server',
     studTable: '',
+    qualTable: '',
     nalTable: '',
     studQualRefCol: '',
+    stud007Col: '',
+    stud008Col: '',
     studFirstTimeCol: '',
+    stud012Col: '',
+    stud026Col: '',
     studFirstTimeValue: '',
+    qualCodeCol: '',
+    qualNameCol: '',
     nalRefCol: '',
     nalNameCol: '',
     nalAlignedCol: '',
@@ -421,6 +587,26 @@ async function downloadPost(url, data, filename) {
     await window.downloadFileWithProgress({ url, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), defaultFileName: filename, label: 'Downloading result' });
 }
 
+function downloadSavedGet(actionName) {
+    if (!state.currentRunId) return false;
+    const link = document.createElement('a');
+    link.href = `/Rule39/${actionName}?runId=${encodeURIComponent(state.currentRunId)}`;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return true;
+}
+
+async function downloadCurrentOrSaved(postPath, payload, savedAction, filename) {
+    if (state.currentRunId && downloadSavedGet(savedAction)) return;
+    if (payload) {
+        await downloadPost(postPath, payload, filename);
+        return;
+    }
+    alert('Run validation first.');
+}
+
 function escapeHtml(value) {
     return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
@@ -478,7 +664,8 @@ async function markWorkspaceDirty() {
 function resetWorkspaceState(clearClient = false) {
     Object.assign(state, {
         server: '', database: '', driver: 'ODBC Driver 17 for SQL Server',
-        studTable: '', nalTable: '', studQualRefCol: '', studFirstTimeCol: '', studFirstTimeValue: '',
+        studTable: '', qualTable: '', nalTable: '', studQualRefCol: '', stud007Col: '', stud008Col: '', studFirstTimeCol: '', stud012Col: '', stud026Col: '', studFirstTimeValue: '',
+        qualCodeCol: '', qualNameCol: '',
         nalRefCol: '', nalNameCol: '', nalAlignedCol: '', nalCategoryCol: '', nalCategoryValue: '',
         nalHeqsfRefCol: '', nalSaqaIdCol: '', nalNqfCol: '', nalCreditsCol: '', nalOutcomeCol: '',
         currentRunId: null, validationResult: null, validationView: { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit },
@@ -492,23 +679,39 @@ function resetWorkspaceState(clearClient = false) {
     document.getElementById('driverSelect').value = 'ODBC Driver 17 for SQL Server';
     document.getElementById('databaseSelect').innerHTML = '<option value="">Select database</option>';
     document.getElementById('studTableSelect').innerHTML = '<option value="">Select table</option>';
+    document.getElementById('qualTableSelect').innerHTML = '<option value="">Select table</option>';
     document.getElementById('nalTableSelect').innerHTML = '<option value="">Select table</option>';
     document.getElementById('dbFieldGroup').style.display = 'none';
     document.getElementById('signoffComment').value = '';
     document.getElementById('validationPreview').style.display = 'none';
     document.getElementById('downloadAllBtn').disabled = true;
 
-    ['studAutoTag','nalAutoTag','studQualRefAutoTag','studFirstTimeAutoTag','studFtvAutoTag',
-     'nalRefAutoTag','nalNameAutoTag','nalAlignedAutoTag','nalCategoryAutoTag','nalCategoryValueAutoTag'].forEach(id => {
+    ['studAutoTag','qualAutoTag','nalAutoTag','studQualRefAutoTag','studFirstTimeAutoTag','studFtvAutoTag',
+     'qualCodeAutoTag','qualNameAutoTag','nalRefAutoTag','nalNameAutoTag','nalAlignedAutoTag','nalCategoryAutoTag','nalCategoryValueAutoTag'].forEach(id => {
         const el = document.getElementById(id); if (el) el.style.display = 'none';
     });
 
-    ['stud', 'nal'].forEach(t => {
-        ['QualRef','FirstTime','Ref','Name','Aligned','Category','HeqsfRef','SaqaId','Nqf','Credits','Outcome'].forEach(col => {
-            const id = t + col + 'Col';
-            const el = document.getElementById(id);
-            if (el) { el.innerHTML = `<option value="">${id.includes('Heqsf')||id.includes('Saqa')||id.includes('Nqf')||id.includes('Credits')||id.includes('Outcome') ? 'None' : 'Select column'}</option>`; }
-        });
+    [
+        ['studQualRefCol', 'Select column'],
+        ['stud007Col', 'Select column (optional)'],
+        ['stud008Col', 'Select column (optional)'],
+        ['studFirstTimeCol', 'Select column'],
+        ['stud012Col', 'Select column (optional)'],
+        ['stud026Col', 'Select column (optional)'],
+        ['qualCodeCol', 'Select column'],
+        ['qualNameCol', 'Select column'],
+        ['nalRefCol', 'Select column'],
+        ['nalNameCol', 'Select column'],
+        ['nalAlignedCol', 'Select column (optional)'],
+        ['nalCategoryCol', 'Select column'],
+        ['nalHeqsfRefCol', 'None'],
+        ['nalSaqaIdCol', 'None'],
+        ['nalNqfCol', 'None'],
+        ['nalCreditsCol', 'None'],
+        ['nalOutcomeCol', 'None']
+    ].forEach(([id, placeholder]) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = `<option value="">${placeholder}</option>`;
     });
 
     ['studFirstTimeValue','nalCategoryValue'].forEach(id => {
@@ -586,10 +789,17 @@ async function hydrateWorkspace(workspace) {
             if (workspace.database) {
                 await loadTables({
                     preferredStudTable: workspace.studTable || '',
+                    preferredQualTable: workspace.qualTable || '',
                     preferredNalTable: workspace.nalTable || '',
                     preferredStudQualRefCol: workspace.studQualRefColumn || '',
+                    preferredStud007Col: workspace.stud007Column || '',
+                    preferredStud008Col: workspace.stud008Column || '',
                     preferredStudFirstTimeCol: workspace.studFirstTimeColumn || '',
+                    preferredStud012Col: workspace.stud012Column || '',
+                    preferredStud026Col: workspace.stud026Column || '',
                     preferredStudFirstTimeValue: workspace.studFirstTimeValue || '',
+                    preferredQualCodeCol: workspace.qualCodeColumn || '',
+                    preferredQualNameCol: workspace.qualNameColumn || '',
                     preferredNalRefCol: workspace.nalRefColumn || '',
                     preferredNalNameCol: workspace.nalNameColumn || '',
                     preferredNalAlignedCol: workspace.nalAlignedColumn || '',
@@ -652,7 +862,7 @@ async function loadTables(options = {}) {
 
     setStatus('connectionStatus', `Connected to <strong>${state.database}</strong>. Found ${result.tables.length} tables.`, 'success');
 
-    ['studTableSelect', 'nalTableSelect'].forEach(id => {
+    ['studTableSelect', 'qualTableSelect', 'nalTableSelect'].forEach(id => {
         const sel = document.getElementById(id);
         sel.innerHTML = '<option value="">Select table</option>';
         result.tables.forEach(t => sel.appendChild(new Option(t, t)));
@@ -660,19 +870,37 @@ async function loadTables(options = {}) {
 
     const selStud = options.preferredStudTable && result.tables.includes(options.preferredStudTable)
         ? options.preferredStudTable : result.autoStudTable || '';
+    const selQual = options.preferredQualTable && result.tables.includes(options.preferredQualTable)
+        ? options.preferredQualTable : result.autoQualTable || '';
     const selNal = options.preferredNalTable && result.tables.includes(options.preferredNalTable)
         ? options.preferredNalTable : result.autoNalTable || '';
 
     document.getElementById('studAutoTag').style.display = selStud && selStud === result.autoStudTable ? 'inline' : 'none';
+    document.getElementById('qualAutoTag').style.display = selQual && selQual === result.autoQualTable ? 'inline' : 'none';
     document.getElementById('nalAutoTag').style.display = selNal && selNal === result.autoNalTable ? 'inline' : 'none';
 
     if (selStud) { document.getElementById('studTableSelect').value = selStud; state.studTable = selStud; }
+    if (selQual) { document.getElementById('qualTableSelect').value = selQual; state.qualTable = selQual; }
     if (selNal) { document.getElementById('nalTableSelect').value = selNal; state.nalTable = selNal; }
 
     document.getElementById('body-tables').style.display = 'block';
     document.querySelector('#acc-tables .acc-chevron').textContent = '^';
 
-    if (selStud) await loadColumns('stud', { preferredQualRef: options.preferredStudQualRefCol, preferredFirstTime: options.preferredStudFirstTimeCol, preferredFtv: options.preferredStudFirstTimeValue, silent: true });
+    if (selStud) await loadColumns('stud', {
+        preferredQualRef: options.preferredStudQualRefCol,
+        preferredStud007: options.preferredStud007Col,
+        preferredStud008: options.preferredStud008Col,
+        preferredFirstTime: options.preferredStudFirstTimeCol,
+        preferredStud012: options.preferredStud012Col,
+        preferredStud026: options.preferredStud026Col,
+        preferredFtv: options.preferredStudFirstTimeValue,
+        silent: true
+    });
+    if (selQual) await loadColumns('qual', {
+        preferredCode: options.preferredQualCodeCol,
+        preferredName: options.preferredQualNameCol,
+        silent: true
+    });
     if (selNal) await loadColumns('nal', {
         preferredRef: options.preferredNalRefCol, preferredName: options.preferredNalNameCol, preferredAligned: options.preferredNalAlignedCol,
         preferredCategory: options.preferredNalCategoryCol, preferredCatValue: options.preferredNalCategoryValue,
@@ -686,14 +914,17 @@ async function loadTables(options = {}) {
 
 async function loadColumns(which, options = {}) {
     const isStud = which === 'stud';
-    const tableName = document.getElementById(isStud ? 'studTableSelect' : 'nalTableSelect').value;
+    const isQual = which === 'qual';
+    const tableName = document.getElementById(isStud ? 'studTableSelect' : isQual ? 'qualTableSelect' : 'nalTableSelect').value;
     if (!tableName) return null;
 
-    if (isStud) state.studTable = tableName; else state.nalTable = tableName;
+    if (isStud) state.studTable = tableName;
+    else if (isQual) state.qualTable = tableName;
+    else state.nalTable = tableName;
     if (!options.silent) showSpinner(`Loading columns for ${tableName}...`);
 
     const result = await post('/Rule39/GetColumns', {
-        server: state.server, database: state.database, driver: state.driver, tableName, tableRole: isStud ? 'stud' : 'nal'
+        server: state.server, database: state.database, driver: state.driver, tableName, tableRole: which
     });
     if (!options.silent) hideSpinner();
     if (!result.success) { setStatus('tableStatus', `Error: ${result.error}`, 'error'); return null; }
@@ -702,20 +933,48 @@ async function loadColumns(which, options = {}) {
 
     if (isStud) {
         populateSelect('studQualRefCol', columns, 'Select column');
+        populateSelect('stud007Col', columns, 'Select column (optional)', true);
+        populateSelect('stud008Col', columns, 'Select column (optional)', true);
         populateSelect('studFirstTimeCol', columns, 'Select column');
+        populateSelect('stud012Col', columns, 'Select column (optional)', true);
+        populateSelect('stud026Col', columns, 'Select column (optional)', true);
 
         const selQualRef = preferOrAuto(columns, options.preferredQualRef, result.autoQualRefColumn);
+        const selStud007 = preferOrAuto(columns, options.preferredStud007, result.autoStud007Column);
+        const selStud008 = preferOrAuto(columns, options.preferredStud008, result.autoStud008Column);
         const selFirstTime = preferOrAuto(columns, options.preferredFirstTime, result.autoFirstTimeColumn);
+        const selStud012 = preferOrAuto(columns, options.preferredStud012, result.autoStud012Column);
+        const selStud026 = preferOrAuto(columns, options.preferredStud026, result.autoStud026Column);
 
         setAutoTag('studQualRefAutoTag', selQualRef, result.autoQualRefColumn);
+        setAutoTag('stud007AutoTag', selStud007, result.autoStud007Column);
+        setAutoTag('stud008AutoTag', selStud008, result.autoStud008Column);
         setAutoTag('studFirstTimeAutoTag', selFirstTime, result.autoFirstTimeColumn);
+        setAutoTag('stud012AutoTag', selStud012, result.autoStud012Column);
+        setAutoTag('stud026AutoTag', selStud026, result.autoStud026Column);
 
         if (selQualRef) { document.getElementById('studQualRefCol').value = selQualRef; state.studQualRefCol = selQualRef; }
+        if (selStud007) { document.getElementById('stud007Col').value = selStud007; state.stud007Col = selStud007; }
+        if (selStud008) { document.getElementById('stud008Col').value = selStud008; state.stud008Col = selStud008; }
         if (selFirstTime) {
             document.getElementById('studFirstTimeCol').value = selFirstTime;
             state.studFirstTimeCol = selFirstTime;
             await loadDistinctValues('stud010', selFirstTime, options.preferredFtv || 'F');
         }
+        if (selStud012) { document.getElementById('stud012Col').value = selStud012; state.stud012Col = selStud012; }
+        if (selStud026) { document.getElementById('stud026Col').value = selStud026; state.stud026Col = selStud026; }
+    } else if (isQual) {
+        populateSelect('qualCodeCol', columns, 'Select column');
+        populateSelect('qualNameCol', columns, 'Select column');
+
+        const selCode = preferOrAuto(columns, options.preferredCode, result.autoQualCodeColumn);
+        const selName = preferOrAuto(columns, options.preferredName, result.autoQualNameColumn);
+
+        setAutoTag('qualCodeAutoTag', selCode, result.autoQualCodeColumn);
+        setAutoTag('qualNameAutoTag', selName, result.autoQualNameColumn);
+
+        if (selCode) { document.getElementById('qualCodeCol').value = selCode; state.qualCodeCol = selCode; }
+        if (selName) { document.getElementById('qualNameCol').value = selName; state.qualNameCol = selName; }
     } else {
         const optionalNone = 'None';
         populateSelect('nalRefCol', columns, 'Select column');
@@ -821,25 +1080,34 @@ async function updateDistinctValues(which) {
 
 function updatePreview() {
     state.studQualRefCol     = document.getElementById('studQualRefCol').value;
+    state.stud007Col         = document.getElementById('stud007Col').value;
+    state.stud008Col         = document.getElementById('stud008Col').value;
     state.studFirstTimeCol   = document.getElementById('studFirstTimeCol').value;
+    state.stud012Col         = document.getElementById('stud012Col').value;
+    state.stud026Col         = document.getElementById('stud026Col').value;
     state.studFirstTimeValue = document.getElementById('studFirstTimeValue').value;
+    state.qualCodeCol        = document.getElementById('qualCodeCol').value;
+    state.qualNameCol        = document.getElementById('qualNameCol').value;
     state.nalRefCol          = document.getElementById('nalRefCol').value;
     state.nalCategoryCol     = document.getElementById('nalCategoryCol').value;
     state.nalCategoryValue   = document.getElementById('nalCategoryValue').value;
 
     const preview = document.getElementById('validationPreview');
-    if (!state.studQualRefCol || !state.studFirstTimeCol || !state.nalRefCol || !state.nalCategoryCol) {
+    if (!state.studQualRefCol || !state.studFirstTimeCol || !state.qualCodeCol || !state.qualNameCol || !state.nalRefCol || !state.nalCategoryCol) {
         preview.style.display = 'none'; return;
     }
     preview.style.display = 'block';
     preview.innerHTML = `
         <div class="preview-inner">
             <strong>Validation Rule (Procedure 5.3):</strong><br>
-            <code>FROM [${state.studTable}] s LEFT JOIN [${state.nalTable}] n
-  ON s.[${state.studQualRefCol}] = n.[${state.nalRefCol}]
+            <code>FROM [${state.studTable}] s
+LEFT JOIN [${state.qualTable}] q
+  ON s.[${state.studQualRefCol}] = q.[${state.qualCodeCol}]
+LEFT JOIN [${state.nalTable}] n
+  ON COALESCE(q.[${state.qualCodeCol}], s.[${state.studQualRefCol}]) = n.[${state.nalRefCol}]
   AND n.[${state.nalCategoryCol}] = '${escapeHtml(state.nalCategoryValue)}'
 WHERE s.[${state.studFirstTimeCol}] = '${escapeHtml(state.studFirstTimeValue)}'</code>
-            <p class="preview-note"><strong>FLAG:</strong> FTE student's qual ref found in NAL table (Category = '${escapeHtml(state.nalCategoryValue)}')</p>
+            <p class="preview-note"><strong>FLAG:</strong> FTE student's qualification code is found in the NAL table (Category = '${escapeHtml(state.nalCategoryValue)}'), with the qualification name coming from QUAL.[${escapeHtml(state.qualNameCol)}]</p>
         </div>`;
 }
 
@@ -847,17 +1115,19 @@ WHERE s.[${state.studFirstTimeCol}] = '${escapeHtml(state.studFirstTimeValue)}'<
 async function verifyTables() {
     if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can verify tables.', 'error'); return; }
     if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only.', 'error'); return; }
-    if (!state.studTable || !state.nalTable || !state.studFirstTimeCol || !state.nalCategoryCol) {
-        setStatus('tableStatus', 'Select the STUD and NAL tables and their key columns first.', 'warning'); return;
+    if (!state.studTable || !state.qualTable || !state.nalTable || !state.studFirstTimeCol || !state.qualCodeCol || !state.qualNameCol || !state.nalCategoryCol) {
+        setStatus('tableStatus', 'Select the STUD, QUAL, and NAL tables and their key columns first.', 'warning'); return;
     }
     showSpinner('Verifying tables...');
     try {
         const result = await post('/Rule39/VerifyTables', {
             server: state.server, database: state.database, driver: state.driver,
-            studTable: state.studTable, nalTable: state.nalTable,
+            studTable: state.studTable, qualTable: state.qualTable, nalTable: state.nalTable,
             studQualRefColumn: state.studQualRefCol || '_001',
             studFirstTimeColumn: state.studFirstTimeCol,
             studFirstTimeValue: state.studFirstTimeValue || 'F',
+            qualCodeColumn: state.qualCodeCol || '_001',
+            qualNameColumn: state.qualNameCol || '_003',
             nalCategoryColumn: state.nalCategoryCol,
             nalCategoryValue: state.nalCategoryValue || 'C'
         });
@@ -866,6 +1136,7 @@ async function verifyTables() {
             <strong>Verification Complete</strong><br>
             ${state.studTable}: <strong>${result.studTotalCount.toLocaleString()}</strong> records total,
             <strong>${result.studFilteredCount.toLocaleString()}</strong> first-time entering (${state.studFirstTimeValue})<br>
+            ${state.qualTable}: <strong>${result.qualTotalCount.toLocaleString()}</strong> qualification records total<br>
             ${state.nalTable}: <strong>${result.nalTotalCount.toLocaleString()}</strong> records total,
             <strong>${result.nalFilteredCount.toLocaleString()}</strong> Category '${state.nalCategoryValue}'<br>
             <em>Ready to run full validation.</em>
@@ -928,6 +1199,11 @@ function renderSectionHeader(title, subtitle, meta = '') {
     </div>`;
 }
 
+function renderReadableValue(value) {
+    const text = String(value ?? '').trim();
+    return text ? escapeHtml(text) : '<span class="rule39-cell--empty">-</span>';
+}
+
 function renderValidationSummary(r) {
     const rate = parseFloat(r.exceptionRate || 0);
     const rateColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
@@ -938,7 +1214,7 @@ function renderValidationSummary(r) {
         ${renderSectionHeader(
             'Rule 39: First-Time Entering vs Non-Aligned Qualifications',
             `Database: ${escapeHtml(r.database)} | STUD ${escapeHtml(r.studTable)}.[${escapeHtml(r.studFirstTimeColumn)}]='${escapeHtml(r.studFirstTimeValue)}' | NAL ${escapeHtml(r.nalTable)}.[${escapeHtml(r.nalCategoryColumn)}]='${escapeHtml(r.nalCategoryValue)}'`,
-            `Join: STUD.[${escapeHtml(r.studQualRefColumn)}] = NAL.[${escapeHtml(r.nalRefColumn)}]<br>Run: ${escapeHtml(r.timestamp)}`
+            `Join: STUD.[${escapeHtml(r.studQualRefColumn)}] = QUAL.[${escapeHtml(r.qualCodeColumn)}] -> NAL.[${escapeHtml(r.nalRefColumn)}]<br>Run: ${escapeHtml(r.timestamp)}`
         )}
         <div class="stats-grid">
             <div class="stat-card">
@@ -948,6 +1224,10 @@ function renderValidationSummary(r) {
             <div class="stat-card">
                 <div class="stat-card__label">First-Time Entering (FTE)</div>
                 <div class="stat-card__value">${r.totalValidated.toLocaleString()}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card__label">QUAL Total Records</div>
+                <div class="stat-card__value">${(r.qualTotalCount || 0).toLocaleString()}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-card__label">NAL Category Records</div>
@@ -971,39 +1251,65 @@ function renderValidationSummary(r) {
                 ? 'VALIDATION PASSED — No first-time entering students found in Non-Aligned Qualifications list'
                 : `VALIDATION FAILED — ${r.flaggedCount.toLocaleString()} student(s) enrolled in Non-Aligned Qualifications`}
         </div>
-        ${r.isPreviewOnly ? `<div class="alert alert--info" style="margin-top:1rem">Preview only: showing up to ${r.previewLimit} rows. Download the full results for all rows.</div>` : ''}
+        ${r.isPreviewOnly ? `<div class="alert alert--info" style="margin-top:1rem">Preview only: showing up to ${r.previewLimit} rows per result set in the browser. Download the Excel for the full population.</div>` : ''}
         <div style="margin-top:1rem">
             <button class="btn btn-sm btn-warning" onclick="switchTab('flagged')">View FLAGGED Rows (${r.flaggedCount.toLocaleString()})</button>
-            <button class="btn btn-sm btn-success" style="margin-left:0.5rem" onclick="switchTab('clear')">View CLEAR Sample</button>
+            <button class="btn btn-sm btn-success" style="margin-left:0.5rem" onclick="switchTab('clear')">View CLEAR Rows (${r.clearCount.toLocaleString()})</button>
         </div>`;
 }
 
 function renderNalRow(row, i) {
     const isFlagged = row.result === 'FLAGGED';
     return `<tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
-        <td>${row.rowNumber}</td>
-        <td><strong>${escapeHtml(row.studQualRef)}</strong></td>
-        <td>${escapeHtml(row.stud010Value)}</td>
-        <td>${escapeHtml(row.nalQualName || '')}</td>
-        <td>${escapeHtml(row.nalAlignedName || '')}</td>
-        <td>${escapeHtml(row.nalCategory || '')}</td>
-        <td>${escapeHtml(row.nalHeqsfRef || '')}</td>
-        <td>${escapeHtml(row.nalSaqaId || '')}</td>
-        <td>${escapeHtml(row.nalNqf || '')}</td>
-        <td>${escapeHtml(row.nalCredits || '')}</td>
-        <td>${escapeHtml(row.nalOutcome || '')}</td>
-        <td><span class="badge badge--${isFlagged ? 'fail' : 'pass'}">${escapeHtml(row.result)}</span></td>
-        <td>${escapeHtml(row.exceptionReason || '')}</td>
+        <td class="rule39-cell--small">${row.rowNumber}</td>
+        <td class="rule39-cell--ref">${renderReadableValue(row.studQualRef)}</td>
+        <td class="rule39-cell--small">${renderReadableValue(row.stud007Value)}</td>
+        <td class="rule39-cell--small">${renderReadableValue(row.stud008Value)}</td>
+        <td class="rule39-cell--small">${renderReadableValue(row.stud010Value)}</td>
+        <td class="rule39-cell--small">${renderReadableValue(row.stud012Value)}</td>
+        <td class="rule39-cell--small">${renderReadableValue(row.stud026Value)}</td>
+        <td class="rule39-cell--code">${renderReadableValue(row.qualCodeValue)}</td>
+        <td class="rule39-cell--name">${renderReadableValue(row.qualNameValue)}</td>
+        <td class="rule39-cell--name">${renderReadableValue(row.nalQualName)}</td>
+        <td class="rule39-cell--name">${renderReadableValue(row.nalAlignedName)}</td>
+        <td class="rule39-cell--meta">${renderReadableValue(row.nalCategory)}</td>
+        <td class="rule39-cell--meta">${renderReadableValue(row.nalHeqsfRef)}</td>
+        <td class="rule39-cell--meta">${renderReadableValue(row.nalSaqaId)}</td>
+        <td class="rule39-cell--meta">${renderReadableValue(row.nalNqf)}</td>
+        <td class="rule39-cell--meta">${renderReadableValue(row.nalCredits)}</td>
+        <td class="rule39-cell--meta">${renderReadableValue(row.nalOutcome)}</td>
+        <td class="rule39-cell--result"><span class="badge badge--${isFlagged ? 'fail' : 'pass'}">${escapeHtml(row.result)}</span></td>
+        <td class="rule39-cell--reason">${renderReadableValue(row.exceptionReason)}</td>
     </tr>`;
 }
 
 function renderNalTable(rows, emptyMsg) {
     if (!rows || !rows.length) return `<div class="alert alert--info">${emptyMsg}</div>`;
-    const headers = ['#','STUD Qual Ref','FTE Value','NAL Qual Name','Aligned Name','Category','HEQSF Ref','SAQA ID','NQF','Credits','Outcome','Result','Reason'];
-    return `<div class="results-table-shell"><div class="table-wrapper"><table class="data-table">
-        <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+    const headers = [
+        { label: '#', cls: 'rule39-col--index' },
+        { label: 'STUD Ref', cls: 'rule39-col--ref' },
+        { label: 'STUD _007', cls: 'rule39-col--small' },
+        { label: 'STUD _008', cls: 'rule39-col--small' },
+        { label: 'FTE', cls: 'rule39-col--small' },
+        { label: 'STUD _012', cls: 'rule39-col--small' },
+        { label: 'STUD _026', cls: 'rule39-col--small' },
+        { label: 'QUAL Code', cls: 'rule39-col--code' },
+        { label: 'Qualification Name', cls: 'rule39-col--name' },
+        { label: 'NAL Name', cls: 'rule39-col--name' },
+        { label: 'Aligned Name', cls: 'rule39-col--name' },
+        { label: 'Category', cls: 'rule39-col--meta' },
+        { label: 'HEQSF', cls: 'rule39-col--meta' },
+        { label: 'SAQA', cls: 'rule39-col--meta' },
+        { label: 'NQF', cls: 'rule39-col--meta' },
+        { label: 'Credits', cls: 'rule39-col--meta' },
+        { label: 'Outcome', cls: 'rule39-col--meta' },
+        { label: 'Result', cls: 'rule39-col--result' },
+        { label: 'Reason', cls: 'rule39-col--reason' }
+    ];
+    return `<div class="results-table-shell rule39-results-shell"><div class="table-wrapper"><table class="data-table rule39-results-table">
+        <thead><tr>${headers.map(h => `<th class="${h.cls}">${h.label}</th>`).join('')}</tr></thead>
         <tbody>${rows.map((r, i) => renderNalRow(r, i)).join('')}</tbody>
-    </table></div><div class="table-footer">${rows.length.toLocaleString()} row(s) shown.</div></div>`;
+    </table></div><div class="table-footer"><span>${rows.length.toLocaleString()} row(s) shown.</span><span>Scroll horizontally to view all columns.</span></div></div>`;
 }
 
 function renderFlaggedRows(r) {
@@ -1011,7 +1317,7 @@ function renderFlaggedRows(r) {
     el.classList.remove('empty-state');
     const rows = r.flaggedRows || [];
     el.innerHTML = `
-        ${renderSectionHeader('FLAGGED Rows', 'FTE students whose qualification reference was found in the Non-Aligned Qualifications list', `FLAGGED: ${r.flaggedCount.toLocaleString()}`)}
+        ${renderSectionHeader('FLAGGED Rows', 'FTE students whose qualification code was found in the Non-Aligned Qualifications list through QUAL', `FLAGGED: ${r.flaggedCount.toLocaleString()}`)}
         ${r.flaggedCount === 0
             ? '<div class="alert alert--success">No FLAGGED rows — all first-time entering students are enrolled in aligned qualifications.</div>'
             : renderNalTable(rows, 'No flagged rows loaded.')}
@@ -1023,11 +1329,11 @@ function renderClearRows(r) {
     el.classList.remove('empty-state');
     const rows = r.clearSampleRows || [];
     el.innerHTML = `
-        ${renderSectionHeader('CLEAR Rows (Sample)', 'FTE students whose qualification reference was NOT found in the Non-Aligned Qualifications list', `CLEAR: ${r.clearCount.toLocaleString()}`)}
+        ${renderSectionHeader('CLEAR Rows', 'FTE students whose qualification code was NOT found in the Non-Aligned Qualifications list through QUAL', `CLEAR: ${r.clearCount.toLocaleString()}`)}
         ${r.clearCount === 0
             ? '<div class="alert alert--warning">All FTE students are in Non-Aligned Qualifications — check if the NAL table is configured correctly.</div>'
             : renderNalTable(rows, 'No clear rows loaded.')}
-        ${rows.length < r.clearCount ? `<div class="alert alert--info">Sample only. Showing ${rows.length.toLocaleString()} of ${r.clearCount.toLocaleString()} CLEAR rows. Download CSV for full results.</div>` : ''}`;
+        ${rows.length < r.clearCount ? `<div class="alert alert--info">Showing ${rows.length.toLocaleString()} of ${r.clearCount.toLocaleString()} CLEAR rows.</div>` : ''}`;
 }
 
 function renderCharts(r) {
@@ -1129,25 +1435,23 @@ async function generateSql() {
 
 // ── Download ──────────────────────────────────────────────────────────────────
 async function downloadExcel() {
-    if (!state.validationResult) { alert('Run validation first.'); return; }
-    await downloadPost('/Rule39/DownloadExcel', state.validationResult, `Rule39_FirstTime_NAL_${fileStamp()}.xlsx`);
+    await downloadCurrentOrSaved('/Rule39/DownloadExcel', state.validationResult, 'DownloadSavedExcel', `Rule39_FirstTime_NAL_${fileStamp()}.xlsx`);
 }
 async function downloadCsv() {
-    if (!state.validationResult) { alert('Run validation first.'); return; }
-    await downloadPost('/Rule39/DownloadCsv', state.validationResult, `Rule39_Results_${fileStamp()}.csv`);
+    await downloadCurrentOrSaved('/Rule39/DownloadCsv', state.validationResult, 'DownloadSavedCsv', `Rule39_Results_${fileStamp()}.csv`);
 }
 async function downloadFlaggedCsv() {
-    if (!state.validationResult) { alert('Run validation first.'); return; }
-    await downloadPost('/Rule39/DownloadExceptionsCsv', state.validationResult, `Rule39_FLAGGED_${fileStamp()}.csv`);
+    await downloadCurrentOrSaved('/Rule39/DownloadExceptionsCsv', state.validationResult, 'DownloadSavedExceptionsCsv', `Rule39_FLAGGED_${fileStamp()}.csv`);
 }
 async function downloadSql() {
     if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can download the SQL script.', 'error'); return; }
     if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only.', 'error'); return; }
+    if (state.currentRunId && downloadSavedGet('DownloadSavedSql')) return;
     if (!validateConfig()) return;
     await downloadPost('/Rule39/DownloadSql', buildRequest(), `Rule39_${fileStamp()}.sql`);
 }
 async function downloadAll() {
-    if (!state.validationResult) { alert('Run validation first.'); return; }
+    if (!state.validationResult && !state.currentRunId) { alert('Run validation first.'); return; }
     const tasks = [];
     if (document.getElementById('chkExcel')?.checked) tasks.push(() => downloadExcel());
     if (document.getElementById('chkCsv')?.checked) tasks.push(() => downloadCsv());
@@ -1298,10 +1602,13 @@ function validateConfig() {
     if (!state.server) missing.push('server');
     if (!state.database) missing.push('database');
     if (!state.studTable) missing.push('STUD table');
+    if (!state.qualTable) missing.push('QUAL table');
     if (!state.nalTable) missing.push('NAL table');
     if (!state.studQualRefCol) missing.push('STUD qual ref column');
     if (!state.studFirstTimeCol) missing.push('STUD first-time column');
     if (!state.studFirstTimeValue) missing.push('first-time value');
+    if (!state.qualCodeCol) missing.push('QUAL code column');
+    if (!state.qualNameCol) missing.push('QUAL name column');
     if (!state.nalRefCol) missing.push('NAL ref column');
     if (!state.nalNameCol) missing.push('NAL name column');
     if (!state.nalCategoryCol) missing.push('NAL category column');
@@ -1323,10 +1630,17 @@ function buildRequest() {
         database: state.database,
         driver: state.driver,
         studTable: state.studTable,
+        qualTable: state.qualTable,
         nalTable: state.nalTable,
         studQualRefColumn: state.studQualRefCol,
+        stud007Column: state.stud007Col,
+        stud008Column: state.stud008Col,
         studFirstTimeColumn: state.studFirstTimeCol,
+        stud012Column: state.stud012Col,
+        stud026Column: state.stud026Col,
         studFirstTimeValue: state.studFirstTimeValue,
+        qualCodeColumn: state.qualCodeCol,
+        qualNameColumn: state.qualNameCol,
         nalRefColumn: state.nalRefCol,
         nalNameColumn: state.nalNameCol,
         nalAlignedColumn: state.nalAlignedCol,
@@ -1358,9 +1672,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('studTableSelect').addEventListener('change', async e => {
         state.studTable = e.target.value; await markWorkspaceDirty(); await loadColumns('stud');
     });
+    document.getElementById('qualTableSelect').addEventListener('change', async e => {
+        state.qualTable = e.target.value; await markWorkspaceDirty(); await loadColumns('qual');
+    });
     document.getElementById('nalTableSelect').addEventListener('change', async e => {
         state.nalTable = e.target.value; await markWorkspaceDirty(); await loadColumns('nal');
     });
+    ['stud007Col','stud008Col','stud012Col','stud026Col'].forEach(id => {
+        document.getElementById(id).addEventListener('change', e => { state[id] = e.target.value; });
+    });
+    document.getElementById('qualCodeCol').addEventListener('change', e => { state.qualCodeCol = e.target.value; });
+    document.getElementById('qualNameCol').addEventListener('change', e => { state.qualNameCol = e.target.value; });
     document.getElementById('nalNameCol').addEventListener('change', e => { state.nalNameCol = e.target.value; });
     document.getElementById('nalAlignedCol').addEventListener('change', e => { state.nalAlignedCol = e.target.value; });
     ['nalHeqsfRefCol','nalSaqaIdCol','nalNqfCol','nalCreditsCol','nalOutcomeCol'].forEach(id => {

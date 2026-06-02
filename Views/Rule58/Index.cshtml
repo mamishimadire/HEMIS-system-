@@ -178,10 +178,10 @@
         <div class="tab-pane" data-tab-panel="sql"><textarea id="sqlText" rows="18" readonly></textarea></div>
         <div class="tab-pane" data-tab-panel="downloads">
             <div class="alert alert--info" style="margin-bottom:16px">Excel includes all results and a summary sheet. CSV exports the full result set. SQL includes the personnel number join query. Save the workspace before downloading.</div>
-            <div class="action-bar" style="justify-content:flex-start;margin:0">
-                <button type="button" class="btn btn-info" id="downloadExcelBtn" onclick="if(state.currentRunId) window.open('/Rule58/DownloadSavedExcel?runId='+state.currentRunId,'_blank')">Excel</button>
-                <button type="button" class="btn btn-info" id="downloadCsvBtn" onclick="if(state.currentRunId) window.open('/Rule58/DownloadSavedCsv?runId='+state.currentRunId,'_blank')">CSV</button>
-                <button type="button" class="btn btn-secondary" id="downloadSqlBtn" onclick="if(state.currentRunId) window.open('/Rule58/DownloadSavedSql?runId='+state.currentRunId,'_blank')">SQL</button>
+                <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info" id="downloadExcelBtn" onclick="downloadRule58Excel()">Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn" onclick="downloadRule58Csv()">CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn" onclick="downloadRule58Sql()">SQL</button>
             </div>
         </div>
     </div>
@@ -260,6 +260,48 @@ window.toggleAccordion = function (section) {
     async function downloadBlob(url, payload, defaultName) {
         await window.downloadFileWithProgress({ url, method:'POST', headers:{'Content-Type':'application/json','RequestVerificationToken':token}, body:JSON.stringify(payload), defaultFileName:defaultName, label:'Downloading' });
     }
+
+    window.downloadRule58Excel = async function () {
+        if (!state.summary) {
+            setWorkspaceState('Run Rule 58 first before downloading Excel.', 'warning');
+            return;
+        }
+        await downloadBlob(`${apiBase}/DownloadExcel`, state.summary, 'Rule58_Staff_VALPAC_Production.xlsx');
+    };
+
+    window.downloadRule58Csv = async function () {
+        if (!state.summary) {
+            setWorkspaceState('Run Rule 58 first before downloading CSV.', 'warning');
+            return;
+        }
+        await downloadBlob(`${apiBase}/DownloadCsv`, state.summary, 'Rule58_Staff_VALPAC_Production.csv');
+    };
+
+    window.downloadRule58Sql = async function () {
+        const request = getRequest();
+        if (!request.clientId) {
+            setWorkspaceState('Select an engagement before downloading SQL.', 'warning');
+            return;
+        }
+        await downloadBlob(`${apiBase}/DownloadSql`, request, 'Rule58_Staff_VALPAC_Production.sql');
+    };
+
+    window.downloadRule58All = async function () {
+        if (!state.summary) {
+            setWorkspaceState('Run Rule 58 first before downloading.', 'warning');
+            return;
+        }
+
+        if (document.getElementById('chkExcel')?.checked) {
+            await window.downloadRule58Excel();
+        }
+        if (document.getElementById('chkCsv')?.checked) {
+            await window.downloadRule58Csv();
+        }
+        if (document.getElementById('chkSql')?.checked) {
+            await window.downloadRule58Sql();
+        }
+    };
 
     function populateSelect(sel, values, selected) {
         if (!sel) return;
@@ -626,11 +668,7 @@ window.toggleAccordion = function (section) {
         els.beginEditBtn?.addEventListener('click', () => beginEdit().catch(err => { hideSpinner(); setWorkspaceState(err.message,'error'); }));
         els.saveWorkspaceBtn?.addEventListener('click', () => saveWorkspace().catch(err => { hideSpinner(); setWorkspaceState(err.message,'error'); }));
         els.downloadAllBtn?.addEventListener('click', () => {
-            if (!state.currentRunId) { setWorkspaceState('Save the workspace before downloading.','warning'); return; }
-            const id = state.currentRunId;
-            if (document.getElementById('chkExcel')?.checked) window.open(`/Rule58/DownloadSavedExcel?runId=${id}`, '_blank');
-            if (document.getElementById('chkCsv')?.checked)   window.open(`/Rule58/DownloadSavedCsv?runId=${id}`, '_blank');
-            if (document.getElementById('chkSql')?.checked)   window.open(`/Rule58/DownloadSavedSql?runId=${id}`, '_blank');
+            window.downloadRule58All().catch(err => setWorkspaceState(err.message, 'error'));
         });
     }
 

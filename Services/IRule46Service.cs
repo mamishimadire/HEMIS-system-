@@ -16,7 +16,6 @@ namespace HemisAudit.Services
         Task<Rule46WorkspaceSaveResult> BeginWorkspaceEditAsync(int runId, string reviewerEmail, string? reviewerName = null);
         Task AddOrUpdateSignoffAsync(int runId, string reviewerEmail, string comment);
         Task RemoveSignoffAsync(int runId, string reviewerEmail);
-        string GenerateControl1Sql(Rule46ValidationRequest request);
-        string GenerateControl2Sql(Rule46ValidationRequest request);
+        string GenerateValidationSql(Rule46ValidationRequest request);
     }
 }
