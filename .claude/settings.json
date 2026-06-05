@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Start-Process \"cmd.exe\" -ArgumentList \"/c cd `\"c:\\\\Users\\\\Mamishi.Madire\\\\Desktop\\\\2026 hemis system`\" && dotnet run --project HemisAudit\\\\HemisAudit.csproj --no-build\" -WindowStyle Normal)"
+    ]
+  }
+}

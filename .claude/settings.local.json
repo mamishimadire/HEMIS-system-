@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Process *)",
+      "PowerShell(netstat *)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri 'http://127.0.0.26:5076' -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop; \"Status: $\\($r.StatusCode\\)\" } catch { $_.Exception.Message })",
+      "PowerShell(Start-Process \"http://127.0.0.26:5076\")",
+      "PowerShell(& 'c:\\\\Users\\\\Mamishi.Madire\\\\Desktop\\\\2026 hemis system\\\\HemisAudit\\\\Scripts\\\\run system.ps1')",
+      "Bash(dotnet build *)",
+      "Bash(Get-Content \"c:\\\\Users\\\\Mamishi.Madire\\\\Desktop\\\\2026 hemis system\\\\HemisAudit\\\\Services\\\\ExportService.cs\")",
+      "Bash(Measure-Object -Line)",
+      "Bash(Select-Object -ExpandProperty Lines)",
+      "Bash(Test-Path \"c:\\\\Users\\\\Mamishi.Madire\\\\Desktop\\\\2026 hemis system\\\\HemisAudit\\\\README.md\")"
+    ]
+  }
+}
