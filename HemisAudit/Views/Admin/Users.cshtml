@@ -1,0 +1,170 @@
+@using HemisAudit.Helpers
+@model List<HemisAudit.ViewModels.UserListViewModel>
+@{ ViewData["Title"] = "User Management"; Layout = "~/Views/Shared/_Layout.cshtml"; }
+@{
+    var currentUserEmail = User.Identity?.Name ?? "";
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">✅ @TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">❌ @TempData["Error"]</div>
+}
+
+@if (TempData["Success"] != null)
+{
+    <script>
+        window.addEventListener('load', function () {
+            window.showAppToast(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["Success"]?.ToString() ?? "")), 'success');
+        }, { once: true });
+    </script>
+}
+@if (TempData["Error"] != null)
+{
+    <script>
+        window.addEventListener('load', function () {
+            window.showAppToast(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(TempData["Error"]?.ToString() ?? "")), 'error');
+        }, { once: true });
+    </script>
+}
+
+<div class="page-header">
+    <div>
+        <h1>User Management</h1>
+        <p>@Model.Count user(s) in the system</p>
+    </div>
+    <a asp-action="CreateUser" class="btn btn-success">+ Add User</a>
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Name</th><th>Email</th><th>Code</th><th>Role</th>
+                <th>Password Age</th><th>Engagements</th><th>Status</th><th>Last Login</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var u in Model)
+            {
+                <tr>
+                    <td>
+                        <div class="user-inline">
+                            <img src="@AvatarHelper.GetAvatarSource(u.Id, u.FirstName, u.LastName, u.ProfilePicturePath)" alt="@u.FullName" class="avatar avatar--sm" />
+                            <strong>@u.FullName</strong>
+                        </div>
+                    </td>
+                    <td>@u.Email</td>
+                    <td><code style="font-size:11px">@u.EmployeeCode</code></td>
+                    <td>
+                        @foreach (var r in u.Roles)
+                        {
+                            <span class="badge badge--role">@r</span>
+                        }
+                    </td>
+                    <td>
+                        <div>@u.PasswordStatus.AgeDays day(s)</div>
+                        <div style="font-size:12px;color:var(--text-muted)">
+                            Since @(u.PasswordStatus.ReferenceDateUtc?.ToString("dd MMM yyyy") ?? "N/A")
+                        </div>
+                        @if (u.PasswordStatus.IsExpired)
+                        {
+                            <span class="badge badge--fail">Expired</span>
+                        }
+                        else if (u.PasswordStatus.IsExpiringSoon)
+                        {
+                            <span class="badge badge--warning">@u.PasswordStatus.DaysRemaining day(s) left</span>
+                        }
+                        else
+                        {
+                            <span class="badge badge--pass">@u.PasswordStatus.DaysRemaining day(s) left</span>
+                        }
+                    </td>
+                    <td>@u.AssignedClientsCount</td>
+                    <td>
+                        <span class="badge @(u.IsActive ? "badge--pass" : "badge--fail")">
+                            @(u.IsActive ? "Active" : "Inactive")
+                        </span>
+                        @if (u.IsLockedOut)
+                        {
+                            <span class="badge badge--fail" title="Locked until @(u.LockoutEnd?.ToLocalTime().ToString("HH:mm") ?? "unknown")">Locked</span>
+                        }
+                    </td>
+                    <td>@(u.LastLoginAt.HasValue ? u.LastLoginAt.Value.ToString("dd MMM HH:mm") : "Never")</td>
+                    <td>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <a asp-action="EditUser" asp-route-id="@u.Id" class="btn btn-sm btn-primary">Edit</a>
+
+                            <form asp-action="ToggleUserActive" method="post" style="display:inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@u.Id" />
+                                <button type="submit" class="btn btn-sm @(u.IsActive ? "btn-warning" : "btn-success")">
+                                    @(u.IsActive ? "Deactivate" : "Activate")
+                                </button>
+                            </form>
+
+                            <button class="btn btn-sm btn-secondary"
+                                onclick="showResetPwd('@u.Id', '@u.FullName')">Reset Pwd</button>
+
+                            @if (u.IsLockedOut)
+                            {
+                                <form asp-action="UnlockUser" method="post" style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@u.Id" />
+                                    <button type="submit" class="btn btn-sm btn-warning">Unlock</button>
+                                </form>
+                            }
+
+                            @if (!u.IsActive && !string.Equals(u.Email, currentUserEmail, StringComparison.OrdinalIgnoreCase))
+                            {
+                                <form asp-action="DeleteUser" method="post" style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@u.Id" />
+                                    <button type="submit" class="btn btn-sm btn-warning"
+                                            onclick="return confirm('Delete this inactive user profile from the database? This cannot be undone.')">
+                                        Delete
+                                    </button>
+                                </form>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<!-- Reset Password Modal -->
+<div id="resetModal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+        <h3>Reset Password</h3>
+        <p id="resetModalName" style="color:#757575;margin:8px 0 16px"></p>
+        <form id="resetForm" asp-action="ResetPassword" method="post">
+            @Html.AntiForgeryToken()
+            <input type="hidden" id="resetUserId" name="id" />
+            <div class="field-group" style="margin-bottom:16px">
+                <label>New Password</label>
+                <input type="password" name="newPassword" id="newPwdInput"
+                    placeholder="Min 8 chars, upper, lower, digit, special" />
+            </div>
+            <div style="display:flex;gap:10px">
+                <button type="submit" class="btn btn-warning">Reset</button>
+                <button type="button" class="btn btn-secondary" onclick="closeResetPwd()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showResetPwd(id, name) {
+    document.getElementById('resetUserId').value = id;
+    document.getElementById('resetModalName').textContent = 'User: ' + name;
+    document.getElementById('resetModal').style.display = 'flex';
+}
+function closeResetPwd() {
+    document.getElementById('resetModal').style.display = 'none';
+}
+</script>

@@ -1,0 +1,1096 @@
+@using HemisAudit.Models
+@{
+    ViewData["Title"] = "Rule 22 - Staff Validation (dbo_PROF)";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+3),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
+}
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <div class="engagement-selector">
+        <label for="clientId">Engagement</label>
+        <select id="clientId">
+            <option value="">Select engagement (results saved here)</option>
+            @foreach (var client in clients)
+            {
+                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                    @client.Name (@client.FiscalYear)
+                </option>
+            }
+        </select>
+        <small>Rule 22 validates 100% of the `dbo_PROF` rows that meet Control 1, Control 2, or Control 3, and saves the full required result set.</small>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R22</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 22: Staff Validation (dbo_PROF)</h1>
+            <p class="rule-header__sub">Apply the three staff controls from your notebook to all required `dbo_PROF` rows, then review the validated Control 1, Control 2, and Control 3 result set.</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="accordion-stack">
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="server">Server Name</label>
+                        <input id="server" type="text" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                    </div>
+                    <div class="field-group">
+                        <label for="driver">Driver</label>
+                        <select id="driver">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label for="database">Database</label>
+                        <select id="database"></select>
+                    </div>
+                </div>
+                <div class="action-bar" style="justify-content:flex-start;margin:12px 0 0">
+                    <button type="button" class="btn btn-primary" id="connectBtn">Connect</button>
+                    <button type="button" class="btn btn-info" id="verifyBtn">Verify Table</button>
+                </div>
+                <div id="connectionOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('config')">
+                <span class="acc-icon">CF</span>
+                <span>Rule Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-config" style="display:none">
+                <div class="info-box info-box--red" id="controlDefinitionsBox">
+                    <strong>Control Definitions:</strong><br />
+                    <span>Control 1: <code id="ctrl1Def">_041='PE' AND _039='01'</code></span><br />
+                    <span>Control 2: <code id="ctrl2Def">_041='PE' AND _039&lt;&gt;'01'</code></span><br />
+                    <span>Control 3: <code id="ctrl3Def">_041&lt;&gt;'PE' AND _039&lt;&gt;'01'</code></span>
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="profTable">PROF Table</label>
+                        <select id="profTable"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="column041">Column _041</label>
+                        <select id="column041"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="column039">Column _039</label>
+                        <select id="column039"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="filterValue041">Filter Value for _041 <span style="color:#757575;font-size:11px">(e.g. PE)</span></label>
+                        <input type="text" id="filterValue041" value="PE" placeholder="PE" maxlength="50" />
+                    </div>
+                    <div class="field-group">
+                        <label for="filterValue039">Filter Value for _039 <span style="color:#757575;font-size:11px">(e.g. 01)</span></label>
+                        <input type="text" id="filterValue039" value="01" placeholder="01" maxlength="50" />
+                    </div>
+                </div>
+                <div id="configOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('samples')">
+                <span class="acc-icon">SM</span>
+                <span>Validation Scope</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-samples" style="display:none">
+                <div class="alert alert--info">
+                    100% Testing
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Export Options</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 22 connection, configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the saved Rule 22 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
+                <div id="workspaceRunLabel">No saved run yet</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                <div id="workspaceStatusLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
+                <div id="workspaceEditedLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
+                <div id="workspaceRoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <label for="workspaceSignoffComment">Signoff Comment</label>
+                <textarea id="workspaceSignoffComment" rows="3" placeholder="Add review or completion notes"></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
+            <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
+            <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button type="button" class="btn btn-info" id="verifyBtnBar">Verify Table</button>
+        <button type="button" class="btn btn-success" id="runBtn">Run Rule 22</button>
+        <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+        <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
+    </div>
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="results">Analysis</button>
+            <button class="tab-btn" type="button" data-tab="details">Exceptions</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+            <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
+        </div>
+        <div class="tab-pane active" data-tab-panel="results"></div>
+        <div class="tab-pane" data-tab-panel="details"></div>
+        <div class="tab-pane" data-tab-panel="charts"></div>
+        <div class="tab-pane" data-tab-panel="sql">
+            <textarea id="sqlText" rows="18" readonly></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="downloads">
+            <div class="alert alert--info" style="margin-bottom:16px">
+                Excel includes the full summary, control breakdown, validated rows, and FAIL rows. CSV includes the full validated row set. SQL includes the full notebook-style query script.
+            </div>
+            <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<form id="antiForgeryForm" method="post" style="display:none">
+    @Html.AntiForgeryToken()
+</form>
+
+<script>
+(() => {
+    const currentSystemRole = '@currentSystemRole';
+    const apiBasePath = '/Rule22';
+    const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
+    const state = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        currentRunId: null,
+        summary: null,
+        sql: '',
+        currentUserEngagementRole: '',
+        currentStatus: '',
+        currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
+        hasDataAnalystSignoff: false,
+        workspaceIsHistorical: false,
+        resultsVisible: true
+    };
+
+    const els = {
+        clientId: document.getElementById('clientId'),
+        server: document.getElementById('server'),
+        driver: document.getElementById('driver'),
+        database: document.getElementById('database'),
+        profTable: document.getElementById('profTable'),
+        column041: document.getElementById('column041'),
+        column039: document.getElementById('column039'),
+        filterValue041: document.getElementById('filterValue041'),
+        filterValue039: document.getElementById('filterValue039'),
+        connectionOutput: document.getElementById('connectionOutput'),
+        configOutput: document.getElementById('configOutput'),
+        workspaceInfo: document.getElementById('workspaceInfo'),
+        workspaceRunLabel: document.getElementById('workspaceRunLabel'),
+        workspaceStatusLabel: document.getElementById('workspaceStatusLabel'),
+        workspaceEditedLabel: document.getElementById('workspaceEditedLabel'),
+        workspaceRoleLabel: document.getElementById('workspaceRoleLabel'),
+        workspaceRunState: document.getElementById('workspaceRunState'),
+        workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
+        beginEditBtn: document.getElementById('beginEditBtn'),
+        saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
+        signoffBtn: document.getElementById('signoffBtn'),
+        removeSignoffBtn: document.getElementById('removeSignoffBtn'),
+        statusBadge: document.getElementById('statusBadge'),
+        sqlText: document.getElementById('sqlText'),
+        spinner: document.getElementById('spinner'),
+        spinnerMsg: document.getElementById('spinnerMsg')
+    };
+
+    const resultPane = document.querySelector('[data-tab-panel="results"]');
+    const detailsPane = document.querySelector('[data-tab-panel="details"]');
+    const chartsPane = document.querySelector('[data-tab-panel="charts"]');
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function normalizeRole(value) {
+        return String(value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
+    }
+
+    function setOutput(target, kind, message) {
+        target.innerHTML = `<div class="alert alert--${kind}">${escapeHtml(message)}</div>`;
+    }
+
+    function setWorkspaceInfo(kind, message) {
+        els.workspaceInfo.className = `alert alert--${kind}`;
+        els.workspaceInfo.textContent = message;
+        window.showWorkspaceActionToast?.(message, kind);
+    }
+
+    function showSpinner(message) {
+        els.spinnerMsg.textContent = message || 'Processing...';
+        els.spinner.style.display = 'flex';
+    }
+
+    function hideSpinner() {
+        els.spinner.style.display = 'none';
+    }
+
+    function updateStatusBadge(status) {
+        if (!status) {
+            els.statusBadge.style.display = 'none';
+            return;
+        }
+        els.statusBadge.style.display = 'inline-flex';
+        els.statusBadge.textContent = status;
+        els.statusBadge.className = `rule-header__badge ${status === 'PASS' ? 'rule-header__badge--success' : 'rule-header__badge--fail'}`;
+    }
+
+    function setTab(name) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === name));
+        document.querySelectorAll('.tab-pane').forEach(panel => panel.classList.toggle('active', panel.dataset.tabPanel === name));
+    }
+
+    async function postJson(url, body) {
+        return await window.fetchJsonWithProgress(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(body || {})
+        });
+    }
+
+    async function downloadBlob(url, body, fileName) {
+        await window.downloadFileWithProgress({
+            url,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(body || {}),
+            defaultFileName: fileName,
+            label: 'Downloading result'
+        });
+    }
+
+    function updateControlDefinitionsBox() {
+        var fv041 = (els.filterValue041?.value || 'PE').trim() || 'PE';
+        var fv039 = (els.filterValue039?.value || '01').trim() || '01';
+        var e041 = escapeHtml(fv041), e039 = escapeHtml(fv039);
+        var d1 = document.getElementById('ctrl1Def'); if (d1) d1.textContent = `_041='${fv041}' AND _039='${fv039}'`;
+        var d2 = document.getElementById('ctrl2Def'); if (d2) d2.textContent = `_041='${fv041}' AND _039<>'${fv039}'`;
+        var d3 = document.getElementById('ctrl3Def'); if (d3) d3.textContent = `_041<>'${fv041}' AND _039<>'${fv039}'`;
+    }
+
+    function getRequest() {
+        return {
+            clientId: Number(els.clientId.value || 0),
+            runId: state.currentRunId,
+            server: els.server.value.trim(),
+            database: els.database.value || '',
+            driver: els.driver.value,
+            profTable: els.profTable.value || '',
+            column041: els.column041.value || '_041',
+            column039: els.column039.value || '_039',
+            filterValue041: (els.filterValue041?.value || 'PE').trim() || 'PE',
+            filterValue039: (els.filterValue039?.value || '01').trim() || '01',
+            control1SampleSize: 0,
+            control2SampleSize: 0,
+            control3SampleSize: 0
+        };
+    }
+
+    function renderCharts(summary) {
+        if (!summary) {
+            chartsPane.innerHTML = '<div class="empty-card"><p>Charts will appear after running Rule 22.</p></div>';
+            return;
+        }
+
+        const total = Number(summary.totalValidated || 0);
+        const controlCards = (summary.controlSummaries || []).map(item => {
+            const available = Number(item.availableCount || 0);
+            const pct = total > 0 ? Math.round((available / total) * 100) : 0;
+            return `
+                <div class="chart-card chart-card--metric">
+                    <div>
+                        <div class="chart-kicker">${escapeHtml(item.controlType)}</div>
+                        <div class="chart-metric">${available.toLocaleString()}</div>
+                    </div>
+                    <div class="chart-subtle">${escapeHtml(item.controlDefinition)}</div>
+                    <div class="chart-progress-track"><span class="chart-progress-fill chart-progress-fill--green" style="width:${pct}%"></span></div>
+                    <div class="chart-subtle">${pct}% of the classified result set</div>
+                </div>`;
+        }).join('');
+
+        chartsPane.innerHTML = `
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 22 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    ${controlCards}
+                    <div class="chart-card chart-card--status ${String(summary.status).toUpperCase() === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                        <h4>Run Status</h4>
+                        <div class="big-status">${escapeHtml(summary.status || '')}</div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>Validated Rows</span><strong>${Number(summary.totalValidated || 0).toLocaleString()}</strong></div>
+                            <div><span>PASS</span><strong class="text-success">${Number(summary.passCount || 0).toLocaleString()}</strong></div>
+                            <div><span>FAIL</span><strong class="text-danger">${Number(summary.failCount || 0).toLocaleString()}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function renderFilteredTable(rows) {
+        return `
+            <div class="form-grid" style="margin-bottom:16px">
+                <div class="field-group">
+                    <label for="workspaceRule22ResultFilter">Result</label>
+                    <select id="workspaceRule22ResultFilter">
+                        <option value="ALL">All</option>
+                        <option value="PASS">PASS</option>
+                        <option value="FAIL">FAIL</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label for="workspaceRule22ControlFilter">Control</label>
+                    <select id="workspaceRule22ControlFilter">
+                        <option value="ALL">All</option>
+                        <option value="Control 1">Control 1</option>
+                        <option value="Control 2">Control 2</option>
+                        <option value="Control 3">Control 3</option>
+                    </select>
+                </div>
+            </div>
+            <div id="workspaceRule22FilterInfo" class="alert alert--info" style="margin-bottom:16px"></div>
+            <div style="overflow:auto">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Result</th>
+                            <th>Control</th>
+                            <th>Validation #</th>
+                            <th>Control Row #</th>
+                            <th>Staff #</th>
+                            <th>Year</th>
+                            <th>_039</th>
+                            <th>_041</th>
+                            <th>_040</th>
+                            <th>_042</th>
+                            <th>_046</th>
+                            <th>_047</th>
+                            <th>_048</th>
+                            <th>_094</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="workspaceRule22FilterBody"></tbody>
+                </table>
+            </div>`;
+    }
+
+    function bindWorkspaceFilters(rows) {
+        const resultFilter = document.getElementById('workspaceRule22ResultFilter');
+        const controlFilter = document.getElementById('workspaceRule22ControlFilter');
+        const filterInfo = document.getElementById('workspaceRule22FilterInfo');
+        const filterBody = document.getElementById('workspaceRule22FilterBody');
+
+        if (!resultFilter || !controlFilter || !filterInfo || !filterBody) return;
+
+        const render = () => {
+            const resultValue = resultFilter.value;
+            const controlValue = controlFilter.value;
+            const filtered = rows.filter(row =>
+                (resultValue === 'ALL' || row.validationResult === resultValue) &&
+                (controlValue === 'ALL' || row.controlType === controlValue));
+            const visible = filtered.slice(0, 10);
+            const previewNote = filtered.length > visible.length
+                ? ` Showing the first ${visible.length.toLocaleString()} row(s) in the browser.`
+                : '';
+
+            filterInfo.textContent = `${filtered.length.toLocaleString()} validated row(s) match the selected filters.${previewNote}`;
+            filterBody.innerHTML = visible.map(row => `
+                <tr>
+                    <td>${escapeHtml(row.validationResult)}</td>
+                    <td>${escapeHtml(row.controlType)}</td>
+                    <td>${Number(row.validationNumber || 0).toLocaleString()}</td>
+                    <td>${Number(row.sampleNumber || 0).toLocaleString()}</td>
+                    <td>${escapeHtml(row.staffNumber037)}</td>
+                    <td>${escapeHtml(row.year038)}</td>
+                    <td>${escapeHtml(row.col039)}</td>
+                    <td>${escapeHtml(row.col041)}</td>
+                    <td>${escapeHtml(row.col040)}</td>
+                    <td>${escapeHtml(row.col042)}</td>
+                    <td>${escapeHtml(row.col046)}</td>
+                    <td>${escapeHtml(row.col047)}</td>
+                    <td>${escapeHtml(row.col048)}</td>
+                    <td>${escapeHtml(row.col094)}</td>
+                    <td>${escapeHtml(row.exceptionReason)}</td>
+                </tr>`).join('');
+        };
+
+        resultFilter.addEventListener('change', render);
+        controlFilter.addEventListener('change', render);
+        render();
+    }
+
+    function renderResults(summary) {
+        state.summary = summary;
+        state.currentStatus = summary?.status || '';
+        updateStatusBadge(state.currentStatus);
+        document.getElementById('downloadAllBtn').disabled = !summary;
+
+        if (!summary) {
+            resultPane.innerHTML = '<div class="empty-card"><p>Run Rule 22 to see analysis results.</p></div>';
+            detailsPane.innerHTML = '<div class="empty-card"><p>Validated rows will appear after running Rule 22.</p></div>';
+            renderCharts(null);
+            return;
+        }
+
+        const controlRows = (summary.controlSummaries || []).map(item => `
+            <tr>
+                <td>${escapeHtml(item.controlType)}</td>
+                <td>${escapeHtml(item.controlDefinition)}</td>
+                <td>${Number(item.availableCount || 0).toLocaleString()}</td>
+                <td>${Number(item.passCount || 0).toLocaleString()}</td>
+                <td>${Number(item.failCount || 0).toLocaleString()}</td>
+            </tr>`).join('');
+
+        resultPane.innerHTML = `
+            <div class="stats-grid" style="margin-bottom:24px">
+                <div class="stat-card">
+                    <div class="stat-card__label">Validated Rows</div>
+                    <div class="stat-card__value">${Number(summary.totalValidated || 0).toLocaleString()}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card__label">PASS Rows</div>
+                    <div class="stat-card__value">${Number(summary.passCount || 0).toLocaleString()}</div>
+                </div>
+                <div class="stat-card stat-card--fail">
+                    <div class="stat-card__label">FAIL Rows</div>
+                    <div class="stat-card__value">${Number(summary.failCount || 0).toLocaleString()}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card__label">Fail Rate</div>
+                    <div class="stat-card__value">${Number(summary.exceptionRate || 0).toFixed(2)}%</div>
+                </div>
+            </div>
+            <div class="card" style="padding:20px">
+                ${summary.warning ? `<div class="alert alert--warning" style="margin-bottom:16px">${escapeHtml(summary.warning)}</div>` : ''}
+                <div class="form-grid">
+                    <div>
+                        <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Database</div>
+                        <div>${escapeHtml(summary.database)}</div>
+                    </div>
+                    <div>
+                        <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Rule</div>
+                        <div>Rule 22 - Staff Validation</div>
+                    </div>
+                    <div>
+                        <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">PROF Table</div>
+                        <div>${escapeHtml(summary.profTable)}</div>
+                    </div>
+                    <div>
+                        <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Column _041</div>
+                        <div>${escapeHtml(summary.column041)}</div>
+                    </div>
+                    <div>
+                        <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Column _039</div>
+                        <div>${escapeHtml(summary.column039)}</div>
+                    </div>
+                    <div>
+                        <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                        <div>${escapeHtml(summary.status)}</div>
+                    </div>
+                </div>
+                <div style="margin-top:20px">
+                    <h4 style="margin:0 0 10px 0">Control Breakdown</h4>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Control</th>
+                                <th>Definition</th>
+                                <th>Rows</th>
+                                <th>PASS</th>
+                                <th>FAIL</th>
+                            </tr>
+                        </thead>
+                        <tbody>${controlRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        const reviewRows = summary.reviewRows || [];
+        detailsPane.innerHTML = reviewRows.length
+            ? `<div class="card" style="padding:20px">
+                    <div class="alert alert--info" style="margin-bottom:16px">Filter the validated row preview by Control 1, Control 2, Control 3, and by PASS or FAIL. Downloads include the full result set.</div>
+                    ${renderFilteredTable(reviewRows)}
+               </div>`
+            : '<div class="alert alert--info" style="margin:0">No validated rows were saved for this run.</div>';
+        bindWorkspaceFilters(reviewRows);
+        renderCharts(summary);
+    }
+
+    function renderRunError(message) {
+        state.summary = null;
+        state.currentStatus = '';
+        updateStatusBadge('');
+        document.getElementById('downloadAllBtn').disabled = true;
+
+        resultPane.innerHTML = `<div class="alert alert--danger" style="margin:0">${escapeHtml(message || 'Rule 22 failed.')}</div>`;
+        detailsPane.innerHTML = '<div class="empty-card"><p>Validated rows will appear after a successful Rule 22 run.</p></div>';
+        renderCharts(null);
+    }
+
+    async function loadDatabases() {
+        if (!els.server.value.trim()) {
+            setOutput(els.connectionOutput, 'warning', 'Enter the SQL Server name first.');
+            return;
+        }
+
+        showSpinner('Connecting to SQL Server...');
+        try {
+            const data = await postJson(`${apiBasePath}/GetDatabases`, {
+                server: els.server.value.trim(),
+                driver: els.driver.value
+            });
+
+            if (!data.success) {
+                setOutput(els.connectionOutput, 'danger', data.error || 'Connection failed.');
+                return;
+            }
+
+            const options = (data.databases || []).map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+            els.database.innerHTML = options;
+            els.profTable.innerHTML = '';
+            els.column041.innerHTML = '';
+            els.column039.innerHTML = '';
+            resetForReconnect('SQL connection refreshed. Select the database and run Rule 22 again.');
+            setOutput(els.connectionOutput, 'success', `Loaded ${Number((data.databases || []).length).toLocaleString()} database(s).`);
+            if (els.database.value) await loadTables();
+        } catch (error) {
+            setOutput(els.connectionOutput, 'danger', error.message || 'Connection failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadTables(shouldReset = true) {
+        if (!els.database.value || !els.server.value.trim()) return;
+
+        showSpinner('Discovering tables...');
+        try {
+            if (shouldReset) {
+                resetForReconnect(`Database changed to ${els.database.value}. Load the required table and rerun Rule 22.`);
+            }
+            const data = await postJson(`${apiBasePath}/GetTables`, {
+                server: els.server.value.trim(),
+                database: els.database.value,
+                driver: els.driver.value
+            });
+
+            if (!data.success) {
+                setOutput(els.configOutput, 'danger', data.error || 'Table discovery failed.');
+                return;
+            }
+
+            const options = (data.tables || []).map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+            els.profTable.innerHTML = options;
+            if (data.autoProfTable) els.profTable.value = data.autoProfTable;
+            await loadProfColumns(shouldReset);
+            setOutput(els.configOutput, 'success', `Loaded ${Number((data.tables || []).length).toLocaleString()} table(s).`);
+        } catch (error) {
+            setOutput(els.configOutput, 'danger', error.message || 'Table discovery failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadProfColumns(shouldReset = true) {
+        if (!els.profTable.value || !els.database.value || !els.server.value.trim()) return;
+
+        try {
+            if (shouldReset) {
+                resetForReconnect(`Table changed to ${els.profTable.value}. Rule 22 is ready for a new run after columns load.`);
+            }
+            const data = await postJson(`${apiBasePath}/GetProfColumns`, {
+                server: els.server.value.trim(),
+                database: els.database.value,
+                driver: els.driver.value,
+                profTable: els.profTable.value
+            });
+
+            if (!data.success) {
+                setOutput(els.configOutput, 'danger', data.error || 'Could not load table columns.');
+                return;
+            }
+
+            const options = (data.columns || []).map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+            els.column041.innerHTML = options;
+            els.column039.innerHTML = options;
+            if (data.autoColumn041) els.column041.value = data.autoColumn041;
+            if (data.autoColumn039) els.column039.value = data.autoColumn039;
+        } catch (error) {
+            setOutput(els.configOutput, 'danger', error.message || 'Column detection failed.');
+        }
+    }
+
+    async function verifyTables() {
+        const request = getRequest();
+        if (!request.server || !request.database || !request.profTable) {
+            setOutput(els.configOutput, 'warning', 'Select the server, database, and dbo_PROF table first.');
+            return;
+        }
+
+        showSpinner('Verifying table and controls...');
+        try {
+            const data = await postJson(`${apiBasePath}/VerifyTables`, request);
+            if (!data.success) {
+                setOutput(els.configOutput, 'danger', data.error || 'Verification failed.');
+                return;
+            }
+
+            setOutput(els.configOutput, 'success',
+                `Validated ${Number(data.totalCount || 0).toLocaleString()} required row(s) in ${request.profTable}. Control 1: ${Number(data.control1Count || 0).toLocaleString()}, Control 2: ${Number(data.control2Count || 0).toLocaleString()}, Control 3: ${Number(data.control3Count || 0).toLocaleString()}.`);
+        } catch (error) {
+            setOutput(els.configOutput, 'danger', error.message || 'Verification failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function runValidation() {
+        const request = getRequest();
+        if (!request.clientId) {
+            setWorkspaceInfo('warning', 'Select the approved engagement assigned to you before running this rule.');
+            return;
+        }
+
+        showSpinner('Running Rule 22 across the full dbo_PROF table...');
+        try {
+            const result = await postJson(`${apiBasePath}/RunValidation`, request);
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Rule 22 failed.');
+                renderRunError(result.error || 'Rule 22 failed.');
+                return;
+            }
+
+            state.summary = result;
+            state.currentRunId = result.savedRunId || null;
+            state.currentStatus = result.status || '';
+            renderResults(result);
+            setWorkspaceInfo('success', `Rule 22 completed: ${result.status}. The run was auto-saved${result.savedRunId ? ` as Run #${result.savedRunId}` : ''}. Save the workspace and sign off when the review is complete.`);
+            updateWorkspaceCard({
+                runId: result.savedRunId,
+                currentStatus: result.status,
+                currentUserEngagementRole: state.currentUserEngagementRole || currentSystemRole,
+                currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
+                currentUserSignoffComment: '',
+                hasDataAnalystSignoff: false,
+                lastEditedByUserName: 'Current analyst',
+                summary: result
+            });
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Rule 22 failed.');
+            renderRunError(error.message || 'Rule 22 failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function generateSql() {
+        const request = getRequest();
+        if (!request.clientId) {
+            setWorkspaceInfo('warning', 'Select an engagement before generating SQL.');
+            return;
+        }
+
+        showSpinner('Generating SQL...');
+        try {
+            const result = await postJson(`${apiBasePath}/GenerateSql`, request);
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'SQL generation failed.');
+                return;
+            }
+
+            state.sql = result.sql || '';
+            els.sqlText.value = state.sql;
+            setWorkspaceInfo('success', 'SQL generated for the current Rule 22 configuration.');
+            setTab('sql');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'SQL generation failed.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    function updateWorkspaceCard(workspace) {
+        state.currentRunId = workspace?.runId || null;
+        state.currentUserEngagementRole = workspace?.currentUserEngagementRole || '';
+        state.currentUserHasSignedOff = !!workspace?.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace?.isWorkspaceSaved;
+        state.hasDataAnalystSignoff = !!workspace?.hasDataAnalystSignoff;
+        state.resultsVisible = !!workspace?.resultsVisible;
+        state.currentStatus = workspace?.currentStatus || workspace?.summary?.status || '';
+        state.workspaceIsHistorical = false;
+
+        els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
+        els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+        els.workspaceEditedLabel.textContent = workspace?.lastEditedByUserName
+            ? `${workspace.lastEditedByUserName}${workspace.lastEditedAt ? ` on ${new Date(workspace.lastEditedAt).toLocaleString()}` : ''}`
+            : '-';
+        els.workspaceRunState.textContent = state.currentRunId ? 'Saved run loaded' : 'No saved run loaded';
+        els.workspaceRoleLabel.textContent = state.currentUserEngagementRole || currentSystemRole || '-';
+        els.workspaceSignoffComment.value = workspace?.currentUserSignoffComment || '';
+
+        updateWorkspaceActions();
+    }
+
+    function resetForReconnect(message) {
+        state.currentRunId = null;
+        state.summary = null;
+        state.sql = '';
+        state.currentStatus = '';
+        state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
+        state.hasDataAnalystSignoff = false;
+        state.workspaceIsHistorical = false;
+
+        els.sqlText.value = '';
+        els.workspaceRunLabel.textContent = 'Pending new run';
+        els.workspaceStatusLabel.textContent = '-';
+        els.workspaceEditedLabel.textContent = '-';
+        els.workspaceRunState.textContent = 'Reconnect complete';
+        els.workspaceSignoffComment.value = '';
+
+        renderResults(null);
+        updateStatusBadge('');
+        updateWorkspaceActions();
+
+        if (message) {
+            setWorkspaceInfo('info', message);
+        }
+    }
+
+    function updateWorkspaceActions() {
+        const role = state.currentUserEngagementRole || currentSystemRole || '';
+        const normalizedRole = normalizeRole(role);
+        const normalizedSystemRole = normalizeRole(currentSystemRole);
+        const canEdit = normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst';
+        const canSign = !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
+            !state.workspaceIsHistorical &&
+            (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
+        const signoffLocked = !!state.currentUserHasSignedOff;
+        window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signoffLocked);
+        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signoffLocked);
+        window.ruleWorkspaceUi.applyStates([
+            { target: 'connectBtn', disabled: !canEdit || signoffLocked },
+            { target: 'verifyBtn', disabled: !canEdit || signoffLocked },
+            { target: 'verifyBtnBar', disabled: !canEdit || signoffLocked },
+            { target: 'runBtn', disabled: !canEdit || signoffLocked },
+            { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
+            { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId },
+            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || !state.summary },
+            {
+                target: els.signoffBtn,
+                disabled: signoffLocked || !canSign,
+                text: state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff'
+            },
+            { target: els.removeSignoffBtn, show: state.currentUserHasSignedOff, display: '', disabled: !state.currentUserHasSignedOff },
+            { target: els.workspaceSignoffComment, disabled: signoffLocked || !canSign }
+        ]);
+        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signoffLocked, {
+            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
+        });
+    }
+
+    async function beginWorkspaceEdit() {
+        if (!state.currentRunId) {
+            setWorkspaceInfo('warning', 'Select a saved run before editing the workspace.');
+            return;
+        }
+
+        showSpinner('Clearing signoffs for the edited workspace...');
+        try {
+            const result = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, { ...getRequest(), runId: state.currentRunId });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to begin editing.');
+                return;
+            }
+
+            state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo('warning', result.message || 'Editing has begun. Existing signoffs were removed.');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to begin editing.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function saveWorkspace() {
+        if (!state.currentRunId) {
+            setWorkspaceInfo('warning', 'Run Rule 22 first so the workspace can be saved.');
+            return;
+        }
+
+        showSpinner('Saving workspace...');
+        try {
+            const result = await postJson(`${apiBasePath}/SaveWorkspace`, { ...getRequest(), runId: state.currentRunId });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to save workspace.');
+                return;
+            }
+
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo(result.signoffsCleared ? 'warning' : 'success', result.message || 'Workspace saved.');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to save workspace.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function signoffWorkspace() {
+        if (!state.currentRunId) {
+            setWorkspaceInfo('warning', 'Run Rule 22 first so the saved workspace exists.');
+            return;
+        }
+
+        showSpinner('Saving signoff...');
+        try {
+            const result = await postJson(`${apiBasePath}/SignOffWorkspace`, {
+                clientId: Number(els.clientId.value || 0),
+                runId: state.currentRunId,
+                comment: els.workspaceSignoffComment.value.trim()
+            });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to save signoff.');
+                return;
+            }
+
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo('success', result.message || 'Signoff saved.');
+            setTab('downloads');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to save signoff.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function removeWorkspaceSignoff() {
+        if (!state.currentRunId || !state.currentUserHasSignedOff) {
+            setWorkspaceInfo('warning', 'There is no signoff for your assigned engagement role to remove.');
+            return;
+        }
+
+        showSpinner('Removing signoff...');
+        try {
+            const result = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
+                clientId: Number(els.clientId.value || 0),
+                runId: state.currentRunId,
+                comment: ''
+            });
+            if (!result.success) {
+                setWorkspaceInfo('danger', result.error || 'Failed to remove signoff.');
+                return;
+            }
+
+            updateWorkspaceCard(result.workspace || null);
+            setWorkspaceInfo('success', result.message || 'Signoff removed.');
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Failed to remove signoff.');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadWorkspace() {
+        if (!state.clientId) {
+            setWorkspaceInfo('info', 'Select an engagement to load the saved Rule 22 workspace.');
+            renderResults(null);
+            updateWorkspaceCard(null);
+            return;
+        }
+
+        try {
+            const data = await window.fetchJsonWithProgress(`${apiBasePath}/GetWorkspaceState?clientId=${encodeURIComponent(state.clientId)}`, { method: 'GET' });
+            if (!data.success) {
+                setWorkspaceInfo('danger', data.error || 'Could not load the saved workspace.');
+                renderResults(null);
+                return;
+            }
+
+            if (!data.hasWorkspace || !data.workspace) {
+                setWorkspaceInfo('info', 'No saved Rule 22 workspace exists for this engagement yet. Run validation to create the first saved run.');
+                renderResults(null);
+                updateWorkspaceCard(null);
+                return;
+            }
+
+            const workspace = data.workspace;
+            state.resultsVisible = !!data.resultsVisible;
+            state.currentRunId = workspace.runId || null;
+
+            els.server.value = workspace.server || '';
+            els.database.innerHTML = workspace.database ? `<option value="${escapeHtml(workspace.database)}">${escapeHtml(workspace.database)}</option>` : '';
+            els.database.value = workspace.database || '';
+            els.profTable.innerHTML = workspace.profTable ? `<option value="${escapeHtml(workspace.profTable)}">${escapeHtml(workspace.profTable)}</option>` : '';
+            els.profTable.value = workspace.profTable || '';
+            await loadProfColumns(false);
+            if (workspace.column041) els.column041.value = workspace.column041;
+            if (workspace.column039) els.column039.value = workspace.column039;
+            if (els.filterValue041) els.filterValue041.value = workspace.filterValue041 || 'PE';
+            if (els.filterValue039) els.filterValue039.value = workspace.filterValue039 || '01';
+            updateControlDefinitionsBox();
+
+            updateWorkspaceCard(workspace);
+
+            if (state.resultsVisible && workspace.summary) {
+                renderResults(workspace.summary);
+                setWorkspaceInfo('success', `Loaded the saved Rule 22 workspace for this engagement${workspace.runId ? ` (Run #${workspace.runId})` : ''}.`);
+            } else {
+                renderResults(null);
+                setWorkspaceInfo('info', 'The saved Rule 22 workspace is loaded from SQL. Analyst signoff is still pending, but the saved results remain visible to assigned users.');
+            }
+        } catch (error) {
+            setWorkspaceInfo('danger', error.message || 'Could not load the saved workspace.');
+            renderResults(null);
+        }
+    }
+
+    window.toggleAccordion = function (section) {
+        const body = document.getElementById(`body-${section}`);
+        if (!body) return;
+        body.style.display = body.style.display === 'none' ? '' : 'none';
+    };
+
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+    els.clientId.addEventListener('change', async () => {
+        state.clientId = Number(els.clientId.value || 0);
+        await loadWorkspace();
+    });
+    document.getElementById('connectBtn').addEventListener('click', loadDatabases);
+    els.database.addEventListener('change', loadTables);
+    els.profTable.addEventListener('change', loadProfColumns);
+    document.getElementById('verifyBtn').addEventListener('click', verifyTables);
+    document.getElementById('verifyBtnBar').addEventListener('click', verifyTables);
+    document.getElementById('runBtn').addEventListener('click', runValidation);
+    document.getElementById('sqlBtn').addEventListener('click', generateSql);
+    els.beginEditBtn.addEventListener('click', beginWorkspaceEdit);
+    els.saveWorkspaceBtn.addEventListener('click', saveWorkspace);
+    els.signoffBtn.addEventListener('click', signoffWorkspace);
+    els.removeSignoffBtn.addEventListener('click', removeWorkspaceSignoff);
+    document.getElementById('downloadExcelBtn').addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule22_Staff_Validation.xlsx'));
+    document.getElementById('downloadCsvBtn').addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule22_Staff_Validation.csv'));
+    document.getElementById('downloadSqlBtn').addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule22.sql'));
+    document.getElementById('downloadAllBtn').addEventListener('click', async () => {
+        if (!state.summary) return;
+        if (document.getElementById('chkExcel').checked) await downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule22_Staff_Validation.xlsx');
+        if (document.getElementById('chkCsv').checked) await downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule22_Staff_Validation.csv');
+        if (document.getElementById('chkSql').checked) await downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule22.sql');
+    });
+
+    if (els.filterValue041) els.filterValue041.addEventListener('input', updateControlDefinitionsBox);
+    if (els.filterValue039) els.filterValue039.addEventListener('input', updateControlDefinitionsBox);
+    updateControlDefinitionsBox();
+    renderResults(null);
+    updateWorkspaceActions();
+    if (state.clientId > 0) loadWorkspace();
+})();
+</script>
+
+

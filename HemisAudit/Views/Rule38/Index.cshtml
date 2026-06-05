@@ -1,0 +1,1649 @@
+@using HemisAudit.Models
+@{
+    ViewData["Title"] = "Rule 38 - Enhanced QUAL vs PQM Validation";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
+    var selectedClientId = (int)(ViewBag.ClientId ?? 0);
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+5),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
+}
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <!-- Engagement selector -->
+    <div class="engagement-selector">
+        <label>Engagement</label>
+        <select id="clientIdSelect" onchange="handleClientChange(this.value)">
+            <option value="0">Select engagement (results saved here)</option>
+            @foreach (var c in clients)
+            {
+                <option value="@c.Id" selected="@(c.Id == selectedClientId ? "selected" : null)">@c.Name - @c.FiscalYear</option>
+            }
+        </select>
+        <small id="workspaceSavedHint">Saved runs reload the last analyst configuration for this engagement.</small>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R38</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 38: Enhanced QUAL vs PQM Validation</h1>
+            <p class="rule-header__sub">LEFT JOIN dbo_QUAL → PQM on Authorised Name | 5.1.1–5.1.6 | 100% population test</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="accordion-stack">
+
+        <!-- 1. Database Connection -->
+        <div class="accordion-item" id="acc-connection">
+            <button class="accordion-toggle" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Server Name</label>
+                        <input type="text" id="serverInput" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                    </div>
+                    <div class="field-group">
+                        <label>Driver</label>
+                        <select id="driverSelect">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group" id="dbFieldGroup" style="display:none">
+                        <label>Database</label>
+                        <select id="databaseSelect">
+                            <option value="">Select database</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="connectBtn" onclick="connectServer()">Connect</button>
+                <div class="status-output" id="connectionStatus"></div>
+            </div>
+        </div>
+
+        <!-- 2. Table Configuration -->
+        <div class="accordion-item" id="acc-tables">
+            <button class="accordion-toggle" onclick="toggleAccordion('tables')">
+                <span class="acc-icon">TB</span>
+                <span>Table Configuration</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-tables" style="display:none">
+                <div class="info-box info-box--red">
+                    <strong>Rule 38 Requirement (5.1.1):</strong> All approved QUAL records (where approval column = approval value)
+                    are matched against the PQM register using a LEFT JOIN on Authorised Qualification Name.
+                    Records with no PQM match fail all controls. Records with a match are tested across controls 5.1.2–5.1.6.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>QUAL Table <span class="auto-tag" id="qualAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="qualTableSelect" onchange="onTableChange('qual')">
+                            <option value="">Select table (e.g. dbo_QUAL)</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>PQM Table <span class="auto-tag" id="pqmAutoTag" style="display:none">auto-detected</span></label>
+                        <select id="pqmTableSelect" onchange="onTableChange('pqm')">
+                            <option value="">Select PQM register table</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="status-output" id="tableStatus"></div>
+            </div>
+        </div>
+
+        <!-- 3. QUAL Column Mapping -->
+        <div class="accordion-item" id="acc-qualcols">
+            <button class="accordion-toggle" onclick="toggleAccordion('qualcols')">
+                <span class="acc-icon">QC</span>
+                <span>QUAL Column Mapping</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-qualcols" style="display:none">
+                <div class="info-box info-box--dark">
+                    Map the QUAL table columns used in validation. Defaults match the standard HEMIS QUAL structure.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Record ID Column <small>(default: _001)</small> <span class="auto-tag" id="qualIdAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualIdColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Qualification Name Column <small>(default: _003, used for join)</small> <span class="auto-tag" id="qualNameAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualNameColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Approval Status Column <small>(default: _004)</small> <span class="auto-tag" id="qualApprovalAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualApprovalColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Approval Value <small>(only records with this value are tested)</small></label>
+                        <input type="text" id="qualApprovalValueInput" value="A" placeholder="e.g. A" oninput="markWorkspaceDirty()" />
+                    </div>
+                    <div class="field-group">
+                        <label>Qual Type Column <small>(default: _005, compared to PQM HEQF_Qual_Type)</small> <span class="auto-tag" id="qualTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualTypeColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Min Time Total Column <small>(default: _053, compared to PQM Total2)</small> <span class="auto-tag" id="qualMinTimeTotalAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualMinTimeTotalColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Min Time WIL Column <small>(default: _054, compared to PQM WIL_EL2)</small> <span class="auto-tag" id="qualMinTimeWilAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualMinTimeWilColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>HEQF/HEQSF Indicator Column <small>(default: _084, expected Y or N)</small> <span class="auto-tag" id="qualHeqfAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualHeqfColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Total Subsidy Column <small>(default: _090, compared to PQM Total2)</small> <span class="auto-tag" id="qualTotalSubsidyAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="qualTotalSubsidyColSelect"><option value="">Select column</option></select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. PQM Column Mapping -->
+        <div class="accordion-item" id="acc-pqmcols">
+            <button class="accordion-toggle" onclick="toggleAccordion('pqmcols')">
+                <span class="acc-icon">PC</span>
+                <span>PQM Column Mapping</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-pqmcols" style="display:none">
+                <div class="info-box info-box--dark">
+                    Map the PQM register columns used in validation. Defaults match the standard HEMIS PQM structure.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>Authorised Qualification Name <small>(used for LEFT JOIN with QUAL)</small> <span class="auto-tag" id="pqmNameAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmNameColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>HEQF Qual Type Column <small>(compared to QUAL _005)</small> <span class="auto-tag" id="pqmQualTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmQualTypeColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Min Time Total Column <small>(compared to QUAL _053, e.g. Total2)</small> <span class="auto-tag" id="pqmMinTimeTotalAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmMinTimeTotalColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>WIL Column <small>(compared to QUAL _054, e.g. WIL_EL2)</small> <span class="auto-tag" id="pqmWilAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmWilColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Accreditation Reference Column <small>(used to determine expected HEQF indicator)</small> <span class="auto-tag" id="pqmAccreditationAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmAccreditationColSelect"><option value="">Select column</option></select>
+                    </div>
+                    <div class="field-group">
+                        <label>Total Subsidy Column <small>(compared to QUAL _090, e.g. Total2)</small> <span class="auto-tag" id="pqmTotalSubsidyAutoTag" style="display:none">auto-selected</span></label>
+                        <select id="pqmTotalSubsidyColSelect"><option value="">Select column</option></select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. M-Prefix Filter & Postgraduate Type Codes -->
+        <div class="accordion-item" id="acc-pgcodes">
+            <button class="accordion-toggle" onclick="toggleAccordion('pgcodes')">
+                <span class="acc-icon">PG</span>
+                <span>Control 1 M Prefix Filter</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-pgcodes" style="display:none">
+                <div class="info-box info-box--dark">
+                    <strong>M Prefix Exclusion:</strong> When checked, qualification codes matching <code>M_____</code> (e.g. M12345) are excluded from the validation population — identical to the Rule 11 behaviour.<br />
+                    <strong>Postgraduate Type Codes:</strong> Comma-separated <code>_005</code> values that classify a qualification as postgraduate. Used to annotate and categorise results.
+                </div>
+                <div class="checkbox-row" style="margin-bottom:12px">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="excludeMPrefixChk" onchange="markWorkspaceDirty()" />
+                        Exclude qualification codes matching <code>M_____</code>
+                    </label>
+                </div>
+                <div class="field-group" style="max-width:600px">
+                    <label>Postgraduate Type Codes <small>(<code>_005</code> values that classify a qualification as postgraduate)</small></label>
+                    <textarea id="postgraduateTypesCsvInput" rows="3"
+                              placeholder="e.g. 07,27,28,49,72,73,08,30,50,74,75"
+                              oninput="markWorkspaceDirty()">07,27,28,49,72,73,08,30,50,74,75</textarea>
+                </div>
+                <div class="alert alert--info" style="margin-top:12px" id="pgCodesPreview">
+                    Configure the fields above, then run validation. Postgraduate classification will be shown in the results.
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. HEQF Indicator Codes (Control 5.1.5) -->
+        <div class="accordion-item" id="acc-heqf">
+            <button class="accordion-toggle" onclick="toggleAccordion('heqf')">
+                <span class="acc-icon">HQ</span>
+                <span>HEQF/HEQSF Indicator Codes (5.1.5)</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-heqf" style="display:none">
+                <div class="info-box info-box--dark">
+                    <strong>Control 5.1.5:</strong> If <code>CHE_HEQC_Accreditation_Approval_Ref_Nr</code> contains any of these codes,
+                    QUAL column <code>_084</code> is expected to be <strong>Y</strong>; otherwise <strong>N</strong>.
+                    Enter codes as comma-separated values. You can update this list when new codes are issued.
+                </div>
+                <div class="field-group" style="max-width:600px">
+                    <label>HEQF/HEQSF Indicator Codes <small>(comma-separated, case-insensitive substring match)</small></label>
+                    <input type="text" id="heqfCodesInput" value="H/,HEQF,HEQSF"
+                           placeholder="e.g. H/,HEQF,HEQSF"
+                           oninput="markWorkspaceDirty()" />
+                    <small style="color:#666;margin-top:4px;display:block">
+                        Example: if the accreditation ref is <code>H/H16/E084CAN01</code>, it contains "H/" → expected _084 = <strong>Y</strong>
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. Download Formats -->
+        <div class="accordion-item" id="acc-downloads">
+            <button class="accordion-toggle" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Download Formats</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel (Validation Results, Exceptions, Control Summary, Stats)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV (Full results)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkExceptionsCsv" checked /> CSV (Exceptions only)</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL Script</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workspace Signoff Card -->
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 38 connection, configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the last saved Rule 38 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div class="field-group">
+                <label id="workspaceSignoffLabel">Signoff Comment</label>
+                <textarea id="signoffComment" placeholder="Add the final review note that confirms this validation is complete."></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            <button class="btn btn-success" id="saveWorkspaceBtn" onclick="saveWorkspace()">Save Workspace</button>
+            <button class="btn btn-primary" id="signOffBtn" onclick="signOffWorkspace()">Sign Off</button>
+            <button class="btn btn-warning" id="removeWorkspaceSignoffBtn" onclick="removeWorkspaceSignoff()" style="display:none">Remove Signoff</button>
+        </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
+        <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
+        <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+        <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
+    </div>
+
+    <!-- Results Panel -->
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="validation" onclick="switchTab('validation')">Validation Results</button>
+            <button class="tab-btn" type="button" data-tab="controls" onclick="switchTab('controls')">Control Summary</button>
+            <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions</button>
+            <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+            <button class="tab-btn" type="button" data-tab="dlresults" onclick="switchTab('dlresults')">Downloads</button>
+        </div>
+
+        <div class="tab-pane active" id="tab-validation" data-tab-panel="validation">
+            <div id="validationContent" class="empty-state"><p>Run validation to see results here.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-controls" data-tab-panel="controls">
+            <div id="controlsContent" class="empty-state"><p>Control summary will appear after running validation.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-exceptions" data-tab-panel="exceptions">
+            <div id="exceptionsContent" class="empty-state"><p>No exceptions data yet. Run validation first.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-charts" data-tab-panel="charts">
+            <div id="chartsContent" class="empty-state"><p>Charts will appear after running validation.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
+            <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-dlresults" data-tab-panel="dlresults">
+            <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or individual download buttons.</p></div>
+        </div>
+    </div>
+
+    <!-- Spinner overlay -->
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const currentSystemRole = '@(ViewBag.CurrentSystemRole ?? "")';
+const uiPreviewRowLimit = 10;
+const state = {
+    server: '', database: '', driver: 'ODBC Driver 17 for SQL Server',
+    qualTable: '', pqmTable: '',
+    qualIdCol: '_001', qualNameCol: '_003', qualApprovalCol: '_004', qualApprovalValue: 'A',
+    qualTypeCol: '_005', qualMinTimeTotalCol: '_053', qualMinTimeWilCol: '_054',
+    qualHeqfCol: '_084', qualTotalSubsidyCol: '_090',
+    pqmNameCol: 'Authorised_Qualification_Name', pqmQualTypeCol: 'HEQF_Qual_Type',
+    pqmMinTimeTotalCol: 'Total2', pqmWilCol: 'WIL_EL2',
+    pqmAccreditationCol: 'CHE_HEQC_Accreditation_Approval_Ref_Nr', pqmTotalSubsidyCol: 'Total2',
+    heqfIndicatorCodesCsv: 'H/,HEQF,HEQSF',
+    excludeMPrefixPattern: false,
+    postgraduateTypesCsv: '07,27,28,49,72,73,08,30,50,74,75',
+    clientId: parseInt(document.getElementById('clientIdSelect')?.value || '0') || 0,
+    currentRunId: null, validationResult: null,
+    validationView: { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit },
+    currentUserEngagementRole: '', currentStatus: '',
+    currentUserHasSignedOff: false, isWorkspaceSaved: false,
+    hasDataAnalystSignoff: false, resultsVisible: false,
+    editWarningAccepted: false, isBeginningWorkspaceEdit: false,
+    isHydrating: false, isDirty: false, chartInstances: {}
+};
+
+function toggleAccordion(name) {
+    const body = document.getElementById(`body-${name}`);
+    const chevron = document.querySelector(`#acc-${name} .acc-chevron`);
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.textContent = open ? '^' : 'v';
+}
+
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelector(`[onclick="switchTab('${name}')"]`).classList.add('active');
+    document.getElementById(`tab-${name}`).classList.add('active');
+    if (name === 'charts' && state.validationResult) {
+        const cc = document.getElementById('chartsContent');
+        if (cc && cc.classList.contains('empty-state')) renderCharts(state.validationResult);
+    }
+}
+
+function showSpinner(msg = 'Processing...') {
+    document.getElementById('spinnerMsg').textContent = msg;
+    document.getElementById('spinner').style.display = 'flex';
+}
+function hideSpinner() { document.getElementById('spinner').style.display = 'none'; }
+
+function setStatus(elId, msg, type = 'info') {
+    const el = document.getElementById(elId);
+    if (el) el.innerHTML = `<div class="alert alert--${type}">${msg}</div>`;
+}
+
+function setWorkspaceInfo(msg, type = 'info') {
+    const el = document.getElementById('workspaceInfo');
+    if (!el) return;
+    el.className = `alert alert--${type}`;
+    el.innerHTML = msg;
+    window.showWorkspaceActionToast?.(msg, type);
+}
+
+function setWorkspaceRunState(text, type = 'neutral') {
+    const el = document.getElementById('workspaceRunState');
+    if (el) { el.className = `badge badge--${type} badge--sm`; el.textContent = text; }
+}
+
+function isArchivedWorkspace() {
+    return String(state.currentStatus || '').toLowerCase() === 'archived';
+}
+
+function updateHeaderBadge(status) {
+    const badge = document.getElementById('statusBadge');
+    if (!badge) return;
+    if (!status) { badge.style.display = 'none'; badge.textContent = ''; return; }
+    badge.style.display = 'inline-block';
+    badge.className = `rule-header__badge ${String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail'}`;
+    badge.textContent = String(status).toUpperCase();
+}
+
+async function post(url, data) {
+    return await window.fetchJsonWithProgress(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+}
+
+async function getJson(url) {
+    return await window.fetchJsonWithProgress(url, { method: 'GET' });
+}
+
+async function downloadPost(url, data, filename) {
+    await window.downloadFileWithProgress({
+        url, method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        defaultFileName: filename,
+        label: 'Downloading result'
+    });
+}
+
+async function markWorkspaceDirty() {
+    if (state.isHydrating) return;
+    if (currentSystemRole === 'Admin') return;
+    if (isArchivedWorkspace()) return;
+
+    if (state.clientId && state.currentRunId && !state.editWarningAccepted) {
+        if (state.isBeginningWorkspaceEdit) {
+            state.isDirty = true;
+            renderWorkspaceState();
+            return;
+        }
+
+        const confirmEdit = window.confirm(
+            'Are you sure you want to edit this saved workspace? Existing signoffs will be removed and the run will need to be reviewed again.'
+        );
+
+        if (!confirmEdit) {
+            await loadWorkspaceState();
+            return;
+        }
+
+        state.isBeginningWorkspaceEdit = true;
+        state.editWarningAccepted = true;
+        showSpinner('Clearing signoffs for the edited workspace...');
+
+        try {
+            const result = await post('/Rule38/BeginWorkspaceEdit', buildRequest());
+            if (!result.success) {
+                state.editWarningAccepted = false;
+                setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to begin editing.')}`, 'error');
+                await loadWorkspaceState();
+                return;
+            }
+
+            state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
+            state.hasDataAnalystSignoff = false;
+
+            if (result.workspace) {
+                state.currentRunId = result.workspace.runId || state.currentRunId;
+                state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+                state.currentStatus = result.workspace.currentStatus || state.currentStatus;
+                state.resultsVisible = !!result.workspace.resultsVisible;
+                document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || '';
+                if (result.workspace.summary) {
+                    applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+                }
+            }
+
+            setWorkspaceInfo(result.message || 'Editing has begun. Existing signoffs were removed.', 'warning');
+        } catch (error) {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo(`Error: ${escapeHtml(error?.message || 'Failed to begin editing.')}`, 'error');
+            await loadWorkspaceState();
+        } finally {
+            state.isBeginningWorkspaceEdit = false;
+            hideSpinner();
+        }
+    }
+
+    state.isDirty = true;
+    renderWorkspaceState();
+}
+
+function resetWorkspaceState(clearClient = false) {
+    state.server = ''; state.database = ''; state.driver = 'ODBC Driver 17 for SQL Server';
+    state.qualTable = ''; state.pqmTable = '';
+    state.qualIdCol = '_001'; state.qualNameCol = '_003'; state.qualApprovalCol = '_004';
+    state.qualApprovalValue = 'A'; state.qualTypeCol = '_005';
+    state.qualMinTimeTotalCol = '_053'; state.qualMinTimeWilCol = '_054';
+    state.qualHeqfCol = '_084'; state.qualTotalSubsidyCol = '_090';
+    state.pqmNameCol = 'Authorised_Qualification_Name'; state.pqmQualTypeCol = 'HEQF_Qual_Type';
+    state.pqmMinTimeTotalCol = 'Total2'; state.pqmWilCol = 'WIL_EL2';
+    state.pqmAccreditationCol = 'CHE_HEQC_Accreditation_Approval_Ref_Nr';
+    state.pqmTotalSubsidyCol = 'Total2';
+    state.heqfIndicatorCodesCsv = 'H/,HEQF,HEQSF';
+    state.excludeMPrefixPattern = false;
+    state.postgraduateTypesCsv = '07,27,28,49,72,73,08,30,50,74,75';
+    state.currentRunId = null; state.validationResult = null;
+    state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    state.currentUserEngagementRole = ''; state.currentStatus = '';
+    state.currentUserHasSignedOff = false; state.isWorkspaceSaved = false;
+    state.hasDataAnalystSignoff = false; state.resultsVisible = false;
+    state.editWarningAccepted = false; state.isDirty = false;
+    if (clearClient) state.clientId = 0;
+
+    document.getElementById('serverInput').value = '';
+    document.getElementById('driverSelect').value = 'ODBC Driver 17 for SQL Server';
+    document.getElementById('databaseSelect').innerHTML = '<option value="">Select database</option>';
+    document.getElementById('dbFieldGroup').style.display = 'none';
+    ['qualTableSelect','pqmTableSelect'].forEach(id => {
+        document.getElementById(id).innerHTML = '<option value="">Select table</option>';
+    });
+    const qualCols = ['qualIdColSelect','qualNameColSelect','qualApprovalColSelect',
+        'qualTypeColSelect','qualMinTimeTotalColSelect','qualMinTimeWilColSelect',
+        'qualHeqfColSelect','qualTotalSubsidyColSelect'];
+    const pqmCols = ['pqmNameColSelect','pqmQualTypeColSelect','pqmMinTimeTotalColSelect',
+        'pqmWilColSelect','pqmAccreditationColSelect','pqmTotalSubsidyColSelect'];
+    [...qualCols, ...pqmCols].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '<option value="">Select column</option>';
+    });
+    document.getElementById('qualApprovalValueInput').value = 'A';
+    document.getElementById('heqfCodesInput').value = 'H/,HEQF,HEQSF';
+    const excludeMChk = document.getElementById('excludeMPrefixChk');
+    if (excludeMChk) excludeMChk.checked = false;
+    const pgCsvInput = document.getElementById('postgraduateTypesCsvInput');
+    if (pgCsvInput) pgCsvInput.value = '07,27,28,49,72,73,08,30,50,74,75';
+    document.getElementById('signoffComment').value = '';
+    document.getElementById('downloadAllBtn').disabled = true;
+
+    ['qualAutoTag','pqmAutoTag','qualIdAutoTag','qualNameAutoTag','qualApprovalAutoTag',
+     'qualTypeAutoTag','qualMinTimeTotalAutoTag','qualMinTimeWilAutoTag','qualHeqfAutoTag','qualTotalSubsidyAutoTag',
+     'pqmNameAutoTag','pqmQualTypeAutoTag','pqmMinTimeTotalAutoTag','pqmWilAutoTag',
+     'pqmAccreditationAutoTag','pqmTotalSubsidyAutoTag'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    document.getElementById('connectionStatus').innerHTML = '';
+    document.getElementById('tableStatus').innerHTML = '';
+    [['validationContent','Run validation to see results here.'],
+     ['controlsContent','Control summary will appear after running validation.'],
+     ['exceptionsContent','No exceptions data yet. Run validation first.'],
+     ['chartsContent','Charts will appear after running validation.'],
+     ['sqlContent','Click "Generate SQL" or run validation to generate the SQL script.'],
+     ['downloadsContent','Run validation first, then use "Download All" or individual download buttons.']
+    ].forEach(([id, msg]) => {
+        const el = document.getElementById(id);
+        if (el) { el.className = 'empty-state'; el.innerHTML = `<p>${msg}</p>`; }
+    });
+    Object.values(state.chartInstances).forEach(c => c.destroy());
+    state.chartInstances = {};
+    updateHeaderBadge('');
+    renderWorkspaceState();
+}
+
+function renderWorkspaceState() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const archived = isArchivedWorkspace();
+    const canEditWorkspace = currentSystemRole === 'DataAnalyst' && !archived;
+    const canSignWorkspace =
+        !archived && state.currentRunId &&
+        (currentSystemRole === 'DataAnalyst' ||
+         (state.resultsVisible && (role === 'Manager' || role === 'Director')));
+    const canActivateSignoff = !!canSignWorkspace && !!state.isWorkspaceSaved;
+    const canRemoveWorkspaceSignoff = !archived && canSignWorkspace && state.currentUserHasSignedOff;
+    const showDisabledArchivedSignoff = archived && !!state.currentRunId;
+    const runValidationBtn = document.getElementById('runValidationBtn');
+    const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
+    const signOffBtn = document.getElementById('signOffBtn');
+    const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
+    const signoffComment = document.getElementById('signoffComment');
+    const signoffLabel = document.getElementById('workspaceSignoffLabel');
+    const signedOffLock = !!state.currentUserHasSignedOff;
+    const signoffButtonText = state.currentUserHasSignedOff
+        ? `Signed Off as ${role || 'Reviewer'}`
+        : `Sign Off as ${role || 'Reviewer'}`;
+
+    window.ruleWorkspaceUi.setReadonlyShell('app', !canEditWorkspace || signedOffLock);
+    window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEditWorkspace || signedOffLock);
+    window.ruleWorkspaceUi.applyStates([
+        { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateSqlBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
+        { target: signoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
+    ]);
+    window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
+        allow: ['#downloadAllBtn', '#removeWorkspaceSignoffBtn']
+    });
+
+    if (showDisabledArchivedSignoff) {
+        window.ruleWorkspaceUi.applyStates([
+            { target: signOffBtn, show: true, disabled: true, text: signoffButtonText, title: 'Archived engagements are read-only. Signoff is disabled.' },
+            { target: removeWorkspaceSignoffBtn, show: !!state.currentUserHasSignedOff, disabled: true, title: 'Archived engagements are read-only. Signoff removal is disabled.' }
+        ]);
+    } else {
+        window.ruleWorkspaceUi.applyStates([
+            { target: signOffBtn, show: canSignWorkspace, disabled: !canActivateSignoff || state.isDirty || signedOffLock, text: signoffButtonText, title: '' },
+            { target: removeWorkspaceSignoffBtn, show: canRemoveWorkspaceSignoff, disabled: !canRemoveWorkspaceSignoff, title: '' }
+        ]);
+    }
+
+    if (signoffLabel) {
+        signoffLabel.textContent = role === 'DataAnalyst' ? 'Analyst Signoff Comment' : 'Review Signoff Comment';
+    }
+
+    applyWorkspaceAccessMode(canEditWorkspace);
+
+    if (!state.clientId) {
+        setWorkspaceRunState('No engagement selected', 'neutral');
+        setWorkspaceInfo('Select an engagement to load the last saved Rule 38 workspace.', 'info');
+        return;
+    }
+
+    if (!state.currentRunId) {
+        setWorkspaceRunState('No saved run loaded', 'neutral');
+        setWorkspaceInfo(
+            canEditWorkspace
+                ? 'No saved Rule 38 workspace exists for this engagement yet. Connect, configure, run validation, then save and sign off.'
+                : 'No saved Rule 38 workspace exists for this engagement yet. This module is read-only for your role.', 'info');
+        return;
+    }
+
+    if (archived) {
+        setWorkspaceRunState(`Run #${state.currentRunId} archived`, 'warning');
+        setWorkspaceInfo('This engagement is archived. The saved workspace and results remain visible, but configuration, validation, saving, and signoff are disabled.', 'warning');
+        return;
+    }
+
+    if (state.isDirty) {
+        setWorkspaceRunState(`Run #${state.currentRunId} loaded`, 'warning');
+        setWorkspaceInfo(
+            canEditWorkspace
+                ? `Saved run <strong>#${state.currentRunId}</strong> is loaded, but the current screen has unsaved changes. Save the workspace or run validation again before signing off.`
+                : `Saved run <strong>#${state.currentRunId}</strong> is loaded, but your role cannot edit this workspace.`, 'warning');
+        return;
+    }
+
+    if (state.currentUserHasSignedOff) {
+        setWorkspaceRunState(`Run #${state.currentRunId} signed off`, 'success');
+        setWorkspaceInfo(`Saved run <strong>#${state.currentRunId}</strong> is loaded with its last configuration and results. Your analyst signoff is already on this run.`, 'success');
+        return;
+    }
+
+    if (state.hasDataAnalystSignoff) {
+        setWorkspaceRunState(`Run #${state.currentRunId} analyst-signed`, 'success');
+        setWorkspaceInfo(`Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL. Other assigned users can review this analyst-signed run.`, 'success');
+        return;
+    }
+
+    setWorkspaceRunState(`Run #${state.currentRunId} saved`, 'info');
+    setWorkspaceInfo(
+        canEditWorkspace
+            ? `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL. The analyst signoff is still outstanding.`
+            : `Saved run <strong>#${state.currentRunId}</strong> is loaded from SQL and is awaiting analyst signoff.`, 'info');
+}
+
+function applyWorkspaceAccessMode(canEditWorkspace) {
+    ['body-connection','body-tables','body-qualcols','body-pqmcols','body-pgcodes','body-heqf'].forEach(id => {
+        const body = document.getElementById(id);
+        if (!body) return;
+        body.style.opacity = canEditWorkspace ? '' : '0.45';
+        body.style.filter = canEditWorkspace ? '' : 'grayscale(0.15)';
+        body.querySelectorAll('input, select, textarea, button').forEach(el => {
+            el.disabled = !canEditWorkspace;
+        });
+    });
+}
+
+async function handleClientChange(value) {
+    state.clientId = parseInt(value || '0') || 0;
+    resetWorkspaceState();
+    if (!state.clientId) return;
+    await loadWorkspaceState();
+}
+
+async function loadWorkspaceState() {
+    if (!state.clientId) { renderWorkspaceState(); return; }
+    showSpinner('Loading saved workspace...');
+    try {
+        const result = await getJson(`/Rule38/GetWorkspaceState?clientId=${state.clientId}`);
+        if (!result.success) {
+            setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to load saved workspace.')}`, 'error');
+            return;
+        }
+        if (!result.hasWorkspace || !result.workspace) { renderWorkspaceState(); return; }
+        await hydrateWorkspace(result.workspace);
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function hydrateWorkspace(workspace) {
+    state.isHydrating = true;
+    let reconnectWarning = '';
+    try {
+        state.currentRunId = workspace.runId || null;
+        state.currentUserEngagementRole = workspace.currentUserEngagementRole || '';
+        state.currentStatus = workspace.currentStatus || '';
+        state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
+        state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
+        state.resultsVisible = !!workspace.resultsVisible;
+        state.editWarningAccepted = false;
+
+        document.getElementById('serverInput').value = workspace.server || '';
+        document.getElementById('driverSelect').value = workspace.driver || 'ODBC Driver 17 for SQL Server';
+        document.getElementById('qualApprovalValueInput').value = workspace.qualApprovalValue || 'A';
+        document.getElementById('heqfCodesInput').value = workspace.heqfIndicatorCodesCsv || 'H/,HEQF,HEQSF';
+        document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
+        const excludeMChkH = document.getElementById('excludeMPrefixChk');
+        if (excludeMChkH) excludeMChkH.checked = !!workspace.excludeMPrefixPattern;
+        const pgCsvH = document.getElementById('postgraduateTypesCsvInput');
+        if (pgCsvH) pgCsvH.value = workspace.postgraduateTypesCsv || '07,27,28,49,72,73,08,30,50,74,75';
+
+        state.server = workspace.server || '';
+        state.driver = workspace.driver || 'ODBC Driver 17 for SQL Server';
+        state.heqfIndicatorCodesCsv = workspace.heqfIndicatorCodesCsv || 'H/,HEQF,HEQSF';
+        state.excludeMPrefixPattern = !!workspace.excludeMPrefixPattern;
+        state.postgraduateTypesCsv = workspace.postgraduateTypesCsv || '07,27,28,49,72,73,08,30,50,74,75';
+        state.qualApprovalValue = workspace.qualApprovalValue || 'A';
+        updatePgCodesPreview();
+
+        if (workspace.summary && state.resultsVisible) {
+            applyValidationResult(workspace.summary, { switchToValidation: false, fromWorkspace: true });
+        } else {
+            updateHeaderBadge(workspace.summary?.status || workspace.currentStatus || '');
+        }
+
+        try {
+            if (workspace.server) {
+                await connectServer({
+                    preferredDatabase: workspace.database || '',
+                    silent: true,
+                    statusMessage: workspace.database
+                        ? `Connected to <strong>${workspace.database}</strong>. Restored from saved run #${workspace.runId}.`
+                        : 'Connected using the saved Rule 38 workspace.'
+                });
+            }
+            if (workspace.database) {
+                await loadTables({
+                    preferredQualTable: workspace.qualTable || '',
+                    preferredPqmTable: workspace.pqmTable || '',
+                    preferredQualIdCol: workspace.qualIdCol || '',
+                    preferredQualNameCol: workspace.qualNameCol || '',
+                    preferredQualApprovalCol: workspace.qualApprovalCol || '',
+                    preferredQualTypeCol: workspace.qualTypeCol || '',
+                    preferredQualMinTimeTotalCol: workspace.qualMinTimeTotalCol || '',
+                    preferredQualMinTimeWilCol: workspace.qualMinTimeWilCol || '',
+                    preferredQualHeqfCol: workspace.qualHeqfCol || '',
+                    preferredQualTotalSubsidyCol: workspace.qualTotalSubsidyCol || '',
+                    preferredPqmNameCol: workspace.pqmNameCol || '',
+                    preferredPqmQualTypeCol: workspace.pqmQualTypeCol || '',
+                    preferredPqmMinTimeTotalCol: workspace.pqmMinTimeTotalCol || '',
+                    preferredPqmWilCol: workspace.pqmWilCol || '',
+                    preferredPqmAccreditationCol: workspace.pqmAccreditationCol || '',
+                    preferredPqmTotalSubsidyCol: workspace.pqmTotalSubsidyCol || '',
+                    silent: true
+                });
+            }
+        } catch (error) {
+            reconnectWarning = state.resultsVisible
+                ? 'Saved workspace results are still loaded from SQL, but the live source could not be reconnected.'
+                : 'The saved workspace was found in SQL, but the live source could not be reconnected.';
+            setStatus('connectionStatus', `Warning: ${escapeHtml(error?.message || 'Live SQL reconnect failed.')}`, 'warning');
+        }
+    } finally {
+        state.isHydrating = false;
+        state.isDirty = false;
+        renderWorkspaceState();
+        if (reconnectWarning) setWorkspaceInfo(reconnectWarning, 'warning');
+    }
+}
+
+async function connectServer(options = {}) {
+    state.server = document.getElementById('serverInput').value.trim();
+    state.driver = document.getElementById('driverSelect').value;
+    if (!state.server) { setStatus('connectionStatus', 'Enter a server name.', 'error'); return null; }
+    if (!options.silent) showSpinner('Connecting to server...');
+    setStatus('connectionStatus', 'Connecting...', 'info');
+    const result = await post('/Rule38/GetDatabases', { server: state.server, driver: state.driver });
+    if (!options.silent) hideSpinner();
+    if (!result.success) { setStatus('connectionStatus', `Error: ${result.error || result.Error || 'Could not connect to the server.'}`, 'error'); return null; }
+
+    const dbSelect = document.getElementById('databaseSelect');
+    dbSelect.innerHTML = '<option value="">Select database</option>';
+    result.databases.forEach(db => dbSelect.appendChild(new Option(db, db)));
+    document.getElementById('dbFieldGroup').style.display = 'block';
+
+    if (options.preferredDatabase && result.databases.includes(options.preferredDatabase)) {
+        dbSelect.value = options.preferredDatabase;
+        state.database = options.preferredDatabase;
+    }
+
+    setStatus('connectionStatus',
+        options.statusMessage || `Connected. Found ${result.databases.length} database(s). Select one below.`, 'success');
+    return result;
+}
+
+async function loadTables(options = {}) {
+    state.database = document.getElementById('databaseSelect').value;
+    if (!state.database) return null;
+    if (!options.silent) showSpinner('Loading tables...');
+
+    const result = await post('/Rule38/GetTables', {
+        server: state.server, database: state.database, driver: state.driver
+    });
+    if (!options.silent) hideSpinner();
+    if (!result.success) { setStatus('connectionStatus', `Error: ${result.error || result.Error || 'Could not load tables.'}`, 'error'); return null; }
+
+    setStatus('connectionStatus', `Connected to <strong>${state.database}</strong>. Found ${result.tables.length} tables.`, 'success');
+
+    ['qualTableSelect','pqmTableSelect'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '<option value="">Select table</option>';
+        result.tables.forEach(t => sel.appendChild(new Option(t, t)));
+    });
+
+    const selQual = options.preferredQualTable || result.autoQualTable || '';
+    const selPqm  = options.preferredPqmTable  || result.autoPqmTable  || '';
+
+    setAutoTag('qualAutoTag', selQual, result.autoQualTable);
+    setAutoTag('pqmAutoTag',  selPqm,  result.autoPqmTable);
+
+    if (selQual && result.tables.includes(selQual)) {
+        document.getElementById('qualTableSelect').value = selQual;
+        state.qualTable = selQual;
+    }
+    if (selPqm && result.tables.includes(selPqm)) {
+        document.getElementById('pqmTableSelect').value = selPqm;
+        state.pqmTable = selPqm;
+    }
+
+    document.getElementById('body-tables').style.display = 'block';
+    document.querySelector('#acc-tables .acc-chevron').textContent = '^';
+
+    if (selQual) {
+        await loadColumnsForTable('qual', {
+            preferredIdCol:           options.preferredQualIdCol || '',
+            preferredNameCol:         options.preferredQualNameCol || '',
+            preferredApprovalCol:     options.preferredQualApprovalCol || '',
+            preferredTypeCol:         options.preferredQualTypeCol || '',
+            preferredMinTimeTotalCol: options.preferredQualMinTimeTotalCol || '',
+            preferredMinTimeWilCol:   options.preferredQualMinTimeWilCol || '',
+            preferredHeqfCol:         options.preferredQualHeqfCol || '',
+            preferredTotalSubsidyCol: options.preferredQualTotalSubsidyCol || '',
+            silent: true
+        });
+    }
+    if (selPqm) {
+        await loadColumnsForTable('pqm', {
+            preferredNameCol:         options.preferredPqmNameCol || '',
+            preferredQualTypeCol:     options.preferredPqmQualTypeCol || '',
+            preferredMinTimeTotalCol: options.preferredPqmMinTimeTotalCol || '',
+            preferredWilCol:          options.preferredPqmWilCol || '',
+            preferredAccreditationCol:options.preferredPqmAccreditationCol || '',
+            preferredTotalSubsidyCol: options.preferredPqmTotalSubsidyCol || '',
+            silent: true
+        });
+    }
+
+    return result;
+}
+
+function setAutoTag(tagId, selected, autoValue) {
+    const el = document.getElementById(tagId);
+    if (el) el.style.display = selected && selected === autoValue ? 'inline' : 'none';
+}
+
+async function onTableChange(which) {
+    await markWorkspaceDirty();
+    if (which === 'qual') {
+        state.qualTable = document.getElementById('qualTableSelect').value;
+        if (state.qualTable) await loadColumnsForTable('qual', {});
+    } else if (which === 'pqm') {
+        state.pqmTable = document.getElementById('pqmTableSelect').value;
+        if (state.pqmTable) await loadColumnsForTable('pqm', {});
+    }
+}
+
+async function loadColumnsForTable(which, options = {}) {
+    const tableName = which === 'qual' ? state.qualTable : state.pqmTable;
+    if (!tableName) return;
+
+    const qualRoles = [
+        { key: 'qual_id',   sel: 'qualIdColSelect',           autoTag: 'qualIdAutoTag',           preferred: options.preferredIdCol || '' },
+        { key: 'qual_name', sel: 'qualNameColSelect',         autoTag: 'qualNameAutoTag',         preferred: options.preferredNameCol || '' },
+        { key: 'qual_approval', sel: 'qualApprovalColSelect', autoTag: 'qualApprovalAutoTag',     preferred: options.preferredApprovalCol || '' },
+        { key: 'qual_type', sel: 'qualTypeColSelect',         autoTag: 'qualTypeAutoTag',         preferred: options.preferredTypeCol || '' },
+        { key: 'qual_053',  sel: 'qualMinTimeTotalColSelect', autoTag: 'qualMinTimeTotalAutoTag', preferred: options.preferredMinTimeTotalCol || '' },
+        { key: 'qual_054',  sel: 'qualMinTimeWilColSelect',   autoTag: 'qualMinTimeWilAutoTag',   preferred: options.preferredMinTimeWilCol || '' },
+        { key: 'qual_084',  sel: 'qualHeqfColSelect',         autoTag: 'qualHeqfAutoTag',         preferred: options.preferredHeqfCol || '' },
+        { key: 'qual_090',  sel: 'qualTotalSubsidyColSelect', autoTag: 'qualTotalSubsidyAutoTag', preferred: options.preferredTotalSubsidyCol || '' }
+    ];
+
+    const pqmRoles = [
+        { key: 'pqm_name',  sel: 'pqmNameColSelect',          autoTag: 'pqmNameAutoTag',          preferred: options.preferredNameCol || '' },
+        { key: 'pqm_type',  sel: 'pqmQualTypeColSelect',      autoTag: 'pqmQualTypeAutoTag',      preferred: options.preferredQualTypeCol || '' },
+        { key: 'pqm_total', sel: 'pqmMinTimeTotalColSelect',  autoTag: 'pqmMinTimeTotalAutoTag',  preferred: options.preferredMinTimeTotalCol || '' },
+        { key: 'pqm_wil',   sel: 'pqmWilColSelect',           autoTag: 'pqmWilAutoTag',           preferred: options.preferredWilCol || '' },
+        { key: 'pqm_accred',sel: 'pqmAccreditationColSelect', autoTag: 'pqmAccreditationAutoTag', preferred: options.preferredAccreditationCol || '' },
+        { key: 'pqm_total', sel: 'pqmTotalSubsidyColSelect',  autoTag: 'pqmTotalSubsidyAutoTag',  preferred: options.preferredTotalSubsidyCol || '' }
+    ];
+
+    const roles = which === 'qual' ? qualRoles : pqmRoles;
+
+    for (const roleInfo of roles) {
+        const result = await post('/Rule38/GetColumns', {
+            server: state.server, database: state.database, driver: state.driver,
+            tableName, tableRole: roleInfo.key
+        });
+        if (!result.success) continue;
+
+        const columns = result.columns || result.Columns || [];
+        const autoSelected = result.autoSelected || result.AutoSelected || '';
+        const sel = document.getElementById(roleInfo.sel);
+        sel.innerHTML = '<option value="">Select column</option>';
+        columns.forEach(c => sel.appendChild(new Option(c, c)));
+
+        const preferredCol = roleInfo.preferred
+            ? columns.find(c => c.toLowerCase() === roleInfo.preferred.toLowerCase())
+            : null;
+        const selectedCol = preferredCol || autoSelected || '';
+
+        setAutoTag(roleInfo.autoTag, selectedCol, autoSelected);
+        if (selectedCol) sel.value = selectedCol;
+        updateStateFromSelect(roleInfo.key, sel.value);
+    }
+
+    if (which === 'qual') {
+        document.getElementById('body-qualcols').style.display = 'block';
+        document.querySelector('#acc-qualcols .acc-chevron').textContent = '^';
+    } else {
+        document.getElementById('body-pqmcols').style.display = 'block';
+        document.querySelector('#acc-pqmcols .acc-chevron').textContent = '^';
+    }
+}
+
+function updateStateFromSelect(key, value) {
+    const map = {
+        'qual_id': 'qualIdCol', 'qual_name': 'qualNameCol', 'qual_approval': 'qualApprovalCol',
+        'qual_type': 'qualTypeCol', 'qual_053': 'qualMinTimeTotalCol', 'qual_054': 'qualMinTimeWilCol',
+        'qual_084': 'qualHeqfCol', 'qual_090': 'qualTotalSubsidyCol',
+        'pqm_name': 'pqmNameCol', 'pqm_type': 'pqmQualTypeCol'
+    };
+    if (map[key]) state[map[key]] = value;
+}
+
+function syncStateFromSelects() {
+    state.qualTable   = document.getElementById('qualTableSelect').value;
+    state.pqmTable    = document.getElementById('pqmTableSelect').value;
+    state.qualIdCol           = document.getElementById('qualIdColSelect').value;
+    state.qualNameCol         = document.getElementById('qualNameColSelect').value;
+    state.qualApprovalCol     = document.getElementById('qualApprovalColSelect').value;
+    state.qualApprovalValue   = document.getElementById('qualApprovalValueInput').value.trim();
+    state.qualTypeCol         = document.getElementById('qualTypeColSelect').value;
+    state.qualMinTimeTotalCol = document.getElementById('qualMinTimeTotalColSelect').value;
+    state.qualMinTimeWilCol   = document.getElementById('qualMinTimeWilColSelect').value;
+    state.qualHeqfCol         = document.getElementById('qualHeqfColSelect').value;
+    state.qualTotalSubsidyCol = document.getElementById('qualTotalSubsidyColSelect').value;
+    state.pqmNameCol          = document.getElementById('pqmNameColSelect').value;
+    state.pqmQualTypeCol      = document.getElementById('pqmQualTypeColSelect').value;
+    state.pqmMinTimeTotalCol  = document.getElementById('pqmMinTimeTotalColSelect').value;
+    state.pqmWilCol           = document.getElementById('pqmWilColSelect').value;
+    state.pqmAccreditationCol = document.getElementById('pqmAccreditationColSelect').value;
+    state.pqmTotalSubsidyCol  = document.getElementById('pqmTotalSubsidyColSelect').value;
+    state.heqfIndicatorCodesCsv = document.getElementById('heqfCodesInput').value.trim();
+    state.excludeMPrefixPattern = !!(document.getElementById('excludeMPrefixChk')?.checked);
+    state.postgraduateTypesCsv = document.getElementById('postgraduateTypesCsvInput')?.value.trim() || '07,27,28,49,72,73,08,30,50,74,75';
+}
+
+async function verifyTables() {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can verify tables.', 'error'); return;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Verification is disabled.', 'error'); return;
+    }
+    syncStateFromSelects();
+    if (!state.server || !state.database || !state.qualTable || !state.pqmTable) {
+        setStatus('tableStatus', 'Select the server, database, QUAL table, and PQM table first.', 'warning'); return;
+    }
+    showSpinner('Verifying data...');
+    try {
+        const result = await post('/Rule38/VerifyTables', {
+            server: state.server, database: state.database, driver: state.driver,
+            qualTable: state.qualTable, pqmTable: state.pqmTable,
+            qualApprovalCol: state.qualApprovalCol || '_004',
+            qualApprovalValue: state.qualApprovalValue || 'A'
+        });
+        if (!result.success) { setStatus('tableStatus', `Error: ${result.error}`, 'error'); return; }
+        setStatus('tableStatus', `
+            <strong>Verification Complete</strong><br>
+            ${escapeHtml(state.qualTable)}: <strong>${result.qualTotal.toLocaleString()}</strong> total records<br>
+            ${escapeHtml(state.qualTable)} (approved): <strong>${result.approvedCount.toLocaleString()}</strong> approved records<br>
+            ${escapeHtml(state.pqmTable)}: <strong>${result.pqmTotal.toLocaleString()}</strong> PQM rows<br>
+            <em>Ready to run full validation.</em>
+        `, 'success');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function runValidation(options = {}) {
+    if (currentSystemRole !== 'DataAnalyst') {
+        setWorkspaceInfo('Only the assigned data analyst can run Rule 38.', 'error'); return null;
+    }
+    if (isArchivedWorkspace()) {
+        setWorkspaceInfo('Archived engagements are read-only. Validation is disabled.', 'error'); return null;
+    }
+    syncStateFromSelects();
+    if (!validateConfig()) return null;
+    showSpinner(options.spinnerMessage || 'Running validation... this may take a moment for large datasets.');
+
+    try {
+        const result = await post('/Rule38/RunValidation', buildRequest());
+        if (!result.success) {
+            const el = document.getElementById('validationContent');
+            el.classList.remove('empty-state');
+            el.innerHTML = `<div class="alert alert--error">Error: ${escapeHtml(result.error)}</div>`;
+            switchTab('validation');
+            return null;
+        }
+        applyValidationResult(result, options);
+        if (currentSystemRole === 'DataAnalyst') {
+            state.editWarningAccepted = false;
+            setWorkspaceInfo('Validation saved. Save the workspace and sign off again before others review this run.', 'warning');
+            renderWorkspaceState();
+        }
+        return result;
+    } finally {
+        hideSpinner();
+    }
+}
+
+function applyValidationResult(result, options = {}) {
+    state.validationResult = result;
+    state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    if (!options.fromWorkspace) state.currentRunId = result.savedRunId || state.currentRunId;
+    state.currentUserHasSignedOff = options.fromWorkspace ? !!state.currentUserHasSignedOff : false;
+    state.hasDataAnalystSignoff = options.fromWorkspace ? !!state.hasDataAnalystSignoff : false;
+    if (!options.fromWorkspace) state.editWarningAccepted = false;
+    state.isDirty = false;
+    document.getElementById('downloadAllBtn').disabled = false;
+    updateHeaderBadge(result.status);
+    renderValidationResults(result);
+    renderControlSummary(result);
+    renderExceptions(result);
+    renderDownloads(result);
+    if (options.switchToValidation !== false) switchTab('validation');
+    renderWorkspaceState();
+}
+
+function ctrlBadge(pass) {
+    return pass
+        ? '<span class="badge badge--pass" style="font-size:0.7rem">P</span>'
+        : '<span class="badge badge--fail" style="font-size:0.7rem">F</span>';
+}
+
+function renderSectionHeader(title, subtitle, meta = '') {
+    return `<div class="section-header">
+        <div>
+            <div class="section-header__title">${escapeHtml(title)}</div>
+            <div class="section-header__subtitle">${escapeHtml(subtitle)}</div>
+        </div>
+        ${meta ? `<div class="section-header__meta">${meta}</div>` : ''}
+    </div>`;
+}
+
+function renderValidationResults(r) {
+    if (!state.validationView) state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    const rate = parseFloat(r.exceptionRate);
+    const rateColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
+    const allRows = r.validationRows || [];
+    const filteredRows = allRows.filter(row =>
+        state.validationView.filter === 'ALL' || row.validationResult === state.validationView.filter);
+    const pageSize = uiPreviewRowLimit;
+    const totalRows = filteredRows.length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    const currentPage = Math.min(Math.max(state.validationView.page || 1, 1), totalPages);
+    state.validationView.page = currentPage;
+    const startIndex = (currentPage - 1) * pageSize;
+    const pageRows = filteredRows.slice(startIndex, startIndex + pageSize);
+
+    const previewBanner = r.isPreviewOnly
+        ? `<div class="alert alert--warning" style="margin-bottom:8px">
+            Preview mode: showing up to ${r.previewLimit} rows. Save and download to see all ${r.approvedCount?.toLocaleString() || 'all'} records.
+           </div>`
+        : '';
+
+    const rowsHtml = pageRows.length === 0
+        ? `<div class="alert alert--info">No rows match the selected filter.</div>`
+        : `<div class="results-table-shell">
+            <div class="table-wrapper">
+                <table class="data-table" style="font-size:0.82rem">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Result</th>
+                            <th>QUAL Code</th>
+                            <th>QUAL Name</th>
+                            <th>PQM?</th>
+                            <th title="5.1.2 Type Match">C2</th>
+                            <th title="5.1.3 Min Time Total">C3</th>
+                            <th title="5.1.4 WIL">C4</th>
+                            <th title="5.1.5 HEQF Indicator">C5</th>
+                            <th title="5.1.6 Total Subsidy">C6</th>
+                            <th>Failed Controls</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${pageRows.map((row, i) => `
+                        <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}" title="QUAL Type: ${escapeHtml(row.qualType||'')} | Min Time: ${escapeHtml(row.minTimeTotal||'')} | WIL: ${escapeHtml(row.minTimeWIL||'')} | HEQF: ${escapeHtml(row.heqfIndicator||'')}">
+                            <td>${row.validationNumber}</td>
+                            <td><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
+                            <td><strong>${escapeHtml(row.qualCode)}</strong></td>
+                            <td style="max-width:220px;white-space:normal">${escapeHtml(row.qualName)}</td>
+                            <td>${row.hasPqmMatch ? '<span class="badge badge--pass">YES</span>' : '<span class="badge badge--fail">NO</span>'}</td>
+                            <td>${ctrlBadge(row.c2_TypeMatch)}</td>
+                            <td>${ctrlBadge(row.c3_MinTimeMatch)}</td>
+                            <td>${ctrlBadge(row.c4_WILMatch)}</td>
+                            <td title="Expected: ${escapeHtml(row.c5_ExpectedHeqf||'')} | Actual: ${escapeHtml(row.heqfIndicator||'')}">${ctrlBadge(row.c5_HeqfMatch)}</td>
+                            <td>${ctrlBadge(row.c6_SubsidyMatch)}</td>
+                            <td style="color:#C62828;font-size:0.78rem">${escapeHtml((row.failedControls||[]).join(', '))}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">${totalRows.toLocaleString()} row(s) after filter. Showing ${pageRows.length ? startIndex + 1 : 0}–${startIndex + pageRows.length}.</div>
+           </div>`;
+
+    const el = document.getElementById('validationContent');
+    el.classList.remove('empty-state');
+    el.innerHTML = `
+        ${renderSectionHeader(
+            'Rule 38: Enhanced QUAL vs PQM Validation',
+            `Database ${escapeHtml(r.database)} | QUAL: ${escapeHtml(r.qualTable||'')} | PQM: ${escapeHtml(r.pqmTable||'')}`,
+            `Scope: Approved QUAL records<br>Run: ${escapeHtml(r.timestamp)}`
+        )}
+        ${previewBanner}
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-card__label">Total QUAL Records</div><div class="stat-card__value">${(r.totalQualRecords||0).toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-card__label">Approved (tested)</div><div class="stat-card__value">${(r.approvedCount||0).toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-card__label">PQM Match</div><div class="stat-card__value">${(r.pqmMatchCount||0).toLocaleString()}</div></div>
+            <div class="stat-card stat-card--fail"><div class="stat-card__label">PQM No Match</div><div class="stat-card__value">${(r.pqmNoMatchCount||0).toLocaleString()}</div></div>
+            <div class="stat-card stat-card--pass"><div class="stat-card__label">Overall PASS</div><div class="stat-card__value">${(r.overallPassCount||0).toLocaleString()}</div></div>
+            <div class="stat-card stat-card--fail"><div class="stat-card__label">Overall FAIL</div><div class="stat-card__value">${(r.overallFailCount||0).toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-card__label">Exception Rate</div><div class="stat-card__value" style="color:${rateColor}">${rate.toFixed(2)}%</div></div>
+        </div>
+        <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
+            ${r.status === 'PASS'
+                ? 'VALIDATION PASSED — All approved QUAL records passed controls 5.1.2–5.1.6'
+                : `VALIDATION FAILED — ${(r.overallFailCount||0).toLocaleString()} record(s) failed one or more controls`}
+        </div>
+        <div class="results-table-panel">
+            <div class="panel-title-row">
+                <h4>Per-Qualification Results <small style="font-weight:normal;font-size:0.8rem">(hover row for QUAL values | C2=Type, C3=MinTime, C4=WIL, C5=HEQF, C6=Subsidy)</small></h4>
+                <span class="panel-title-badge">${totalRows.toLocaleString()} filtered rows</span>
+            </div>
+            <div class="validation-toolbar">
+                <div class="validation-toolbar__group">
+                    <label for="validationFilter">Filter</label>
+                    <select id="validationFilter" onchange="setValidationFilter(this.value)">
+                        <option value="ALL" ${state.validationView.filter === 'ALL' ? 'selected' : ''}>All</option>
+                        <option value="PASS" ${state.validationView.filter === 'PASS' ? 'selected' : ''}>Passed</option>
+                        <option value="FAIL" ${state.validationView.filter === 'FAIL' ? 'selected' : ''}>Failed</option>
+                    </select>
+                </div>
+                <div class="validation-toolbar__meta">
+                    Showing ${pageRows.length ? startIndex + 1 : 0}–${startIndex + pageRows.length} of ${totalRows.toLocaleString()}
+                </div>
+                <div class="validation-pager">
+                    <button class="btn btn-sm btn-info" onclick="setValidationPage(-1)" ${currentPage <= 1 ? 'disabled' : ''}>Prev</button>
+                    <span class="validation-pager__status">Page ${currentPage} of ${totalPages}</span>
+                    <button class="btn btn-sm btn-info" onclick="setValidationPage(1)" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>
+                </div>
+            </div>
+            ${rowsHtml}
+        </div>`;
+}
+
+function renderControlSummary(r) {
+    const el = document.getElementById('controlsContent');
+    el.classList.remove('empty-state');
+    const controls = r.controlSummaries || [];
+    const cards = controls.map(cs => `
+        <div class="stat-card ${cs.status === 'PASS' ? 'stat-card--pass' : 'stat-card--fail'}" style="min-width:160px">
+            <div class="stat-card__label">${escapeHtml(cs.controlId)}: ${escapeHtml(cs.controlLabel)}</div>
+            <div style="font-size:0.75rem;color:#666;margin:2px 0 6px">${escapeHtml(cs.criteriaText)}</div>
+            <div style="display:flex;gap:12px;margin-top:4px">
+                <div><span style="color:#2E7D32;font-weight:bold">${(cs.passCount||0).toLocaleString()}</span> PASS</div>
+                <div><span style="color:#C62828;font-weight:bold">${(cs.failCount||0).toLocaleString()}</span> FAIL</div>
+            </div>
+            <div class="stat-card__value" style="font-size:1rem;margin-top:6px">${escapeHtml(cs.status)}</div>
+        </div>`).join('');
+
+    el.innerHTML = `
+        ${renderSectionHeader('Rule 38: Control Summary', '5.1.2 – 5.1.6 per-control pass/fail counts', `Run: ${escapeHtml(r.timestamp||'')}`)}
+        <div class="stats-grid" style="flex-wrap:wrap">${cards || '<div class="alert alert--info">No control summary available.</div>'}</div>
+        <div class="results-table-panel" style="margin-top:16px">
+            <table class="data-table">
+                <thead>
+                    <tr><th>Control</th><th>Description</th><th>Criteria</th><th>Pass</th><th>Fail</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    ${controls.map((cs, i) => `
+                    <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
+                        <td><strong>${escapeHtml(cs.controlId)}</strong></td>
+                        <td>${escapeHtml(cs.controlLabel)}</td>
+                        <td style="font-size:0.8rem;color:#555">${escapeHtml(cs.criteriaText)}</td>
+                        <td class="text-success"><strong>${(cs.passCount||0).toLocaleString()}</strong></td>
+                        <td class="text-danger"><strong>${(cs.failCount||0).toLocaleString()}</strong></td>
+                        <td><span class="badge badge--${cs.status === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(cs.status)}</span></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+function renderExceptions(r) {
+    const el = document.getElementById('exceptionsContent');
+    el.classList.remove('empty-state');
+    const failRows = (r.validationRows || []).filter(row => row.validationResult === 'FAIL');
+    if (failRows.length === 0) {
+        el.innerHTML = `${renderSectionHeader('Rule 38 Exceptions', 'QUAL vs PQM mismatches', 'Exceptions: 0')}
+            <div class="alert alert--success">No exceptions — all approved QUAL records passed controls 5.1.2–5.1.6.</div>`;
+        return;
+    }
+    const rows = failRows.slice(0, 20).map((row, i) => `
+        <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
+            <td>${row.validationNumber}</td>
+            <td><strong>${escapeHtml(row.qualCode)}</strong></td>
+            <td style="max-width:200px;white-space:normal">${escapeHtml(row.qualName)}</td>
+            <td>${row.hasPqmMatch ? '<span class="badge badge--pass">YES</span>' : '<span class="badge badge--fail">NO</span>'}</td>
+            <td>${ctrlBadge(row.c2_TypeMatch)}</td>
+            <td>${ctrlBadge(row.c3_MinTimeMatch)}</td>
+            <td>${ctrlBadge(row.c4_WILMatch)}</td>
+            <td>${ctrlBadge(row.c5_HeqfMatch)}</td>
+            <td>${ctrlBadge(row.c6_SubsidyMatch)}</td>
+            <td style="color:#C62828;font-size:0.8rem">${escapeHtml((row.failedControls||[]).join(', '))}</td>
+        </tr>`).join('');
+
+    el.innerHTML = `
+        ${renderSectionHeader('Rule 38 Exceptions', 'Records failing one or more controls', `Exceptions: ${failRows.length.toLocaleString()}`)}
+        <div class="results-table-shell">
+            <div class="table-wrapper">
+                <table class="data-table" style="font-size:0.82rem">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>QUAL Code</th><th>QUAL Name</th><th>PQM?</th>
+                            <th title="5.1.2">C2</th><th title="5.1.3">C3</th>
+                            <th title="5.1.4">C4</th><th title="5.1.5">C5</th><th title="5.1.6">C6</th>
+                            <th>Failed Controls</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+            ${failRows.length > 20 ? `<div class="table-footer">Showing first 20 of ${failRows.length.toLocaleString()} exceptions. Download CSV for the full list.</div>` : ''}
+        </div>`;
+}
+
+function renderCharts(r) {
+    Object.values(state.chartInstances).forEach(c => c.destroy());
+    state.chartInstances = {};
+    const rate = parseFloat(r.exceptionRate);
+    const rateBarColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
+    const controls = r.controlSummaries || [];
+    const cc = document.getElementById('chartsContent');
+    cc.classList.remove('empty-state');
+    cc.innerHTML = `
+        ${renderSectionHeader('Rule 38 Visualisation', 'QUAL vs PQM validation charts', `Status: ${escapeHtml(r.status)}`)}
+        <div class="charts-grid">
+            <div class="chart-card"><h4>Overall Pass/Fail</h4><canvas id="chartPassFail"></canvas></div>
+            <div class="chart-card"><h4>Exception Rate: ${rate.toFixed(2)}%</h4><canvas id="chartRate"></canvas></div>
+            <div class="chart-card chart-card--status ${r.status === 'PASS' ? 'chart-card--pass' : 'chart-card--fail'}">
+                <h4>Validation Status</h4><div class="big-status">${r.status === 'PASS' ? 'PASS' : 'FAIL'}</div>
+            </div>
+            ${controls.length > 0 ? '<div class="chart-card"><h4>Per-Control Pass/Fail</h4><canvas id="chartControls"></canvas></div>' : ''}
+        </div>`;
+
+    state.chartInstances.passFail = new Chart(document.getElementById('chartPassFail'), {
+        type: 'bar',
+        data: {
+            labels: ['PASS','FAIL'],
+            datasets: [{ data: [r.overallPassCount||0, r.overallFailCount||0], backgroundColor: ['#4CAF50','#F44336'], borderWidth: 0 }]
+        },
+        options: { maintainAspectRatio: false, responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+    state.chartInstances.rate = new Chart(document.getElementById('chartRate'), {
+        type: 'bar',
+        data: {
+            labels: ['Exception Rate'],
+            datasets: [
+                { data: [rate], backgroundColor: [rateBarColor], label: 'Exception %' },
+                { data: [Math.max(0, 100 - rate)], backgroundColor: ['#E0E0E0'], label: 'Pass %' }
+            ]
+        },
+        options: { indexAxis: 'y', maintainAspectRatio: false, responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { stacked: true, max: 100 }, y: { stacked: true } } }
+    });
+
+    if (controls.length > 0) {
+        const ctrlCanvas = document.getElementById('chartControls');
+        if (ctrlCanvas) {
+            state.chartInstances.controls = new Chart(ctrlCanvas, {
+                type: 'bar',
+                data: {
+                    labels: controls.map(c => c.controlId),
+                    datasets: [
+                        { label: 'PASS', data: controls.map(c => c.passCount||0), backgroundColor: '#4CAF50' },
+                        { label: 'FAIL', data: controls.map(c => c.failCount||0), backgroundColor: '#F44336' }
+                    ]
+                },
+                options: { maintainAspectRatio: false, responsive: true,
+                    plugins: { legend: { display: true } },
+                    scales: { x: { stacked: false }, y: { beginAtZero: true } } }
+            });
+        }
+    }
+}
+
+function renderDownloads(r) {
+    const el = document.getElementById('downloadsContent');
+    const canUseSql = currentSystemRole === 'DataAnalyst' && !isArchivedWorkspace();
+    el.classList.remove('empty-state');
+    el.innerHTML = `
+        <div class="downloads-panel">
+            ${renderSectionHeader('Download Results',
+                'Configuration and results are saved. Other assigned users only see this run after the data analyst signs off.',
+                `Completed: ${escapeHtml(r.timestamp||'')}${r.savedRunId ? `<br>Saved Run: #${r.savedRunId}` : ''}${state.currentUserHasSignedOff ? '<br>Analyst signoff: saved' : ''}`
+            )}
+            <div class="download-buttons download-buttons--wide">
+                <button class="btn btn-success" onclick="downloadExcel()">Excel</button>
+                <button class="btn btn-info" onclick="downloadCsv()">Full CSV</button>
+                <button class="btn btn-info" onclick="downloadExceptionsCsv()">Exceptions CSV</button>
+                ${canUseSql ? '<button class="btn btn-primary" onclick="downloadSql()">SQL Script</button>' : ''}
+                ${r.savedRunId ? `<a href="/Rule38/Run/${r.savedRunId}" class="btn btn-secondary">${canUseSql ? 'Open Saved Run and Sign Off' : 'Open Saved Run'}</a>` : ''}
+            </div>
+            <div class="download-summary-grid">
+                <div class="download-summary-card"><span>QUAL Records</span><strong>${(r.totalQualRecords||0).toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>Approved</span><strong>${(r.approvedCount||0).toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>PASS</span><strong class="text-success">${(r.overallPassCount||0).toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>FAIL</span><strong class="text-danger">${(r.overallFailCount||0).toLocaleString()}</strong></div>
+                <div class="download-summary-card"><span>Exception Rate</span><strong>${parseFloat(r.exceptionRate||0).toFixed(2)}%</strong></div>
+            </div>
+        </div>`;
+}
+
+async function generateSql() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate SQL.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. SQL generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating SQL...');
+    try {
+        const result = await post('/Rule38/GenerateSql', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('sqlContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            ${renderSectionHeader('Rule 38 SQL Code', 'Generated SQL matches the QUAL vs PQM validation formula', `Database: ${escapeHtml(state.database || '')}`)}
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('sqlCode')">Copy</button>
+                <button class="btn btn-sm btn-info" onclick="downloadSql()">Download SQL</button>
+            </div>
+            <div class="sql-panel"><pre id="sqlCode" class="sql-block">${escapeHtml(result.sql)}</pre></div>`;
+        switchTab('sql');
+    } finally {
+        hideSpinner();
+    }
+}
+
+function setValidationFilter(filter) {
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    state.validationView.filter = filter;
+    state.validationView.page = 1;
+    if (state.validationResult) renderValidationResults(state.validationResult);
+}
+
+function setValidationPage(delta) {
+    if (!state.validationResult) return;
+    state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
+    state.validationView.page = Math.max(1, (state.validationView.page || 1) + delta);
+    renderValidationResults(state.validationResult);
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function updatePgCodesPreview() {
+    const chk = document.getElementById('excludeMPrefixChk');
+    const pgCsv = document.getElementById('postgraduateTypesCsvInput');
+    const preview = document.getElementById('pgCodesPreview');
+    if (!preview) return;
+    const pgList = (pgCsv?.value || '07,27,28,49,72,73,08,30,50,74,75').split(',').map(s => s.trim()).filter(Boolean).join(', ');
+    const excludeText = chk?.checked ? ' AND NOT MATCH([_001], \'M_____\')' : '';
+    preview.innerHTML = `
+        <strong>Control 1 (UG):</strong> <code>[_004] = '[approval value]' AND [_005] NOT IN (${escapeHtml(pgList)})${escapeHtml(excludeText)}</code><br/>
+        <strong>Control 2 (PG):</strong> <code>[_004] = '[approval value]' AND [_005] IN (${escapeHtml(pgList)})</code>
+    `;
+}
+
+function validateConfig() {
+    syncStateFromSelects();
+    const missing = [];
+    if (!state.clientId)          missing.push('engagement');
+    if (!state.server)            missing.push('server');
+    if (!state.database)          missing.push('database');
+    if (!state.qualTable)         missing.push('QUAL table');
+    if (!state.pqmTable)          missing.push('PQM table');
+    if (!state.qualIdCol)         missing.push('QUAL ID column');
+    if (!state.qualNameCol)       missing.push('QUAL Name column');
+    if (!state.qualApprovalCol)   missing.push('QUAL Approval column');
+    if (!state.qualApprovalValue) missing.push('Approval value');
+    if (!state.pqmNameCol)        missing.push('PQM Name column');
+
+    if (missing.length) {
+        if (!state.clientId) setWorkspaceInfo('Select the approved engagement assigned to you before running this rule.', 'warning');
+        setStatus('validationContent', `Please select/enter ${missing.join(', ')} first.`, 'warning');
+        switchTab('validation');
+        return false;
+    }
+    return true;
+}
+
+function buildRequest() {
+    syncStateFromSelects();
+    return {
+        clientId: state.clientId, runId: state.currentRunId,
+        server: state.server, database: state.database, driver: state.driver,
+        qualTable: state.qualTable,
+        qualIdCol: state.qualIdCol, qualNameCol: state.qualNameCol,
+        qualApprovalCol: state.qualApprovalCol, qualApprovalValue: state.qualApprovalValue,
+        qualTypeCol: state.qualTypeCol, qualMinTimeTotalCol: state.qualMinTimeTotalCol,
+        qualMinTimeWilCol: state.qualMinTimeWilCol, qualHeqfCol: state.qualHeqfCol,
+        qualTotalSubsidyCol: state.qualTotalSubsidyCol,
+        pqmTable: state.pqmTable,
+        pqmNameCol: state.pqmNameCol, pqmQualTypeCol: state.pqmQualTypeCol,
+        pqmMinTimeTotalCol: state.pqmMinTimeTotalCol, pqmWilCol: state.pqmWilCol,
+        pqmAccreditationCol: state.pqmAccreditationCol, pqmTotalSubsidyCol: state.pqmTotalSubsidyCol,
+        heqfIndicatorCodesCsv: state.heqfIndicatorCodesCsv,
+        excludeMPrefixPattern: state.excludeMPrefixPattern,
+        postgraduateTypesCsv: state.postgraduateTypesCsv
+    };
+}
+
+function fileStamp() {
+    return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '');
+}
+
+async function downloadExcel() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule38/DownloadExcel', state.validationResult, `Rule38_QUAL_PQM_Validation_${fileStamp()}.xlsx`);
+}
+async function downloadCsv() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule38/DownloadCsv', state.validationResult, `Rule38_Validation_Results_${fileStamp()}.csv`);
+}
+async function downloadExceptionsCsv() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    await downloadPost('/Rule38/DownloadExceptionsCsv', state.validationResult, `Rule38_QUAL_PQM_Exceptions_${fileStamp()}.csv`);
+}
+async function downloadSql() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can download the SQL script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. SQL download is disabled.', 'error'); return; }
+    if (!validateConfig()) return;
+    await downloadPost('/Rule38/DownloadSql', buildRequest(), `Rule38_QUAL_PQM_Validation_${fileStamp()}.sql`);
+}
+
+async function downloadAll() {
+    if (!state.validationResult) { alert('Run validation first.'); return; }
+    const tasks = [];
+    if (document.getElementById('chkExcel')?.checked) tasks.push(() => downloadExcel());
+    if (document.getElementById('chkCsv')?.checked) tasks.push(() => downloadCsv());
+    if (document.getElementById('chkExceptionsCsv')?.checked) tasks.push(() => downloadExceptionsCsv());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql')?.checked) tasks.push(() => downloadSql());
+    if (!tasks.length) { alert('Select at least one download format.'); return; }
+    for (const task of tasks) await task();
+}
+
+function copyToClipboard(elId) {
+    navigator.clipboard.writeText(document.getElementById(elId).textContent).then(() => alert('Copied to clipboard!'));
+}
+
+async function saveWorkspace() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can save this workspace.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. Saving is disabled.', 'error'); return; }
+    if (!state.currentRunId) { setWorkspaceInfo('Run validation first so the workspace can be saved.', 'error'); return; }
+    showSpinner('Saving workspace...');
+    try {
+        const result = await post('/Rule38/SaveWorkspace', buildRequest());
+        if (!result.success) { setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to save workspace.')}`, 'error'); return; }
+        state.editWarningAccepted = true;
+        state.isDirty = false;
+        if (result.workspace) {
+            state.currentRunId = result.workspace.runId || state.currentRunId;
+            state.currentUserEngagementRole = result.workspace.currentUserEngagementRole || state.currentUserEngagementRole;
+            state.currentUserHasSignedOff = !!result.workspace.currentUserHasSignedOff;
+            state.hasDataAnalystSignoff = !!result.workspace.hasDataAnalystSignoff;
+            state.isWorkspaceSaved = !!result.workspace.isWorkspaceSaved;
+            document.getElementById('signoffComment').value = result.workspace.currentUserSignoffComment || document.getElementById('signoffComment').value;
+            if (result.workspace.summary) applyValidationResult(result.workspace.summary, { switchToValidation: false, fromWorkspace: true });
+        }
+        setWorkspaceInfo(result.message || 'Workspace saved.', result.signoffsCleared ? 'warning' : 'success');
+        renderWorkspaceState();
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function signOffWorkspace() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const canSign = !isArchivedWorkspace() && state.currentRunId &&
+        (currentSystemRole === 'DataAnalyst' || (state.resultsVisible && (role === 'Manager' || role === 'Director')));
+    if (!canSign) { setWorkspaceInfo('This workspace can only be signed off by the assigned analyst, manager, or director after the analyst review is available.', 'error'); return; }
+    if (!state.isWorkspaceSaved) { setWorkspaceInfo('Save the workspace first before signing off.', 'warning'); return; }
+    if (state.isDirty) { setWorkspaceInfo('Save the workspace first. Editing removes signoffs and requires a fresh review.', 'warning'); return; }
+    showSpinner('Saving analyst signoff...');
+    try {
+        const result = await post('/Rule38/SignOffWorkspace', {
+            clientId: state.clientId, runId: state.currentRunId,
+            comment: document.getElementById('signoffComment').value.trim()
+        });
+        if (!result.success) { setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to save signoff.')}`, 'error'); return; }
+        const visible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible') ? !!result.resultsVisible : !!result.workspace?.resultsVisible;
+        if (result.workspace) { result.workspace.resultsVisible = visible; await hydrateWorkspace(result.workspace); }
+        state.isDirty = false;
+        setWorkspaceInfo('Workspace signoff saved. Other assigned users can now review this signed run.', 'success');
+        renderWorkspaceState();
+        switchTab('dlresults');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function removeWorkspaceSignoff() {
+    const role = state.currentUserEngagementRole || currentSystemRole;
+    const canSign = !isArchivedWorkspace() && state.currentRunId &&
+        (currentSystemRole === 'DataAnalyst' || (state.resultsVisible && (role === 'Manager' || role === 'Director')));
+    if (!canSign || !state.currentUserHasSignedOff) { setWorkspaceInfo('There is no signoff for your assigned engagement role to remove.', 'error'); return; }
+    showSpinner('Removing signoff...');
+    try {
+        const result = await post('/Rule38/RemoveWorkspaceSignoff', { clientId: state.clientId, runId: state.currentRunId, comment: '' });
+        if (!result.success) { setWorkspaceInfo(`Error: ${escapeHtml(result.error || 'Failed to remove signoff.')}`, 'error'); return; }
+        const visible = Object.prototype.hasOwnProperty.call(result, 'resultsVisible') ? !!result.resultsVisible : !!result.workspace?.resultsVisible;
+        if (result.workspace) { result.workspace.resultsVisible = visible; await hydrateWorkspace(result.workspace); }
+        setWorkspaceInfo('Signoff removed.', 'warning');
+        renderWorkspaceState();
+    } finally {
+        hideSpinner();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    document.getElementById('serverInput').addEventListener('input', async () => {
+        state.server = document.getElementById('serverInput').value.trim();
+        await markWorkspaceDirty();
+    });
+    document.getElementById('driverSelect').addEventListener('change', async () => {
+        state.driver = document.getElementById('driverSelect').value;
+        await markWorkspaceDirty();
+    });
+    document.getElementById('databaseSelect').addEventListener('change', async e => {
+        state.database = e.target.value;
+        await markWorkspaceDirty();
+        await loadTables();
+    });
+    document.getElementById('qualApprovalValueInput').addEventListener('input', async () => {
+        state.qualApprovalValue = document.getElementById('qualApprovalValueInput').value.trim();
+        await markWorkspaceDirty();
+    });
+    document.getElementById('heqfCodesInput').addEventListener('input', async () => {
+        state.heqfIndicatorCodesCsv = document.getElementById('heqfCodesInput').value.trim();
+        await markWorkspaceDirty();
+    });
+    document.getElementById('excludeMPrefixChk')?.addEventListener('change', async () => {
+        state.excludeMPrefixPattern = document.getElementById('excludeMPrefixChk').checked;
+        updatePgCodesPreview();
+        await markWorkspaceDirty();
+    });
+    document.getElementById('postgraduateTypesCsvInput')?.addEventListener('input', async () => {
+        state.postgraduateTypesCsv = document.getElementById('postgraduateTypesCsvInput').value.trim();
+        updatePgCodesPreview();
+        await markWorkspaceDirty();
+    });
+    updatePgCodesPreview();
+
+    const colSelects = [
+        'qualIdColSelect','qualNameColSelect','qualApprovalColSelect','qualTypeColSelect',
+        'qualMinTimeTotalColSelect','qualMinTimeWilColSelect','qualHeqfColSelect','qualTotalSubsidyColSelect',
+        'pqmNameColSelect','pqmQualTypeColSelect','pqmMinTimeTotalColSelect','pqmWilColSelect',
+        'pqmAccreditationColSelect','pqmTotalSubsidyColSelect'
+    ];
+    colSelects.forEach(id => {
+        document.getElementById(id).addEventListener('change', async () => {
+            syncStateFromSelects();
+            await markWorkspaceDirty();
+        });
+    });
+
+    renderWorkspaceState();
+    if (state.clientId > 0) await loadWorkspaceState();
+});
+</script>

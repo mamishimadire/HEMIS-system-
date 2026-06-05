@@ -1,0 +1,955 @@
+@using HemisAudit.Models
+@{
+    ViewData["Title"] = "Rule 46 - Foundation Student Chain Validation";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int cid ? cid : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+}
+
+<style>
+.r46-tbl { border-collapse: collapse; width: 100%; font-size: .82rem; }
+.r46-tbl th { background: #1565A6; color: #fff; padding: 5px 8px; border: 1px solid #bbb; white-space: nowrap; text-align: center; }
+.r46-tbl td { padding: 4px 7px; border: 1px solid #ddd; vertical-align: middle; }
+.r46-tbl tr.pass-row { background: #F1F8E9; }
+.r46-tbl tr.fail-row { background: #FFEBEE; }
+.r46-pass { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .74rem; font-weight: 700; background: #E8F5E9; color: #1E8449; }
+.r46-fail { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .74rem; font-weight: 700; background: #FFEBEE; color: #C0392B; }
+.workspace-signoff-actions { display: flex; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
+.col-mapping-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+</style>
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <div class="engagement-selector">
+        <label for="r46ClientId">Engagement</label>
+        <select id="r46ClientId" onchange="r46OnClientChange(this.value)">
+            <option value="">Select engagement</option>
+            @foreach (var client in clients)
+            {
+                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                    @client.Name (@client.FiscalYear)
+                </option>
+            }
+        </select>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R46</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 46: Foundation Student Chain Validation</h1>
+            <p class="rule-header__sub">
+                Rule 46 validates foundation students through the qualification chain:
+                <code>dbo_STUD → dbo_QUAL → PQM</code>.<br />
+                Foundation students are selected from <code>STUD._106 = 'Y'</code> and their qualification name must exist in the PQM table.
+            </p>
+        </div>
+        <div class="rule-header__badge" id="r46StatusBadge" style="display:none"></div>
+    </div>
+
+    @if (!isResultsOnlyRole)
+    {
+        <div class="accordion-stack">
+            <div class="accordion-item">
+                <button class="accordion-toggle" type="button" onclick="toggleAccordion('r46-conn')">
+                    <span class="acc-icon">DB</span><span>Database Connection</span><span class="acc-chevron">v</span>
+                </button>
+                <div class="accordion-body" id="body-r46-conn">
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="r46Server">Server Name</label>
+                            <input id="r46Server" type="text" placeholder="SERVER\INSTANCE" />
+                        </div>
+                        <div class="field-group">
+                            <label for="r46Driver">Driver</label>
+                            <select id="r46Driver">
+                                <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                                <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                                <option value="SQL Server">SQL Server</option>
+                            </select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46Db">Database</label>
+                            <select id="r46Db" onchange="r46LoadTables()"></select>
+                        </div>
+                    </div>
+                    <div class="action-bar" style="justify-content:flex-start;margin:10px 0 0">
+                        <button type="button" class="btn btn-primary" onclick="r46Connect()">Connect</button>
+                    </div>
+                    <div id="r46ConnOut" class="status-output"></div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-toggle" type="button" onclick="toggleAccordion('r46-cfg')">
+                    <span class="acc-icon">CF</span><span>Table &amp; Column Configuration</span><span class="acc-chevron">v</span>
+                </button>
+                <div class="accordion-body" id="body-r46-cfg" style="display:none">
+                    <div class="info-box info-box--red" style="margin-bottom:14px">
+                        <strong>Rule 46 logic:</strong><br />
+                        Step 1: select foundation students where <code>STUD.[Filter Col] = 'Filter Value'</code><br />
+                        Step 2: join <code>STUD._001 → QUAL._001</code><br />
+                        Step 3: match <code>QUAL._003 → PQM.[Name Column]</code><br />
+                        Step 4: PASS if QUAL record exists and qualification name is found in PQM<br />
+                        All columns and tables are configurable. Auto-detected on connect.
+                    </div>
+
+                    <h4 style="margin:0 0 10px;font-size:.9rem;color:#555">STUD Table</h4>
+                    <div class="col-mapping-grid" style="margin-bottom:16px">
+                        <div class="field-group">
+                            <label for="r46StudTable">STUD Table</label>
+                            <select id="r46StudTable" onchange="r46LoadCols('stud',this.value)"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46StudKey">STUD Qualification Key <small>(_001)</small></label>
+                            <select id="r46StudKey"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46StudIdCol">STUD ID Column <small>(_008)</small></label>
+                            <select id="r46StudIdCol"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46Stud007Col">STUD Column <small>(_007)</small></label>
+                            <select id="r46Stud007Col"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46Stud010Col">STUD Column <small>(_010)</small></label>
+                            <select id="r46Stud010Col"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46Stud012Col">STUD Column <small>(_012)</small></label>
+                            <select id="r46Stud012Col"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46Stud026Col">STUD Column <small>(_026)</small></label>
+                            <select id="r46Stud026Col"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46StudFilterCol">Foundation Filter Column <small>(_106)</small></label>
+                            <select id="r46StudFilterCol"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46StudFilterValue">Filter Value <small>(Y)</small></label>
+                            <input id="r46StudFilterValue" type="text" value="Y" />
+                        </div>
+                    </div>
+
+                    <h4 style="margin:0 0 10px;font-size:.9rem;color:#555">QUAL Table</h4>
+                    <div class="col-mapping-grid" style="margin-bottom:16px">
+                        <div class="field-group">
+                            <label for="r46QualTable">QUAL Table</label>
+                            <select id="r46QualTable" onchange="r46LoadCols('qual',this.value)"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46QualKey">QUAL Key Column <small>(_001)</small></label>
+                            <select id="r46QualKey"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46QualNameCol">QUAL Name Column <small>(_003)</small></label>
+                            <select id="r46QualNameCol"></select>
+                        </div>
+                    </div>
+
+                    <h4 style="margin:0 0 10px;font-size:.9rem;color:#555">PQM Table</h4>
+                    <div class="col-mapping-grid" style="margin-bottom:16px">
+                        <div class="field-group">
+                            <label for="r46PqmTable">PQM Table</label>
+                            <select id="r46PqmTable" onchange="r46LoadCols('pqm',this.value)"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="r46PqmNameCol">PQM Qualification Name <small>(Authorised_Qualification_Name)</small></label>
+                            <select id="r46PqmNameCol"></select>
+                        </div>
+                    </div>
+
+                    <div class="action-bar" style="justify-content:flex-start;margin:4px 0">
+                        <button type="button" class="btn btn-info" onclick="r46Verify()">Verify Tables</button>
+                        <button type="button" class="btn btn-secondary" onclick="r46DetectColumns()">Auto-Detect Columns</button>
+                    </div>
+                    <div id="r46CfgOut" class="status-output"></div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 46 configuration, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="r46RunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">Select an engagement to load the saved Rule 46 workspace.</div>
+        <div class="workspace-signoff-grid">
+            <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div><div id="r46RunLabel">No saved run yet</div></div>
+            <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div><div id="r46StatusLabel">-</div></div>
+            <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div><div id="r46EditedLabel">-</div></div>
+            <div><div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div><div id="r46RoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div></div>
+            <div class="field-group" style="grid-column:1/-1">
+                <label for="r46SignoffComment">Signoff Comment</label>
+                <textarea id="r46SignoffComment" rows="2" placeholder="Add the final review note confirming this validation is complete."></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            @if (!isResultsOnlyRole)
+            {
+                <button class="btn btn-success" id="r46SaveBtn" onclick="r46SaveWorkspace()">Save Workspace</button>
+            }
+            <button class="btn btn-primary" id="r46SignoffBtn" onclick="r46SignOff()">Sign Off</button>
+            <button class="btn btn-warning" id="r46RemoveSignoffBtn" onclick="r46RemoveSignoff()" style="display:none">Remove Signoff</button>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        @if (!isResultsOnlyRole)
+        {
+            <button class="btn btn-success" onclick="r46Run()">&#9654; Run Rule 46</button>
+            <button class="btn btn-primary" onclick="r46GenSql()">Generate SQL</button>
+        }
+        <button class="btn btn-success" id="r46DlExcelBtn" onclick="r46DlExcel()" disabled>Download Excel</button>
+        <button class="btn btn-warning" id="r46DlCsvBtn" onclick="r46DlCsv()" disabled>Download CSV</button>
+        <button class="btn btn-secondary" id="r46DlSqlBtn" onclick="r46DlSql()" disabled>Download SQL</button>
+    </div>
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="r46-analysis" onclick="r46Tab('r46-analysis')">Analysis</button>
+            <button class="tab-btn" type="button" data-tab="r46-results" onclick="r46Tab('r46-results')">Results</button>
+            <button class="tab-btn" type="button" data-tab="r46-sql" onclick="r46Tab('r46-sql')">SQL Code</button>
+        </div>
+        <div class="tab-pane active" data-tab-panel="r46-analysis">
+            <div id="r46AnalysisPane"><div class="empty-state"><p>Run Rule 46 to see results here.</p></div></div>
+        </div>
+        <div class="tab-pane" data-tab-panel="r46-results">
+            <div class="results-filter-bar" style="padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label style="font-size:.85rem">Filter:</label>
+                <button class="btn btn-sm btn-secondary r46-filter-btn active" data-filter="ALL" onclick="r46SetFilter(this)">All</button>
+                <button class="btn btn-sm btn-secondary r46-filter-btn" data-filter="PASS" onclick="r46SetFilter(this)">PASS only</button>
+                <button class="btn btn-sm btn-secondary r46-filter-btn" data-filter="FAIL" onclick="r46SetFilter(this)">FAIL only</button>
+            </div>
+            <div id="r46ResultsPane"><div class="empty-state"><p>Run validation first.</p></div></div>
+        </div>
+        <div class="tab-pane" data-tab-panel="r46-sql">
+            <textarea id="r46SqlText" rows="22" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
+        </div>
+    </div>
+
+    <div id="r46Spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box"><div class="spinner-ring"></div><p id="r46SpinMsg">Processing...</p></div>
+    </div>
+</div>
+
+<form id="r46AntiForgery" method="post" style="display:none">@Html.AntiForgeryToken()</form>
+
+<script>
+window.toggleAccordion = window.toggleAccordion || function(section) {
+    var body = document.getElementById('body-' + section);
+    if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+};
+
+window.r46Tab = function(tab) {
+    document.querySelectorAll('#app .results-panel .tab-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    document.querySelectorAll('#app .results-panel .tab-pane').forEach(function(panel) {
+        panel.classList.toggle('active', panel.dataset.tabPanel === tab);
+    });
+    if (tab === 'r46-results') renderRule46Results();
+};
+
+(function() {
+    var API = '/Rule46';
+    var ROLE = '@currentSystemRole';
+    var IS_RESULTS_ONLY = @(isResultsOnlyRole.ToString().ToLowerInvariant());
+    var TOKEN = (document.querySelector('#r46AntiForgery input[name="__RequestVerificationToken"]') || {}).value || '';
+
+    var st = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        runId: null,
+        summary: null,
+        isWorkspaceSaved: false,
+        currentUserHasSignedOff: false,
+        resultsVisible: false,
+        currentUserEngagementRole: '',
+        filterResult: 'ALL'
+    };
+
+    function g(id) { return document.getElementById(id); }
+    function gv(id) { var el = g(id); return el ? el.value : ''; }
+    function show(id, visible) { var el = g(id); if (el) el.style.display = visible ? '' : 'none'; }
+    function setHtml(id, html) { var el = g(id); if (el) el.innerHTML = html; }
+    function fmt(n) { return Number(n || 0).toLocaleString(); }
+    function esc(v) {
+        return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function setWorkspaceMessage(message, type) {
+        var el = g('workspaceInfo');
+        if (!el) return;
+        el.className = 'alert alert--' + (type || 'info');
+        el.textContent = message;
+    }
+
+    function setStatusOutput(id, message, type) {
+        var el = g(id);
+        if (!el) return;
+        el.className = 'alert alert--' + (type || 'info');
+        el.textContent = message;
+    }
+
+    function spin(message) {
+        var label = g('r46SpinMsg');
+        if (label) label.textContent = message || 'Processing...';
+        show('r46Spinner', true);
+    }
+
+    function unspin() {
+        show('r46Spinner', false);
+    }
+
+    function fillSelect(idOrElement, items, selected) {
+        var select = typeof idOrElement === 'string' ? g(idOrElement) : idOrElement;
+        if (!select) return;
+        select.innerHTML = '';
+        (items || []).forEach(function(item) {
+            var option = document.createElement('option');
+            option.value = item;
+            option.textContent = item;
+            if (selected && selected === item) option.selected = true;
+            select.appendChild(option);
+        });
+    }
+
+    async function post(url, body) {
+        return await window.fetchJsonWithProgress(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': TOKEN
+            },
+            body: JSON.stringify(body)
+        });
+    }
+
+    function setStatusBadge(status) {
+        var badge = g('r46StatusBadge');
+        if (!badge) return;
+        if (!status) {
+            badge.style.display = 'none';
+            return;
+        }
+        badge.style.display = '';
+        badge.textContent = status;
+        badge.className = 'rule-header__badge ' + (String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail');
+    }
+
+    function buildReq() {
+        return {
+            clientId: st.clientId,
+            runId: st.runId,
+            server: gv('r46Server').trim(),
+            database: gv('r46Db'),
+            driver: gv('r46Driver') || 'ODBC Driver 17 for SQL Server',
+            studTable: gv('r46StudTable') || 'dbo_STUD',
+            studKey: gv('r46StudKey') || '_001',
+            studIdCol: gv('r46StudIdCol') || '_008',
+            stud007Col: gv('r46Stud007Col') || '_007',
+            stud010Col: gv('r46Stud010Col') || '_010',
+            stud012Col: gv('r46Stud012Col') || '_012',
+            stud026Col: gv('r46Stud026Col') || '_026',
+            studFilterCol: gv('r46StudFilterCol') || '_106',
+            studFilterValue: gv('r46StudFilterValue') || 'Y',
+            qualTable: gv('r46QualTable') || 'dbo_QUAL',
+            qualKey: gv('r46QualKey') || '_001',
+            qualNameCol: gv('r46QualNameCol') || '_003',
+            pqmTable: gv('r46PqmTable') || 'PQM',
+            pqmNameCol: gv('r46PqmNameCol') || 'Authorised_Qualification_Name'
+        };
+    }
+
+    function updateButtons() {
+        var engRole = (st.currentUserEngagementRole || ROLE || '').toLowerCase();
+        var systemRole = (ROLE || '').toLowerCase();
+        var canEdit = !IS_RESULTS_ONLY && (systemRole === 'dataanalyst' || engRole === 'dataanalyst');
+        var canSign = !!st.runId && !!st.isWorkspaceSaved &&
+            (engRole === 'dataanalyst' || (st.resultsVisible && (engRole === 'manager' || engRole === 'director')));
+        var signed = !!st.currentUserHasSignedOff;
+
+        var saveBtn = g('r46SaveBtn');
+        if (saveBtn) saveBtn.disabled = signed || !canEdit || !st.runId;
+
+        var signBtn = g('r46SignoffBtn');
+        if (signBtn) {
+            signBtn.disabled = signed || !canSign;
+            signBtn.textContent = signed ? 'Signed Off' : 'Sign Off';
+        }
+
+        show('r46RemoveSignoffBtn', signed);
+
+        var excelBtn = g('r46DlExcelBtn');
+        if (excelBtn) excelBtn.disabled = !st.runId;
+
+        var csvBtn = g('r46DlCsvBtn');
+        if (csvBtn) csvBtn.disabled = !st.runId;
+
+        var sqlBtn = g('r46DlSqlBtn');
+        if (sqlBtn) sqlBtn.disabled = !st.runId;
+    }
+
+    function applyWsMeta(ws) {
+        st.isWorkspaceSaved = !!ws.isWorkspaceSaved;
+        st.currentUserHasSignedOff = !!ws.currentUserHasSignedOff;
+        st.currentUserEngagementRole = ws.currentUserEngagementRole || st.currentUserEngagementRole;
+
+        var runState = g('r46RunState');
+        if (runState) runState.textContent = ws.runId ? 'Run #' + ws.runId : 'No saved run loaded';
+
+        var runLabel = g('r46RunLabel');
+        if (runLabel) runLabel.textContent = ws.runId ? 'Rule 46 Run #' + ws.runId : 'No saved run yet';
+
+        var statusLabel = g('r46StatusLabel');
+        if (statusLabel) statusLabel.textContent = ws.currentStatus || '-';
+
+        var editedLabel = g('r46EditedLabel');
+        if (editedLabel) editedLabel.textContent = ws.lastEditedAt ? new Date(ws.lastEditedAt).toLocaleString() : '-';
+
+        var roleLabel = g('r46RoleLabel');
+        if (roleLabel) roleLabel.textContent = ws.currentUserEngagementRole || ROLE || '-';
+
+        var comment = g('r46SignoffComment');
+        if (comment) comment.value = ws.currentUserSignoffComment || '';
+
+        updateButtons();
+    }
+
+    function renderRule46Analysis(summary) {
+        var pane = g('r46AnalysisPane');
+        if (!pane) return;
+        if (!summary) {
+            pane.innerHTML = '<div class="empty-state"><p>Run Rule 46 to see results here.</p></div>';
+            return;
+        }
+
+        var statusClass = String(summary.status || '').toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail';
+        var previewHtml = summary.isPreviewOnly
+            ? '<div class="alert alert--warning" style="margin-bottom:12px">Browser preview is limited to ' + fmt(summary.previewLimit || 0) + ' representative row(s) so both PASS and FAIL filters stay visible. Download Excel or CSV for the full result set.</div>'
+            : '';
+        var controlSummary = (summary.controlSummaries || [])[0] || null;
+        var controlHtml = controlSummary
+            ? '<div class="card" style="padding:14px;margin-bottom:10px">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+                '<strong style="font-size:.88rem">' + esc(controlSummary.controlLabel) + '</strong>' +
+                '<span class="badge ' + (String(controlSummary.status || '').toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail') + '">' + esc(controlSummary.status) + '</span>' +
+                '</div>' +
+                '<div style="font-size:.8rem;color:#666;margin-bottom:4px">' + esc(controlSummary.criteriaText) + '</div>' +
+                '<div style="display:flex;gap:16px;font-size:.82rem;flex-wrap:wrap">' +
+                '<span>Total: <strong>' + fmt(controlSummary.totalCount) + '</strong></span>' +
+                '<span style="color:#1E8449">Pass: <strong>' + fmt(controlSummary.passCount) + '</strong></span>' +
+                '<span style="color:#C0392B">Fail: <strong>' + fmt(controlSummary.failCount) + '</strong></span>' +
+                '<span>Exception Rate: <strong>' + Number(controlSummary.exceptionRate || 0).toFixed(2) + '%</strong></span>' +
+                '</div>' +
+              '</div>'
+            : '';
+
+        pane.innerHTML =
+            previewHtml +
+            '<div class="stats-grid" style="margin-bottom:16px">' +
+                statCard('Total', fmt(summary.totalValidated || 0), '') +
+                statCard('Pass', fmt(summary.passCount || 0), 'pass') +
+                statCard('Fail', fmt(summary.failCount || 0), (summary.failCount || 0) > 0 ? 'fail' : '') +
+                statCard('Exception Rate', Number(summary.exceptionRate || 0).toFixed(2) + '%', (summary.exceptionRate || 0) > 0 ? 'fail' : 'pass') +
+                statCard('Overall', '<span class="badge ' + statusClass + '">' + esc(summary.status) + '</span>', '') +
+            '</div>' +
+            '<div class="card" style="padding:12px;margin-bottom:16px">' +
+                '<div class="form-grid">' +
+                    '<div><div class="stat-label">Database</div><div>' + esc(summary.database || '') + '</div></div>' +
+                    '<div><div class="stat-label">Foundation Filter</div><div>' + esc(summary.studTable || '') + '.' + esc(summary.studFilterCol || '_106') + ' = \'' + esc(summary.studFilterValue || 'Y') + '\'</div></div>' +
+                    '<div><div class="stat-label">STUD ID Column</div><div>' + esc(summary.studTable || '') + '.' + esc(summary.studIdCol || '_008') + '</div></div>' +
+                    '<div><div class="stat-label">STUD _026 Column</div><div>' + esc(summary.studTable || '') + '.' + esc(summary.stud026Col || '_026') + '</div></div>' +
+                    '<div><div class="stat-label">QUAL Table</div><div>' + esc(summary.qualTable || '') + '</div></div>' +
+                    '<div><div class="stat-label">PQM Table</div><div>' + esc(summary.pqmTable || '') + ' (' + esc(summary.pqmNameCol || 'Authorised_Qualification_Name') + ')</div></div>' +
+                    '<div><div class="stat-label">Timestamp</div><div>' + esc(summary.timestamp || '') + '</div></div>' +
+                '</div>' +
+            '</div>' +
+            controlHtml;
+    }
+
+    function renderRule46Results() {
+        var pane = g('r46ResultsPane');
+        if (!pane) return;
+        if (!st.summary) {
+            pane.innerHTML = '<div class="empty-state"><p>Run validation first.</p></div>';
+            return;
+        }
+
+        var rows = st.summary.validationRows || [];
+        var filtered = st.filterResult === 'ALL'
+            ? rows
+            : rows.filter(function(row) { return String(row.validationResult || '').toUpperCase() === st.filterResult; });
+
+        if (!filtered.length) {
+            pane.innerHTML = '<div class="empty-state"><p>No rows match the selected filter.</p></div>';
+            return;
+        }
+
+        var previewHtml = st.summary.isPreviewOnly
+            ? '<div class="alert alert--warning" style="margin-bottom:12px">Showing a representative browser preview of ' + fmt(rows.length) + ' loaded row(s) from ' + fmt(st.summary.totalValidated || rows.length) + ' total row(s). Download Excel or CSV for the full result set.</div>'
+            : '';
+
+        var body = filtered.map(function(row) {
+            var isPass = String(row.validationResult || '').toUpperCase() === 'PASS';
+            var rowClass = isPass ? 'pass-row' : 'fail-row';
+            var badge = isPass
+                ? '<span class="r46-pass">&#10003; PASS</span>'
+                : '<span class="r46-fail">&#10007; FAIL</span>';
+            return '<tr class="' + rowClass + '">' +
+                '<td>' + esc(row.studId) + '</td>' +
+                '<td>' + esc(row.studentId) + '</td>' +
+                '<td>' + esc(row.stud007) + '</td>' +
+                '<td>' + esc(row.stud010) + '</td>' +
+                '<td>' + esc(row.stud012) + '</td>' +
+                '<td>' + esc(row.stud026) + '</td>' +
+                '<td>' + esc(row.studFilterValue) + '</td>' +
+                '<td>' + esc(row.qualId) + '</td>' +
+                '<td>' + esc(row.qualName) + '</td>' +
+                '<td>' + esc(row.pqmName) + '</td>' +
+                '<td>' + badge + '</td>' +
+                '<td style="font-size:.75rem">' + esc(row.resultDetail) + '</td>' +
+            '</tr>';
+        }).join('');
+
+        pane.innerHTML =
+            previewHtml +
+            '<div style="overflow-x:auto">' +
+                '<table class="r46-tbl">' +
+                    '<thead><tr>' +
+                        '<th>STUD Key</th>' +
+                        '<th>STUD _008</th>' +
+                        '<th>STUD _007</th>' +
+                        '<th>STUD _010</th>' +
+                        '<th>STUD _012</th>' +
+                        '<th>STUD _026</th>' +
+                        '<th>STUD._106</th>' +
+                        '<th>QUAL Key</th>' +
+                        '<th>QUAL Name</th>' +
+                        '<th>PQM Name</th>' +
+                        '<th>Result</th>' +
+                        '<th>Detail</th>' +
+                    '</tr></thead>' +
+                    '<tbody>' + body + '</tbody>' +
+                '</table>' +
+                '<p style="font-size:.78rem;color:#777;padding:4px 0">Showing ' + fmt(filtered.length) + ' row(s) from ' + fmt(st.summary.totalValidated || rows.length) + ' total validated row(s).</p>' +
+            '</div>';
+    }
+
+    function statCard(label, value, modifier) {
+        var className = modifier === 'pass'
+            ? ' stat-card--pass'
+            : modifier === 'fail'
+                ? ' stat-card--fail'
+                : '';
+        return '<div class="stat-card' + className + '"><div class="stat-card__label">' + label + '</div><div class="stat-card__value">' + value + '</div></div>';
+    }
+
+    function applySummary(summary, options) {
+        options = options || {};
+        st.summary = summary || null;
+        if (summary && !options.fromWorkspace) {
+            st.runId = summary.savedRunId || st.runId;
+        }
+
+        setStatusBadge(summary ? summary.status : '');
+        renderRule46Analysis(summary);
+        renderRule46Results();
+
+        if (summary) {
+            st.resultsVisible = true;
+            var runState = g('r46RunState');
+            if (runState) runState.textContent = st.runId ? 'Run #' + st.runId : 'No saved run loaded';
+        }
+
+        updateButtons();
+    }
+
+    function applyWorkspace(ws, resultsVisible) {
+        if (!ws) {
+            st.runId = null;
+            st.summary = null;
+            st.isWorkspaceSaved = false;
+            st.currentUserHasSignedOff = false;
+            st.resultsVisible = false;
+            st.currentUserEngagementRole = '';
+            setWorkspaceMessage('No saved Rule 46 workspace for this engagement yet.', 'info');
+            var runState = g('r46RunState');
+            if (runState) runState.textContent = 'No saved run loaded';
+            var runLabel = g('r46RunLabel');
+            if (runLabel) runLabel.textContent = 'No saved run yet';
+            var statusLabel = g('r46StatusLabel');
+            if (statusLabel) statusLabel.textContent = '-';
+            var editedLabel = g('r46EditedLabel');
+            if (editedLabel) editedLabel.textContent = '-';
+            applySummary(null);
+            return;
+        }
+
+        st.runId = ws.runId || null;
+        st.resultsVisible = !!resultsVisible;
+        st.currentUserEngagementRole = ws.currentUserEngagementRole || '';
+
+        if (!IS_RESULTS_ONLY) {
+            if (ws.server) g('r46Server').value = ws.server;
+            if (ws.driver) g('r46Driver').value = ws.driver;
+            if (ws.database) fillSelect('r46Db', [ws.database], ws.database);
+            if (ws.studTable) fillSelect('r46StudTable', [ws.studTable], ws.studTable);
+            if (ws.qualTable) fillSelect('r46QualTable', [ws.qualTable], ws.qualTable);
+            if (ws.pqmTable) fillSelect('r46PqmTable', [ws.pqmTable], ws.pqmTable);
+            if (ws.studKey) fillSelect('r46StudKey', [ws.studKey], ws.studKey);
+            if (ws.studIdCol) fillSelect('r46StudIdCol', [ws.studIdCol], ws.studIdCol);
+            if (ws.stud007Col) fillSelect('r46Stud007Col', [ws.stud007Col], ws.stud007Col);
+            if (ws.stud010Col) fillSelect('r46Stud010Col', [ws.stud010Col], ws.stud010Col);
+            if (ws.stud012Col) fillSelect('r46Stud012Col', [ws.stud012Col], ws.stud012Col);
+            if (ws.stud026Col) fillSelect('r46Stud026Col', [ws.stud026Col], ws.stud026Col);
+            if (ws.studFilterCol) fillSelect('r46StudFilterCol', [ws.studFilterCol], ws.studFilterCol);
+            if (ws.studFilterValue) g('r46StudFilterValue').value = ws.studFilterValue;
+            if (ws.qualKey) fillSelect('r46QualKey', [ws.qualKey], ws.qualKey);
+            if (ws.qualNameCol) fillSelect('r46QualNameCol', [ws.qualNameCol], ws.qualNameCol);
+            if (ws.pqmNameCol) fillSelect('r46PqmNameCol', [ws.pqmNameCol], ws.pqmNameCol);
+        }
+
+        applyWsMeta(ws);
+
+        if (!resultsVisible) {
+            setWorkspaceMessage('Saved Rule 46 results are not available for your role.', 'info');
+            applySummary(null);
+            return;
+        }
+
+        setWorkspaceMessage(ws.summary ? 'Saved Rule 46 workspace loaded.' : 'Rule 46 workspace loaded. Run validation to generate results.', 'success');
+        applySummary(ws.summary || null, { fromWorkspace: true });
+    }
+
+    function loadWorkspace() {
+        if (!st.clientId) {
+            applyWorkspace(null, false);
+            return Promise.resolve();
+        }
+
+        setWorkspaceMessage('Loading saved workspace...', 'info');
+        var fetcher = window.fetchJsonWithProgress || function(url, options) {
+            return fetch(url, options).then(function(response) { return response.json(); });
+        };
+
+        return fetcher(API + '/GetWorkspaceState?clientId=' + st.clientId, { method: 'GET' })
+            .then(function(data) {
+                if (!data.success) throw new Error(data.error || 'Failed to load workspace.');
+                applyWorkspace(data.workspace, data.resultsVisible);
+            });
+    }
+
+    function loadColumns(role, tableName) {
+        if (!tableName || !gv('r46Server') || !gv('r46Db')) return Promise.resolve();
+
+        return post(API + '/GetColumns', {
+            server: gv('r46Server').trim(),
+            database: gv('r46Db'),
+            driver: gv('r46Driver'),
+            tableName: tableName
+        }).then(function(data) {
+            if (!data.success) return;
+            var cols = data.columns || [];
+            var preferred = function(column, fallback) {
+                return cols.find(function(item) { return item === column; }) || cols[0] || fallback;
+            };
+
+            if (role === 'stud') {
+                fillSelect('r46StudKey', cols, preferred('_001', '_001'));
+                fillSelect('r46StudIdCol', cols, preferred('_008', '_008'));
+                fillSelect('r46Stud007Col', cols, preferred('_007', '_007'));
+                fillSelect('r46Stud010Col', cols, preferred('_010', '_010'));
+                fillSelect('r46Stud012Col', cols, preferred('_012', '_012'));
+                fillSelect('r46Stud026Col', cols, preferred('_026', '_026'));
+                fillSelect('r46StudFilterCol', cols, preferred('_106', '_106'));
+            }
+            if (role === 'qual') {
+                fillSelect('r46QualKey', cols, preferred('_001', '_001'));
+                fillSelect('r46QualNameCol', cols, preferred('_003', '_003'));
+            }
+            if (role === 'pqm') {
+                fillSelect('r46PqmNameCol', cols, preferred('Authorised_Qualification_Name', 'Authorised_Qualification_Name'));
+            }
+        });
+    }
+
+    window.r46Connect = function() {
+        var server = gv('r46Server').trim();
+        if (!server) {
+            setStatusOutput('r46ConnOut', 'Enter the SQL Server name first.', 'error');
+            return;
+        }
+
+        spin('Loading databases...');
+        post(API + '/GetDatabases', { server: server, driver: gv('r46Driver') })
+            .then(function(data) {
+                unspin();
+                if (!data.success) {
+                    setStatusOutput('r46ConnOut', data.error || 'Failed to load databases.', 'error');
+                    return;
+                }
+                fillSelect('r46Db', data.databases || []);
+                setStatusOutput('r46ConnOut', 'Loaded ' + fmt((data.databases || []).length) + ' database(s).', 'success');
+                if ((data.databases || []).length) r46LoadTables();
+            })
+            .catch(function(error) {
+                unspin();
+                setStatusOutput('r46ConnOut', error.message, 'error');
+            });
+    };
+
+    window.r46LoadTables = function() {
+        var db = gv('r46Db');
+        if (!db) return;
+
+        spin('Loading tables...');
+        post(API + '/GetTables', {
+            server: gv('r46Server').trim(),
+            database: db,
+            driver: gv('r46Driver')
+        }).then(function(data) {
+            unspin();
+            if (!data.success) {
+                setStatusOutput('r46CfgOut', data.error || 'Failed to load tables.', 'error');
+                return;
+            }
+            var tables = data.tables || [];
+            fillSelect('r46StudTable', tables, data.autoStudTable || 'dbo_STUD');
+            fillSelect('r46QualTable', tables, data.autoQualTable || 'dbo_QUAL');
+            fillSelect('r46PqmTable', tables, data.autoPqmTable || 'PQM');
+            show('body-r46-cfg', true);
+            setStatusOutput('r46CfgOut', 'Tables loaded. Detecting columns...', 'success');
+            r46DetectColumns();
+        }).catch(function(error) {
+            unspin();
+            setStatusOutput('r46CfgOut', error.message, 'error');
+        });
+    };
+
+    window.r46LoadCols = function(role, tableName) {
+        loadColumns(role, tableName);
+    };
+
+    window.r46DetectColumns = function() {
+        spin('Detecting columns...');
+        Promise.all([
+            loadColumns('stud', gv('r46StudTable')),
+            loadColumns('qual', gv('r46QualTable')),
+            loadColumns('pqm', gv('r46PqmTable')),
+        ]).then(function() {
+            unspin();
+            setStatusOutput('r46CfgOut', 'Column mapping detected from selected tables.', 'success');
+        }).catch(function(error) {
+            unspin();
+            setStatusOutput('r46CfgOut', error.message, 'error');
+        });
+    };
+
+    window.r46Verify = function() {
+        spin('Verifying tables...');
+        post(API + '/VerifyTables', buildReq())
+            .then(function(data) {
+                unspin();
+                if (!data.success) {
+                    setStatusOutput('r46CfgOut', data.error || 'Verification failed.', 'error');
+                    return;
+                }
+                setStatusOutput(
+                    'r46CfgOut',
+                    'STUD: ' + fmt(data.studCount) + ' rows | QUAL: ' + fmt(data.qualCount) + ' rows | PQM: ' + fmt(data.pqmCount) + ' rows',
+                    'success');
+            })
+            .catch(function(error) {
+                unspin();
+                setStatusOutput('r46CfgOut', error.message, 'error');
+            });
+    };
+
+    window.r46Run = async function() {
+        if (!st.clientId) {
+            setWorkspaceMessage('Select an engagement before running Rule 46.', 'warning');
+            return;
+        }
+
+        try {
+            var data = await post(API + '/RunValidation', buildReq());
+            if (!data.success) {
+                setWorkspaceMessage(data.error || 'Rule 46 failed.', 'error');
+                return;
+            }
+            st.runId = data.savedRunId || st.runId;
+            st.currentUserHasSignedOff = false;
+            st.isWorkspaceSaved = false;
+            st.resultsVisible = true;
+            st.summary = data;
+            applySummary(data);
+            setWorkspaceMessage(
+                'Rule 46 complete. Total: ' + fmt(data.totalValidated) + ' | Pass: ' + fmt(data.passCount) + ' | Fail: ' + fmt(data.failCount) + ' | Status: ' + data.status,
+                String(data.status || '').toUpperCase() === 'PASS' ? 'success' : 'warning');
+        } catch(error) {
+                setWorkspaceMessage(error.message, 'error');
+        }
+    };
+
+    window.r46GenSql = function() {
+        spin('Generating SQL...');
+        post(API + '/GenerateSql', buildReq())
+            .then(function(data) {
+                unspin();
+                if (!data.success) {
+                    setWorkspaceMessage(data.error || 'SQL generation failed.', 'error');
+                    return;
+                }
+                g('r46SqlText').value = data.sql || '';
+                r46Tab('r46-sql');
+            })
+            .catch(function(error) {
+                unspin();
+                setWorkspaceMessage(error.message, 'error');
+            });
+    };
+
+    window.r46SaveWorkspace = function() {
+        spin('Saving workspace...');
+        post(API + '/SaveWorkspace', buildReq())
+            .then(function(data) {
+                unspin();
+                if (!data.success) {
+                    setWorkspaceMessage(data.error || 'Workspace save failed.', 'error');
+                    return;
+                }
+                if (data.workspace) applyWsMeta(data.workspace);
+                setWorkspaceMessage(data.message || 'Workspace saved.', data.signoffsCleared ? 'warning' : 'success');
+            })
+            .catch(function(error) {
+                unspin();
+                setWorkspaceMessage(error.message, 'error');
+            });
+    };
+
+    window.r46SignOff = function() {
+        spin('Saving signoff...');
+        post(API + '/SignOffWorkspace', {
+            clientId: st.clientId,
+            runId: st.runId,
+            comment: gv('r46SignoffComment')
+        }).then(function(data) {
+            unspin();
+            if (!data.success) {
+                setWorkspaceMessage(data.error || 'Signoff failed.', 'error');
+                return;
+            }
+            st.currentUserHasSignedOff = true;
+            if (data.workspace) applyWsMeta(data.workspace);
+            setWorkspaceMessage(data.message || 'Signoff saved.', 'success');
+            updateButtons();
+        }).catch(function(error) {
+            unspin();
+            setWorkspaceMessage(error.message, 'error');
+        });
+    };
+
+    window.r46RemoveSignoff = function() {
+        spin('Removing signoff...');
+        post(API + '/RemoveWorkspaceSignoff', {
+            clientId: st.clientId,
+            runId: st.runId,
+            comment: ''
+        }).then(function(data) {
+            unspin();
+            if (!data.success) {
+                setWorkspaceMessage(data.error || 'Signoff removal failed.', 'error');
+                return;
+            }
+            st.currentUserHasSignedOff = false;
+            if (data.workspace) applyWsMeta(data.workspace);
+            setWorkspaceMessage(data.message || 'Signoff removed.', 'warning');
+            updateButtons();
+        }).catch(function(error) {
+            unspin();
+            setWorkspaceMessage(error.message, 'error');
+        });
+    };
+
+    window.r46SetFilter = function(button) {
+        document.querySelectorAll('.r46-filter-btn').forEach(function(item) {
+            item.classList.remove('active');
+        });
+        button.classList.add('active');
+        st.filterResult = String(button.dataset.filter || 'ALL').toUpperCase();
+        renderRule46Results();
+    };
+
+    window.r46DlCsv = async function() {
+        if (!st.runId) return;
+        await window.downloadFileWithProgress({
+            url: API + '/DownloadCsv?runId=' + st.runId,
+            method: 'GET',
+            defaultFileName: 'Rule46_Foundation_Chain_Run_' + st.runId + '.csv',
+            label: 'Downloading CSV'
+        });
+    };
+
+    window.r46DlExcel = async function() {
+        if (!st.runId) return;
+        await window.downloadFileWithProgress({
+            url: API + '/DownloadExcel?runId=' + st.runId,
+            method: 'GET',
+            defaultFileName: 'Rule46_Foundation_Chain_Run_' + st.runId + '.xlsx',
+            label: 'Downloading Excel'
+        });
+    };
+
+    window.r46DlSql = async function() {
+        if (!st.runId) return;
+        await window.downloadFileWithProgress({
+            url: API + '/DownloadSql?runId=' + st.runId,
+            method: 'GET',
+            defaultFileName: 'Rule46_Foundation_Chain_Run_' + st.runId + '.sql',
+            label: 'Downloading SQL'
+        });
+    };
+
+    window.r46OnClientChange = function(value) {
+        st.clientId = parseInt(value, 10) || 0;
+        if (!st.clientId) {
+            applyWorkspace(null, false);
+            return;
+        }
+        loadWorkspace().catch(function(error) {
+            setWorkspaceMessage(error.message, 'error');
+        });
+    };
+
+    renderRule46Analysis(null);
+    renderRule46Results();
+    updateButtons();
+
+    if (st.clientId) {
+        loadWorkspace().catch(function(error) {
+            setWorkspaceMessage(error.message, 'error');
+        });
+    }
+})();
+</script>

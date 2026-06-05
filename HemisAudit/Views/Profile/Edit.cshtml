@@ -1,0 +1,155 @@
+@using HemisAudit.Helpers
+@model HemisAudit.ViewModels.ProfilePageViewModel
+@{
+    ViewData["Title"] = "Profile";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var avatarSrc = AvatarHelper.GetAvatarSource(Model.UserId, Model.Edit.FirstName, Model.Edit.LastName, Model.Edit.CurrentProfilePicturePath);
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+<div class="page-header">
+    <div>
+        <h1>My Profile</h1>
+        <p>Update your personal details, profile picture, and password.</p>
+    </div>
+    <a href="/Dashboard" class="btn btn-secondary">Back</a>
+</div>
+
+<div class="profile-grid">
+    <div class="card">
+        <form asp-action="Edit" method="post" enctype="multipart/form-data">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="ModelOnly" class="alert alert--error" style="margin-bottom:16px"></div>
+
+            <div class="profile-photo-card">
+                <label class="profile-photo-upload" for="profilePictureInput">
+                    <img src="@avatarSrc" alt="@Model.Edit.FirstName @Model.Edit.LastName" class="avatar avatar--xxl" />
+                    <span class="profile-photo-overlay">Change Photo</span>
+                </label>
+                <input asp-for="Edit.ProfilePicture" id="profilePictureInput" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,image/jpeg,image/png,image/gif,image/webp" style="display:none" />
+                <div class="profile-photo-meta">JPG, PNG, GIF, or WEBP. Maximum 5 MB.</div>
+                <span asp-validation-for="Edit.ProfilePicture" class="field-error"></span>
+            </div>
+
+            <div class="form-grid">
+                <div class="field-group">
+                    <label>First Name</label>
+                    <input asp-for="Edit.FirstName" />
+                    <span asp-validation-for="Edit.FirstName" class="field-error"></span>
+                </div>
+                <div class="field-group">
+                    <label>Last Name</label>
+                    <input asp-for="Edit.LastName" />
+                    <span asp-validation-for="Edit.LastName" class="field-error"></span>
+                </div>
+            </div>
+
+            <div class="form-grid" style="margin-top:14px">
+                <div class="field-group">
+                    <label>Employee Code</label>
+                    <input asp-for="Edit.EmployeeCode" />
+                    <span asp-validation-for="Edit.EmployeeCode" class="field-error"></span>
+                </div>
+                <div class="field-group">
+                    <label>Phone Number</label>
+                    <input asp-for="Edit.PhoneNumber" />
+                    <span asp-validation-for="Edit.PhoneNumber" class="field-error"></span>
+                </div>
+            </div>
+
+            <div class="form-grid" style="margin-top:14px">
+                <div class="field-group">
+                    <label>Email</label>
+                    <input asp-for="Edit.Email" readonly />
+                </div>
+                <div class="field-group">
+                    <label>System Role</label>
+                    <input asp-for="Edit.SystemRole" readonly />
+                </div>
+            </div>
+
+            <div class="form-grid" style="margin-top:14px">
+                <div class="field-group">
+                    <label>Gender</label>
+                    <select asp-for="Edit.Gender">
+                        <option value="">Not specified</option>
+                        <option value="Female">Female</option>
+                        <option value="Male">Male</option>
+                        <option value="Other">Other</option>
+                        <option value="Prefer not to say">Prefer not to say</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label>Department</label>
+                    <input asp-for="Edit.Department" />
+                </div>
+            </div>
+
+            <div class="field-group" style="margin-top:14px">
+                <label>Office Address</label>
+                <textarea asp-for="Edit.OfficeAddress" rows="4"></textarea>
+            </div>
+
+            <div class="action-bar" style="margin-top:20px">
+                <button type="submit" class="btn btn-success">Save Profile</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card" id="password-panel">
+        <form asp-action="ChangePassword" method="post">
+            @Html.AntiForgeryToken()
+            <h3 class="section-title" style="margin-top:0">Change Password</h3>
+            <p style="color:#757575;margin-bottom:16px">Use your current password to set a new one.</p>
+
+            @{
+                var passwordStatus = Model.PasswordStatus;
+                var passwordAlertClass = passwordStatus.IsExpired
+                    ? "alert--error"
+                    : passwordStatus.IsExpiringSoon
+                        ? "alert--warning"
+                        : "alert--info";
+            }
+            <div class="alert @passwordAlertClass" style="margin-bottom:16px">
+                <div><strong>Current password age:</strong> @passwordStatus.AgeDays day(s)</div>
+                <div><strong>Counted from:</strong> @(passwordStatus.ReferenceDateUtc?.ToString("dd MMM yyyy") ?? "Not available")</div>
+                @if (passwordStatus.IsExpired)
+                {
+                    <div><strong>Status:</strong> Expired. A new password is required immediately.</div>
+                }
+                else
+                {
+                    <div><strong>Expires in:</strong> @passwordStatus.DaysRemaining day(s) of the @passwordStatus.MaxAgeDays-day policy.</div>
+                }
+            </div>
+
+            <div class="field-group" style="margin-bottom:14px">
+                <label>Current Password</label>
+                <input asp-for="PasswordChange.OldPassword" type="password" />
+                <span asp-validation-for="PasswordChange.OldPassword" class="field-error"></span>
+            </div>
+            <div class="field-group" style="margin-bottom:14px">
+                <label>New Password</label>
+                <input asp-for="PasswordChange.NewPassword" type="password" />
+                <span asp-validation-for="PasswordChange.NewPassword" class="field-error"></span>
+            </div>
+            <div class="field-group" style="margin-bottom:20px">
+                <label>Confirm New Password</label>
+                <input asp-for="PasswordChange.ConfirmPassword" type="password" />
+                <span asp-validation-for="PasswordChange.ConfirmPassword" class="field-error"></span>
+            </div>
+
+            <div class="action-bar">
+                <button type="submit" class="btn btn-primary">Change Password</button>
+            </div>
+        </form>
+    </div>
+</div>

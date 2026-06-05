@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HemisAudit</RootNamespace>
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove=".codex-build-*\**" />
+    <Compile Remove=".codex_build_*\**" />
+    <Compile Remove=".codex-run\**" />
+    <Compile Remove=".run\**" />
+    <Compile Remove=".run-system-build\**" />
+    <Compile Remove="artifacts\**" />
+    <Compile Remove="bin\**" />
+    <Compile Remove="bin_verify\**" />
+    <Compile Remove="obj\**" />
+    <Compile Remove="obj_verify\**" />
+    <Compile Remove="build_verify*\**" />
+    <Compile Remove="runobj\**" />
+    <Compile Remove="runout\**" />
+    <Content Remove=".codex-build-*\**" />
+    <Content Remove=".codex_build_*\**" />
+    <Content Remove=".codex-run\**" />
+    <Content Remove=".run\**" />
+    <Content Remove=".run-system-build\**" />
+    <Content Remove="artifacts\**" />
+    <Content Remove="bin\**" />
+    <Content Remove="bin_verify\**" />
+    <Content Remove="obj\**" />
+    <Content Remove="obj_verify\**" />
+    <Content Remove="build_verify*\**" />
+    <Content Remove="runobj\**" />
+    <Content Remove="runout\**" />
+    <None Remove=".codex-build-*\**" />
+    <None Remove=".codex_build_*\**" />
+    <None Remove=".codex-run\**" />
+    <None Remove=".run\**" />
+    <None Remove=".run-system-build\**" />
+    <None Remove="artifacts\**" />
+    <None Remove="bin\**" />
+    <None Remove="bin_verify\**" />
+    <None Remove="obj\**" />
+    <None Remove="obj_verify\**" />
+    <None Remove="build_verify*\**" />
+    <None Remove="runobj\**" />
+    <None Remove="runout\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Core database & identity -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer"     Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite"        Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools"         Version="8.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.8" />
+
+    <!-- HEMIS data source (separate SqlClient for HEMIS DB queries) -->
+    <PackageReference Include="Microsoft.Data.SqlClient"                    Version="5.2.1" />
+
+    <!-- Exports -->
+    <PackageReference Include="ClosedXML"                                   Version="0.102.3" />
+
+    <!-- JSON -->
+    <PackageReference Include="Newtonsoft.Json"                             Version="13.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson"     Version="8.0.8" />
+    <PackageReference Include="BCrypt.Net-Next"                             Version="4.0.3" />
+  </ItemGroup>
+
+</Project>

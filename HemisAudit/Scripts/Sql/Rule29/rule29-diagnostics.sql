@@ -1,0 +1,12 @@
+SELECT COUNT(*) AS TotalRows FROM [HEMIS_2025].[dbo].[dbo_CREG_VALIDATION_DETAIL];
+SELECT COUNT(*) AS CountExact00708 FROM [HEMIS_2025].[dbo].[dbo_CREG_VALIDATION_DETAIL] WHERE CAST([Error] AS nvarchar(4000)) = '00708';
+SELECT COUNT(*) AS CountExact708 FROM [HEMIS_2025].[dbo].[dbo_CREG_VALIDATION_DETAIL] WHERE CAST([Error] AS nvarchar(4000)) = '708';
+SELECT COUNT(*) AS CountInt708 FROM [HEMIS_2025].[dbo].[dbo_CREG_VALIDATION_DETAIL] WHERE [Error] = 708;
+SELECT COUNT(*) AS CountNormalized FROM [HEMIS_2025].[dbo].[dbo_CREG_VALIDATION_DETAIL]
+WHERE CASE
+    WHEN LTRIM(RTRIM(CAST([Error] AS nvarchar(4000)))) = '' THEN ''
+    WHEN LTRIM(RTRIM(CAST([Error] AS nvarchar(4000)))) LIKE '%[^0-9]%' THEN LTRIM(RTRIM(CAST([Error] AS nvarchar(4000))))
+    WHEN PATINDEX('%[^0]%', LTRIM(RTRIM(CAST([Error] AS nvarchar(4000))))) = 0 THEN '0'
+    ELSE SUBSTRING(LTRIM(RTRIM(CAST([Error] AS nvarchar(4000)))), PATINDEX('%[^0]%', LTRIM(RTRIM(CAST([Error] AS nvarchar(4000))))), LEN(LTRIM(RTRIM(CAST([Error] AS nvarchar(4000))))))
+END = '708';
+SELECT TOP 10 [Record],[Error_Type],[Error] FROM [HEMIS_2025].[dbo].[dbo_CREG_VALIDATION_DETAIL] WHERE [Error] = 708;

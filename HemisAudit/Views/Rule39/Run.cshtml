@@ -1,0 +1,397 @@
+@model HemisAudit.ViewModels.Rule39RunReviewViewModel
+@{
+    ViewData["Title"] = $"Rule 39 Run {Model.RunId}";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var isAdmin = ViewBag.IsAdmin is bool admin && admin;
+    var canDownload = ViewBag.CanDownloadSavedRun is bool allowed && allowed;
+    var canManageEngagement = ViewBag.CanManageEngagement is bool me && me;
+    var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool owb && owb;
+    var isArchived = ViewBag.IsArchived is bool arch && arch;
+    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+    var s = Model.Summary;
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert--success" style="margin-bottom:16px">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert--error" style="margin-bottom:16px">@TempData["Error"]</div>
+}
+
+@if (moduleNavigation != null)
+{
+    @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+}
+
+<style>
+    .viz-grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }
+    .viz-card { background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:20px; box-shadow:0 18px 40px rgba(15,23,42,.06); }
+    .code-panel { background:#0f172a; border-radius:18px; color:#e2e8f0; overflow:auto; padding:18px; }
+    .code-panel pre { margin:0; white-space:pre-wrap; word-break:break-word; }
+    .filter-toolbar { align-items:center; display:flex; flex-wrap:wrap; gap:16px; justify-content:space-between; margin-bottom:16px; }
+    .filter-toolbar__group { align-items:center; display:flex; gap:10px; }
+    .filter-toolbar__group label { color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>Rule 39 — First-Time Entering vs Non-Aligned Qualifications</h1>
+        <p>
+            @Model.EngagementName
+            <span style="padding:0 8px">|</span>
+            @Model.MaconomyNumber
+            <span style="padding:0 8px">|</span>
+            Run #@Model.RunId
+            <span style="padding:0 8px">|</span>
+            @s.Timestamp
+        </p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+        @if (canOpenWorkspace)
+        {
+            <a href="/Rule39?clientId=@Model.ClientId" class="btn btn-primary">Open Workspace</a>
+        }
+        @if (canManageEngagement)
+        {
+            <a href="/Clients/Details/@Model.ClientId" class="btn btn-secondary">Manage Engagement</a>
+        }
+    </div>
+</div>
+
+@if (!Model.IsCurrentRun)
+{
+    <div class="alert alert--warning" style="margin-bottom:16px">
+        This is a historical run. A newer run exists for this engagement.
+        <a href="/Rule39?clientId=@Model.ClientId">Open current workspace</a>
+    </div>
+}
+
+@if (isArchived)
+{
+    <div class="alert alert--warning" style="margin-bottom:16px">
+        This engagement is archived. Results are read-only; signoff and removal are disabled.
+    </div>
+}
+
+<!-- Status Summary -->
+<div class="results-card" style="margin-bottom:24px">
+    <div class="viz-grid">
+        <div class="viz-card">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">STUD Total</div>
+            <div style="font-size:28px;font-weight:800">@s.StudTotalCount.ToString("N0")</div>
+        </div>
+        <div class="viz-card">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">First-Time Entering</div>
+            <div style="font-size:28px;font-weight:800">@s.TotalValidated.ToString("N0")</div>
+            <div style="font-size:11px;color:#64748b">@s.StudFirstTimeColumn = '@s.StudFirstTimeValue'</div>
+        </div>
+        <div class="viz-card">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">QUAL Records</div>
+            <div style="font-size:28px;font-weight:800">@s.QualTotalCount.ToString("N0")</div>
+        </div>
+        <div class="viz-card">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">NAL Category Records</div>
+            <div style="font-size:28px;font-weight:800">@s.NalCategoryCount.ToString("N0")</div>
+            <div style="font-size:11px;color:#64748b">Category = '@s.NalCategoryValue'</div>
+        </div>
+        <div class="viz-card" style="border-left:4px solid #EF4444">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">FLAGGED</div>
+            <div style="font-size:28px;font-weight:800;color:#C62828">@s.FlaggedCount.ToString("N0")</div>
+        </div>
+        <div class="viz-card" style="border-left:4px solid #22C55E">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">CLEAR</div>
+            <div style="font-size:28px;font-weight:800;color:#166534">@s.ClearCount.ToString("N0")</div>
+        </div>
+        <div class="viz-card" style="border-left:4px solid @(s.Status == "PASS" ? "#22C55E" : "#EF4444")">
+            <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:6px">Status</div>
+            <div style="font-size:28px;font-weight:800;color:@(s.Status == "PASS" ? "#166534" : "#C62828")">@s.Status</div>
+            <div style="font-size:11px;color:#64748b">Rate: @s.ExceptionRate.ToString("F2")%</div>
+        </div>
+    </div>
+</div>
+
+@if (s.IsPreviewOnly)
+{
+    <div class="alert alert--info" style="margin-bottom:16px">
+        Browser preview only: showing up to @s.PreviewLimit rows per result set. Download Excel for the full population.
+    </div>
+}
+
+<!-- Tabs -->
+<div class="results-panel">
+    <div class="results-tabs">
+        <button class="tab-btn active" onclick="switchTab('flagged')">FLAGGED (@s.FlaggedCount.ToString("N0"))</button>
+        <button class="tab-btn" onclick="switchTab('clear')">CLEAR (@s.ClearCount.ToString("N0"))</button>
+        <button class="tab-btn" onclick="switchTab('config')">Configuration</button>
+        <button class="tab-btn" onclick="switchTab('signoffs')">Signoffs</button>
+        <button class="tab-btn" onclick="switchTab('sql')">SQL Code</button>
+        @if (canDownload)
+        {
+            <button class="tab-btn" onclick="switchTab('downloads')">Downloads</button>
+        }
+    </div>
+
+    <!-- FLAGGED rows -->
+    <div class="tab-pane active" id="tab-flagged">
+        <h3 style="margin-bottom:1rem">FLAGGED Rows</h3>
+        @if (!s.FlaggedRows.Any())
+        {
+            <div class="alert alert--success">No FLAGGED rows — all first-time entering students are enrolled in aligned qualifications.</div>
+        }
+        else
+        {
+            <div class="results-table-shell">
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>STUD Qual Ref</th>
+                                <th>STUD _007</th>
+                                <th>STUD _008</th>
+                                <th>FTE Value</th>
+                                <th>STUD _012</th>
+                                <th>STUD _026</th>
+                                <th>QUAL Code</th>
+                                <th>QUAL Name</th>
+                                <th>NAL Qual Name</th>
+                                <th>Aligned Name</th>
+                                <th>Category</th>
+                                @if (!string.IsNullOrWhiteSpace(s.NalHeqsfRefColumn)) { <th>HEQSF Ref</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalSaqaIdColumn)) { <th>SAQA ID</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalNqfColumn)) { <th>NQF</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalCreditsColumn)) { <th>Credits</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalOutcomeColumn)) { <th>Outcome</th> }
+                                <th>Result</th>
+                                <th>Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in s.FlaggedRows)
+                            {
+                                <tr>
+                                    <td>@row.RowNumber</td>
+                                    <td><strong>@row.StudQualRef</strong></td>
+                                    <td>@row.Stud007Value</td>
+                                    <td>@row.Stud008Value</td>
+                                    <td>@row.Stud010Value</td>
+                                    <td>@row.Stud012Value</td>
+                                    <td>@row.Stud026Value</td>
+                                    <td>@row.QualCodeValue</td>
+                                    <td>@row.QualNameValue</td>
+                                    <td>@row.NalQualName</td>
+                                    <td>@row.NalAlignedName</td>
+                                    <td>@row.NalCategory</td>
+                                    @if (!string.IsNullOrWhiteSpace(s.NalHeqsfRefColumn)) { <td>@row.NalHeqsfRef</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalSaqaIdColumn)) { <td>@row.NalSaqaId</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalNqfColumn)) { <td>@row.NalNqf</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalCreditsColumn)) { <td>@row.NalCredits</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalOutcomeColumn)) { <td>@row.NalOutcome</td> }
+                                    <td><span class="badge badge--fail">FLAGGED</span></td>
+                                    <td>@row.ExceptionReason</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (s.FlaggedRows.Count < s.FlaggedCount)
+                {
+                    <div class="table-footer">Showing @s.FlaggedRows.Count of @s.FlaggedCount.ToString("N0") FLAGGED rows. Download the Excel or CSV for the full list.</div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- CLEAR rows -->
+    <div class="tab-pane" id="tab-clear">
+        <h3 style="margin-bottom:1rem">CLEAR Rows</h3>
+        @if (!s.ClearSampleRows.Any())
+        {
+            <div class="alert alert--warning">No CLEAR rows available in this saved run.</div>
+        }
+        else
+        {
+            <div class="results-table-shell">
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>STUD Qual Ref</th>
+                                <th>STUD _007</th>
+                                <th>STUD _008</th>
+                                <th>FTE Value</th>
+                                <th>STUD _012</th>
+                                <th>STUD _026</th>
+                                <th>QUAL Code</th>
+                                <th>QUAL Name</th>
+                                <th>NAL Qual Name</th>
+                                <th>Aligned Name</th>
+                                <th>Category</th>
+                                @if (!string.IsNullOrWhiteSpace(s.NalHeqsfRefColumn)) { <th>HEQSF Ref</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalSaqaIdColumn)) { <th>SAQA ID</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalNqfColumn)) { <th>NQF</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalCreditsColumn)) { <th>Credits</th> }
+                                @if (!string.IsNullOrWhiteSpace(s.NalOutcomeColumn)) { <th>Outcome</th> }
+                                <th>Result</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in s.ClearSampleRows)
+                            {
+                                <tr>
+                                    <td>@row.RowNumber</td>
+                                    <td><strong>@row.StudQualRef</strong></td>
+                                    <td>@row.Stud007Value</td>
+                                    <td>@row.Stud008Value</td>
+                                    <td>@row.Stud010Value</td>
+                                    <td>@row.Stud012Value</td>
+                                    <td>@row.Stud026Value</td>
+                                    <td>@row.QualCodeValue</td>
+                                    <td>@row.QualNameValue</td>
+                                    <td>@row.NalQualName</td>
+                                    <td>@row.NalAlignedName</td>
+                                    <td>@row.NalCategory</td>
+                                    @if (!string.IsNullOrWhiteSpace(s.NalHeqsfRefColumn)) { <td>@row.NalHeqsfRef</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalSaqaIdColumn)) { <td>@row.NalSaqaId</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalNqfColumn)) { <td>@row.NalNqf</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalCreditsColumn)) { <td>@row.NalCredits</td> }
+                                    @if (!string.IsNullOrWhiteSpace(s.NalOutcomeColumn)) { <td>@row.NalOutcome</td> }
+                                    <td><span class="badge badge--pass">CLEAR</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (s.ClearSampleRows.Count < s.ClearCount)
+                {
+                    <div class="table-footer">Showing @s.ClearSampleRows.Count of @s.ClearCount.ToString("N0") CLEAR rows. Download the Excel or CSV for the full list.</div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Configuration -->
+    <div class="tab-pane" id="tab-config">
+        <h3 style="margin-bottom:1rem">Run Configuration</h3>
+        <table class="data-table">
+            <tbody>
+                <tr><td style="font-weight:600">Database</td><td>@s.Database</td></tr>
+                <tr><td style="font-weight:600">STUD Table</td><td>@s.StudTable</td></tr>
+                <tr><td style="font-weight:600">First-Time Column</td><td>@s.StudFirstTimeColumn = '@s.StudFirstTimeValue'</td></tr>
+                <tr><td style="font-weight:600">STUD Qual Ref Column</td><td>@s.StudQualRefColumn</td></tr>
+                @if (!string.IsNullOrWhiteSpace(s.Stud007Column)) { <tr><td style="font-weight:600">STUD _007 Column</td><td>@s.Stud007Column</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.Stud008Column)) { <tr><td style="font-weight:600">STUD _008 Column</td><td>@s.Stud008Column</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.Stud012Column)) { <tr><td style="font-weight:600">STUD _012 Column</td><td>@s.Stud012Column</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.Stud026Column)) { <tr><td style="font-weight:600">STUD _026 Column</td><td>@s.Stud026Column</td></tr> }
+                <tr><td style="font-weight:600">QUAL Table</td><td>@s.QualTable</td></tr>
+                <tr><td style="font-weight:600">QUAL Code Column</td><td>@s.QualCodeColumn</td></tr>
+                <tr><td style="font-weight:600">QUAL Name Column</td><td>@s.QualNameColumn</td></tr>
+                <tr><td style="font-weight:600">NAL Table</td><td>@s.NalTable</td></tr>
+                <tr><td style="font-weight:600">NAL Ref Column</td><td>@s.NalRefColumn</td></tr>
+                <tr><td style="font-weight:600">NAL Name Column</td><td>@s.NalNameColumn</td></tr>
+                <tr><td style="font-weight:600">NAL Aligned Column</td><td>@s.NalAlignedColumn</td></tr>
+                <tr><td style="font-weight:600">NAL Category Column</td><td>@s.NalCategoryColumn = '@s.NalCategoryValue'</td></tr>
+                @if (!string.IsNullOrWhiteSpace(s.NalHeqsfRefColumn)) { <tr><td style="font-weight:600">HEQSF Ref Column</td><td>@s.NalHeqsfRefColumn</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.NalSaqaIdColumn)) { <tr><td style="font-weight:600">SAQA ID Column</td><td>@s.NalSaqaIdColumn</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.NalNqfColumn)) { <tr><td style="font-weight:600">NQF Column</td><td>@s.NalNqfColumn</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.NalCreditsColumn)) { <tr><td style="font-weight:600">Credits Column</td><td>@s.NalCreditsColumn</td></tr> }
+                @if (!string.IsNullOrWhiteSpace(s.NalOutcomeColumn)) { <tr><td style="font-weight:600">Outcome Column</td><td>@s.NalOutcomeColumn</td></tr> }
+                <tr><td style="font-weight:600">Source Server</td><td>@Model.SourceServer</td></tr>
+                <tr><td style="font-weight:600">Run Date</td><td>@s.Timestamp</td></tr>
+                <tr><td style="font-weight:600">Run ID</td><td>#@Model.RunId</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Signoffs -->
+    <div class="tab-pane" id="tab-signoffs">
+        <h3 style="margin-bottom:1rem">Signoffs</h3>
+        @if (!Model.Signoffs.Any())
+        {
+            <div class="alert alert--info">No signoffs recorded for this run yet.</div>
+        }
+        else
+        {
+            <div class="results-table-shell">
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead><tr><th>Role</th><th>Reviewer</th><th>Comment</th><th>Signed Off At</th><th>Your Record</th></tr></thead>
+                        <tbody>
+                            @foreach (var so in Model.Signoffs)
+                            {
+                                <tr class="@(so.IsCurrentUser ? "row-highlight" : "")">
+                                    <td><span class="badge badge--neutral badge--sm">@so.SignoffRole</span></td>
+                                    <td>@so.ReviewerName <small style="color:#64748b">@so.ReviewerEmail</small></td>
+                                    <td>@so.Comment</td>
+                                    <td>@so.SignedOffAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>@(so.IsCurrentUser ? "✔" : "")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (Model.IsCurrentRun && !isArchived)
+        {
+            @if (Model.CanCurrentUserSignOff && !Model.CurrentUserHasSignedOff)
+            {
+                <form method="post" action="/Rule39/AddSignoff" style="margin-top:1.5rem">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="RunId" value="@Model.RunId" />
+                    <div class="field-group" style="max-width:600px">
+                        <label>Signoff Comment</label>
+                        <textarea name="Comment" rows="3" placeholder="Enter your review comment..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">Sign Off Run #@Model.RunId</button>
+                </form>
+            }
+            @if (Model.CanCurrentUserRemoveSignoff)
+            {
+                <form method="post" action="/Rule39/RemoveSignoff" style="margin-top:1rem"
+                      onsubmit="return confirm('Are you sure you want to remove your signoff from this run?')">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="runId" value="@Model.RunId" />
+                    <button type="submit" class="btn btn-warning">Remove My Signoff</button>
+                </form>
+            }
+        }
+    </div>
+
+    <!-- SQL Code -->
+    <div class="tab-pane" id="tab-sql">
+        <h3 style="margin-bottom:1rem">Generated SQL</h3>
+        <div class="code-panel">
+            <pre>@Model.GeneratedSql</pre>
+        </div>
+    </div>
+
+    <!-- Downloads -->
+    @if (canDownload)
+    {
+        <div class="tab-pane" id="tab-downloads">
+            <h3 style="margin-bottom:1rem">Download Run #@Model.RunId</h3>
+            <div class="download-buttons download-buttons--wide">
+                <a href="/Rule39/DownloadSavedExcel?runId=@Model.RunId" class="btn btn-success">Excel</a>
+                <a href="/Rule39/DownloadSavedCsv?runId=@Model.RunId" class="btn btn-info">Full CSV</a>
+                <a href="/Rule39/DownloadSavedExceptionsCsv?runId=@Model.RunId" class="btn btn-info">FLAGGED CSV</a>
+                <a href="/Rule39/DownloadSavedSql?runId=@Model.RunId" class="btn btn-primary">SQL Script</a>
+            </div>
+        </div>
+    }
+</div>
+
+<script>
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    const btn = document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`);
+    if (btn) btn.classList.add('active');
+    const panel = document.getElementById(`tab-${name}`);
+    if (panel) panel.classList.add('active');
+}
+</script>

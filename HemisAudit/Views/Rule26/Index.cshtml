@@ -1,0 +1,1426 @@
+@using HemisAudit.Models
+@using HemisAudit.ViewModels
+@{
+    ViewData["Title"] = "Rule 26 - dbo_PROF to Payroll_Sample 4-Control Validation";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+@if (isResultsOnlyRole)
+{
+    <style>
+        #app > .accordion-stack > .accordion-item:nth-child(-n+2),
+        #app > .action-bar {
+            display: none !important;
+        }
+    </style>
+}
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <div class="engagement-selector">
+        <label for="clientId">Engagement</label>
+        <select id="clientId">
+            <option value="">Select engagement (results saved here)</option>
+            @foreach (var client in clients)
+            {
+                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                    @client.Name (@client.FiscalYear)
+                </option>
+            }
+        </select>
+        <small>Saved runs reload the last analyst configuration for this engagement.</small>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R26</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS RULE 26: dbo_PROF to Payroll_Sample 4-Control Validation</h1>
+            <p class="rule-header__sub">Tests linked dbo_PROF personnel against Payroll_Sample across employment type, gender, race/group, and birth date controls.</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="accordion-stack">
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('connection')">
+                <span class="acc-icon">DB</span>
+                <span>Database Connection</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-connection">
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="server">Server Name</label>
+                        <input id="server" type="text" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                    </div>
+                    <div class="field-group">
+                        <label for="driver">Driver</label>
+                        <select id="driver">
+                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                            <option value="SQL Server">SQL Server</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label for="database">Database</label>
+                        <select id="database"></select>
+                    </div>
+                </div>
+                <div class="action-bar" style="justify-content:flex-start;margin:12px 0 0">
+                    <button type="button" class="btn btn-primary" id="connectBtn">Connect</button>
+                    <button type="button" class="btn btn-info" id="verifyBtn">Verify Tables</button>
+                </div>
+                <div id="connectionOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('mapping')">
+                <span class="acc-icon">MP</span>
+                <span>Table and Column Mapping</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-mapping" style="display:none">
+                <div class="info-box info-box--red">
+                    <strong>Rule 26 logic:</strong><br />
+                    The system tests one direction in one run:
+                    <br />1. dbo_PROF -> Payroll_Sample
+                    <br /><br />
+                    Rule 26 follows the same one-direction population-testing pattern as Rules 51 and 52, but across 4 mapped controls from dbo_PROF into Payroll_Sample.
+                    <br /><br />
+                    Personnel number existence is not retested here because it is covered in Rule 59.
+                </div>
+
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label for="profTable">PROF Table</label>
+                        <select id="profTable"></select>
+                    </div>
+                    <div class="field-group">
+                        <label for="payrollTable">Payroll Table</label>
+                        <select id="payrollTable"></select>
+                    </div>
+                </div>
+
+                <div class="form-grid" style="margin-top:16px">
+                    <div class="card" style="padding:16px">
+                        <h3 class="section-title" style="margin-top:0">dbo_PROF Columns</h3>
+                        <div class="field-group">
+                            <label for="profPersonnel">Personnel Number</label>
+                            <select id="profPersonnel"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="profEmployment">Employment Type</label>
+                            <select id="profEmployment"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="profGender">Gender</label>
+                            <select id="profGender"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="profGroup">Race / Group</label>
+                            <select id="profGroup"></select>
+                        </div>
+                        <div class="field-group" style="margin-bottom:0">
+                            <label for="profBirth">Birth Date</label>
+                            <select id="profBirth"></select>
+                        </div>
+                    </div>
+
+                    <div class="card" style="padding:16px">
+                        <h3 class="section-title" style="margin-top:0">Payroll Columns</h3>
+                        <div class="field-group">
+                            <label for="payrollPersonnel">Personnel Number</label>
+                            <select id="payrollPersonnel"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="payrollEmployment">Employment Type</label>
+                            <select id="payrollEmployment"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="payrollGender">Gender</label>
+                            <select id="payrollGender"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="payrollGroup">Group Name</label>
+                            <select id="payrollGroup"></select>
+                        </div>
+                        <div class="field-group" style="margin-bottom:0">
+                            <label for="payrollBirth">Birth Date</label>
+                            <select id="payrollBirth"></select>
+                        </div>
+                    </div>
+                </div>
+                <div class="card" style="padding:16px;margin-top:16px">
+                    <h3 class="section-title" style="margin-top:0">Classification Configuration</h3>
+                    <div class="field-group">
+                        <label for="blankPayrollGroupPassCodes">Blank Payroll GROUP_NAME Pass Codes</label>
+                        <input id="blankPayrollGroupPassCodes" type="text" value="Z" placeholder="e.g. Z or Z,G,P" />
+                        <small>Comma-separated dbo_PROF `_013` codes that should pass when Payroll `GROUP_NAME` is blank.</small>
+                    </div>
+                    <div class="alert alert--info" style="margin:12px 0 0">
+                        <strong>Classification reference:</strong> A = African, C = Coloured, I = Indian, W = White, Z = No information.
+                    </div>
+                </div>
+                <div id="mappingOutput" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('downloads')">
+                <span class="acc-icon">DL</span>
+                <span>Export Options</span>
+                <span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-downloads" style="display:none">
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The last saved Rule 26 mapping, results, and signoffs reload here automatically.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the saved Rule 26 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
+                <div id="workspaceRunLabel">No saved run yet</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                <div id="workspaceStatusLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
+                <div id="workspaceEditedLabel">-</div>
+            </div>
+            <div>
+                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
+                <div id="workspaceRoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <label for="workspaceSignoffComment">Signoff Comment</label>
+                <textarea id="workspaceSignoffComment" rows="3" placeholder="Add review or completion notes"></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
+            <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
+            <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button type="button" class="btn btn-info" id="verifyBtnBar">Verify Tables</button>
+        <button type="button" class="btn btn-success" id="runBtn">Run Validation</button>
+        <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+        <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
+    </div>
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="results">Analysis</button>
+            <button class="tab-btn" type="button" data-tab="details">Results</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+            <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
+        </div>
+        <div class="tab-pane active" data-tab-panel="results"></div>
+        <div class="tab-pane" data-tab-panel="details"></div>
+        <div class="tab-pane" data-tab-panel="charts"></div>
+        <div class="tab-pane" data-tab-panel="sql">
+            <textarea id="sqlText" rows="18" readonly></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="downloads">
+            <div class="alert alert--info" style="margin-bottom:16px">
+                Excel includes the population summary, control summary, employee exception summary, and full PASS/FAIL results for dbo_PROF vs Payroll_Sample. CSV includes all exception rows.
+            </div>
+            <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<form id="antiForgeryForm" method="post" style="display:none">
+    @Html.AntiForgeryToken()
+</form>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(() => {
+    const currentSystemRole = '@currentSystemRole';
+    const apiBasePath = '/Rule26';
+    const preferredDatabaseName = 'HEMIS_2025';
+    const state = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        currentRunId: null,
+        summary: null,
+        sql: '',
+        currentUserEngagementRole: '',
+        currentStatus: '',
+        currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
+        hasDataAnalystSignoff: false,
+        resultsVisible: false,
+        detailsDirectionFilter: '',
+        detailsControlFilter: '',
+        chartInstances: [],
+        isDirty: false,
+        isHydrating: false
+    };
+
+    const els = {
+        clientId: document.getElementById('clientId'),
+        server: document.getElementById('server'),
+        driver: document.getElementById('driver'),
+        database: document.getElementById('database'),
+        profTable: document.getElementById('profTable'),
+        payrollTable: document.getElementById('payrollTable'),
+        profPersonnel: document.getElementById('profPersonnel'),
+        profEmployment: document.getElementById('profEmployment'),
+        profGender: document.getElementById('profGender'),
+        profGroup: document.getElementById('profGroup'),
+        profBirth: document.getElementById('profBirth'),
+        blankPayrollGroupPassCodes: document.getElementById('blankPayrollGroupPassCodes'),
+        payrollPersonnel: document.getElementById('payrollPersonnel'),
+        payrollEmployment: document.getElementById('payrollEmployment'),
+        payrollGender: document.getElementById('payrollGender'),
+        payrollGroup: document.getElementById('payrollGroup'),
+        payrollBirth: document.getElementById('payrollBirth'),
+        connectionOutput: document.getElementById('connectionOutput'),
+        mappingOutput: document.getElementById('mappingOutput'),
+        statusBadge: document.getElementById('statusBadge'),
+        workspaceInfo: document.getElementById('workspaceInfo'),
+        workspaceRunLabel: document.getElementById('workspaceRunLabel'),
+        workspaceStatusLabel: document.getElementById('workspaceStatusLabel'),
+        workspaceEditedLabel: document.getElementById('workspaceEditedLabel'),
+        workspaceRoleLabel: document.getElementById('workspaceRoleLabel'),
+        workspaceRunState: document.getElementById('workspaceRunState'),
+        workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
+        beginEditBtn: document.getElementById('beginEditBtn'),
+        saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
+        signoffBtn: document.getElementById('signoffBtn'),
+        removeSignoffBtn: document.getElementById('removeSignoffBtn'),
+        connectBtn: document.getElementById('connectBtn'),
+        verifyBtn: document.getElementById('verifyBtn'),
+        verifyBtnBar: document.getElementById('verifyBtnBar'),
+        runBtn: document.getElementById('runBtn'),
+        sqlBtn: document.getElementById('sqlBtn'),
+        downloadAllBtn: document.getElementById('downloadAllBtn'),
+        sqlText: document.getElementById('sqlText'),
+        downloadExcelBtn: document.getElementById('downloadExcelBtn'),
+        downloadCsvBtn: document.getElementById('downloadCsvBtn'),
+        downloadSqlBtn: document.getElementById('downloadSqlBtn'),
+        resultsPane: document.querySelector('[data-tab-panel="results"]'),
+        detailsPane: document.querySelector('[data-tab-panel="details"]'),
+        chartsPane: document.querySelector('[data-tab-panel="charts"]'),
+        spinner: document.getElementById('spinner'),
+        spinnerMsg: document.getElementById('spinnerMsg')
+    };
+
+    const dataTabs = Array.from(document.querySelectorAll('[data-tab]'));
+    const dataPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+    dataTabs.forEach(btn => btn.addEventListener('click', () => switchTab(btn.getAttribute('data-tab'))));
+
+    function switchTab(name) {
+        dataTabs.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tab') === name));
+        dataPanels.forEach(panel => panel.classList.toggle('active', panel.getAttribute('data-tab-panel') === name));
+    }
+
+    window.toggleAccordion = function(key) {
+        const body = document.getElementById(`body-${key}`);
+        if (!body) return;
+        body.style.display = body.style.display === 'none' ? '' : 'none';
+    };
+
+    function showSpinner(message) {
+        els.spinnerMsg.textContent = message || 'Processing...';
+        els.spinner.style.display = 'flex';
+    }
+
+    function hideSpinner() {
+        els.spinner.style.display = 'none';
+    }
+
+    function setWorkspaceInfo(type, message) {
+        els.workspaceInfo.className = `alert alert--${type}`;
+        els.workspaceInfo.textContent = message;
+        window.showWorkspaceActionToast?.(message, type);
+    }
+
+    function toFriendlyRequestError(error) {
+        if (!error) return 'Unexpected error.';
+        if (error.message) return error.message;
+        return String(error);
+    }
+
+    function getRequestVerificationToken() {
+        return document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
+    }
+
+    async function postJson(url, payload) {
+        return await window.fetchJsonWithProgress(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': getRequestVerificationToken()
+            },
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async function getJson(url) {
+        return await window.fetchJsonWithProgress(url, { method: 'GET' });
+    }
+
+    async function downloadPost(url, payload, fileName) {
+        await window.downloadFileWithProgress({
+            url,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': getRequestVerificationToken()
+            },
+            body: JSON.stringify(payload || {}),
+            defaultFileName: fileName,
+            label: 'Downloading result'
+        });
+    }
+
+    function markWorkspaceDirty() {
+        if (state.isHydrating) return;
+        state.isDirty = true;
+    }
+
+    function populateSelect(select, values, selectedValue) {
+        if (!select) return;
+        const current = selectedValue ?? select.value;
+        select.innerHTML = '';
+        values.forEach(value => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            if (current && value === current) option.selected = true;
+            select.appendChild(option);
+        });
+    }
+
+    function buildValidationRequest() {
+        return {
+            clientId: Number(els.clientId.value || 0),
+            runId: state.currentRunId,
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            profTable: els.profTable.value,
+            payrollTable: els.payrollTable.value,
+            profPersonnelColumn: els.profPersonnel.value,
+            profEmploymentTypeColumn: els.profEmployment.value,
+            profGenderColumn: els.profGender.value,
+            profGroupColumn: els.profGroup.value,
+            profBirthDateColumn: els.profBirth.value,
+            blankPayrollGroupPassCodes: els.blankPayrollGroupPassCodes.value.trim(),
+            payrollPersonnelColumn: els.payrollPersonnel.value,
+            payrollEmploymentTypeColumn: els.payrollEmployment.value,
+            payrollGenderColumn: els.payrollGender.value,
+            payrollGroupColumn: els.payrollGroup.value,
+            payrollBirthDateColumn: els.payrollBirth.value
+        };
+    }
+
+    function buildVerifyRequest() {
+        const request = buildValidationRequest();
+        return {
+            server: request.server,
+            database: request.database,
+            driver: request.driver,
+            profTable: request.profTable,
+            payrollTable: request.payrollTable,
+            profPersonnelColumn: request.profPersonnelColumn,
+            payrollPersonnelColumn: request.payrollPersonnelColumn
+        };
+    }
+
+    function setStatusBadge(status) {
+        if (!status) {
+            els.statusBadge.style.display = 'none';
+            els.statusBadge.textContent = '';
+            return;
+        }
+
+        els.statusBadge.style.display = 'inline-flex';
+        els.statusBadge.textContent = status;
+        els.statusBadge.className = `rule-header__badge ${status === 'PASS' ? 'rule-header__badge--pass' : 'rule-header__badge--fail'}`;
+    }
+
+    function renderSummary(summary) {
+        destroyRule26Charts();
+
+        if (!summary) {
+            els.resultsPane.innerHTML = '<div class="empty-state"><p>Run validation to see results here.</p></div>';
+            els.detailsPane.innerHTML = '<div class="empty-state"><p>Run validation to see PASS and FAIL results here.</p></div>';
+            els.chartsPane.innerHTML = '<div class="empty-state"><p>Direction summaries will appear after validation.</p></div>';
+            return;
+        }
+
+        els.resultsPane.innerHTML = `
+            <div class="stats-grid" style="margin-bottom:24px">
+                <div class="stat-card">
+                    <div class="stat-card__label">Total Control Tests</div>
+                    <div class="stat-card__value">${formatNumber(summary.totalValidated)}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card__label">PROF Records</div>
+                    <div class="stat-card__value">${formatNumber(summary.profRecordCount)}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card__label">Payroll Records</div>
+                    <div class="stat-card__value">${formatNumber(summary.payrollRecordCount)}</div>
+                </div>
+                <div class="stat-card stat-card--fail">
+                    <div class="stat-card__label">Exceptions</div>
+                    <div class="stat-card__value">${formatNumber(summary.failCount)}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card__label">Employees With Exceptions</div>
+                    <div class="stat-card__value">${formatNumber(getRule26EmployeeExceptionGroups(summary).length)}</div>
+                </div>
+            </div>
+            ${renderRule26ClassificationNote(summary)}
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Control Summary</h3>
+                <div style="overflow:auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Direction</th>
+                                <th>Control</th>
+                                <th>Tested</th>
+                                <th>Exceptions</th>
+                                <th>Status</th>
+                                <th>Explanation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${summary.directions.flatMap(direction => direction.controls.map(control => `
+                                <tr>
+                                    <td>${escapeHtml(direction.directionLabel)}</td>
+                                    <td>${control.controlNumber} - ${escapeHtml(control.controlName)}</td>
+                                    <td>${formatNumber(control.totalTested)}</td>
+                                    <td>${formatNumber(control.exceptionCount)}</td>
+                                    <td>${control.passed ? 'PASS' : 'FAIL'}</td>
+                                    <td>${escapeHtml(control.explanation || '')}</td>
+                                </tr>
+                            `)).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            ${renderRule26EmployeeExceptionSummary(summary)}`;
+
+        renderExceptionDetails(summary);
+
+        els.chartsPane.innerHTML = `
+            <div class="form-grid">
+                ${summary.directions.map((direction, index) => `
+                    <div class="card" style="padding:20px">
+                        <h3 class="section-title" style="margin-top:0">Rule 26: dbo_PROF to Payroll_Sample Validation</h3>
+                        <div style="margin-bottom:16px;color:#64748b">
+                            Base records: ${formatNumber(direction.baseRecordCount)} |
+                            Linked records: ${formatNumber(direction.linkedRecordCount)} |
+                            Exceptions: ${formatNumber(direction.totalExceptions)}
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+                            <div class="chart-card">
+                                <h4>Control Status</h4>
+                                <canvas id="rule26StatusChart_${index}" height="220"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4>Exception Count</h4>
+                                <canvas id="rule26ExceptionChart_${index}" height="220"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4>Overall: ${formatNumber(direction.controls.filter(control => control.passed).length)}/${formatNumber(direction.controls.length)} Passed</h4>
+                                <canvas id="rule26PieChart_${index}" height="220"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4>Data Quality: ${formatRule26DirectionQuality(direction).toFixed(2)}%</h4>
+                                <canvas id="rule26QualityChart_${index}" height="220"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>`;
+
+        renderRule26DashboardCharts(summary);
+    }
+
+    function destroyRule26Charts() {
+        (state.chartInstances || []).forEach(instance => {
+            try {
+                instance.destroy();
+            } catch {}
+        });
+        state.chartInstances = [];
+    }
+
+    function formatRule26DirectionQuality(direction) {
+        const totalTested = (direction?.controls || []).reduce((sum, control) => sum + Number(control.totalTested || 0), 0);
+        const totalExceptions = (direction?.controls || []).reduce((sum, control) => sum + Number(control.exceptionCount || 0), 0);
+        return totalTested > 0 ? ((totalTested - totalExceptions) / totalTested) * 100 : 100;
+    }
+
+    function getRule26QualityColor(score) {
+        if (score >= 95) return '#4CAF50';
+        if (score >= 90) return '#F59E0B';
+        return '#F44336';
+    }
+
+    function renderRule26DashboardCharts(summary) {
+        if (typeof Chart === 'undefined') {
+            els.chartsPane.insertAdjacentHTML('afterbegin', '<div class="alert alert--warning" style="margin-bottom:16px">Dashboard charts could not load. Chart.js is unavailable.</div>');
+            return;
+        }
+
+        summary.directions.forEach((direction, index) => {
+            const labels = direction.controls.map(control => `C${control.controlNumber}`);
+            const passedValues = direction.controls.map(control => control.passed ? 1 : 0);
+            const failedValues = direction.controls.map(control => control.passed ? 0 : 1);
+            const exceptionValues = direction.controls.map(control => Number(control.exceptionCount || 0));
+            const passedCount = direction.controls.filter(control => control.passed).length;
+            const failedCount = direction.controls.length - passedCount;
+            const qualityScore = formatRule26DirectionQuality(direction);
+            const qualityColor = getRule26QualityColor(qualityScore);
+
+            const statusCanvas = document.getElementById(`rule26StatusChart_${index}`);
+            if (statusCanvas) {
+                state.chartInstances.push(new Chart(statusCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'Passed', data: passedValues, backgroundColor: '#4CAF50', borderColor: '#2E7D32', borderWidth: 1.5 },
+                            { label: 'Failed', data: failedValues, backgroundColor: '#FF3B30', borderColor: '#C62828', borderWidth: 1.5 }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, max: 1.2, ticks: { stepSize: 0.2 } }
+                        },
+                        plugins: {
+                            legend: { position: 'top' }
+                        }
+                    }
+                }));
+            }
+
+            const exceptionCanvas = document.getElementById(`rule26ExceptionChart_${index}`);
+            if (exceptionCanvas) {
+                state.chartInstances.push(new Chart(exceptionCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: 'Exceptions',
+                                data: exceptionValues,
+                                backgroundColor: '#FF3B30',
+                                borderColor: '#C62828',
+                                borderWidth: 1.5
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                }));
+            }
+
+            const pieCanvas = document.getElementById(`rule26PieChart_${index}`);
+            if (pieCanvas) {
+                state.chartInstances.push(new Chart(pieCanvas, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Passed', 'Failed'],
+                        datasets: [
+                            {
+                                data: [passedCount, failedCount],
+                                backgroundColor: ['#4CAF50', '#FF3B30'],
+                                borderColor: ['#2E7D32', '#C62828'],
+                                borderWidth: 1.5
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'right' }
+                        }
+                    }
+                }));
+            }
+
+            const qualityCanvas = document.getElementById(`rule26QualityChart_${index}`);
+            if (qualityCanvas) {
+                state.chartInstances.push(new Chart(qualityCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Quality Score'],
+                        datasets: [
+                            {
+                                label: 'Quality Score',
+                                data: [qualityScore],
+                                backgroundColor: qualityColor,
+                                borderColor: qualityColor,
+                                borderWidth: 1.5
+                            }
+                        ]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { beginAtZero: true, max: 100 }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (context) => `${Number(context.raw || 0).toFixed(2)}%`
+                                }
+                            }
+                        }
+                    },
+                    plugins: [{
+                        id: `rule26QualityLabel_${index}`,
+                        afterDatasetsDraw(chart) {
+                            const { ctx } = chart;
+                            const meta = chart.getDatasetMeta(0);
+                            const bar = meta?.data?.[0];
+                            if (!bar) return;
+                            ctx.save();
+                            ctx.fillStyle = '#ffffff';
+                            ctx.font = '700 16px Segoe UI';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(`${qualityScore.toFixed(2)}%`, (bar.x + bar.base) / 2, bar.y);
+                            ctx.restore();
+                        }
+                    }]
+                }));
+            }
+        });
+    }
+
+    function getDirectionFilterOptions(summary) {
+        return (summary?.directions || []).map(direction => ({
+            value: direction.directionKey || '',
+            label: direction.directionLabel || ''
+        })).filter(option => option.value && option.label);
+    }
+
+    function getControlFilterOptions(summary) {
+        const controls = new Map();
+        (summary?.directions || []).forEach(direction => {
+            (direction.controls || []).forEach(control => {
+                controls.set(String(control.controlNumber), {
+                    value: String(control.controlNumber),
+                    label: `${control.controlNumber} - ${control.controlName || ''}`
+                });
+            });
+        });
+
+        return Array.from(controls.values()).sort((left, right) => Number(left.value) - Number(right.value));
+    }
+
+    function filterRule26Exceptions(summary) {
+        const directionFilter = state.detailsDirectionFilter;
+        const controlFilter = state.detailsControlFilter;
+        return (summary?.exceptions || []).filter(row => {
+            if (directionFilter && row.directionKey !== directionFilter) return false;
+            if (controlFilter && String(row.controlNumber) !== controlFilter) return false;
+            return true;
+        });
+    }
+
+    function renderPassSample(summary) {
+        const passRows = summary?.passRows || [];
+        if (!passRows.length) return '';
+        return `
+            <div class="card" style="padding:20px;margin-bottom:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <span class="badge badge--pass" style="font-size:11px">PASS</span>
+                    <h3 class="section-title" style="margin:0">Sample of Linked Personnel (All Controls Passed)</h3>
+                </div>
+                <div style="color:#64748b;margin-bottom:10px;font-size:13px">
+                    These personnel numbers were found in both tables with matching demographic values. Showing up to ${formatNumber(passRows.length)} matched record(s).
+                </div>
+                <div style="overflow:auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Direction</th>
+                                <th>Personnel Number</th>
+                                <th>Personnel Name</th>
+                                <th>Employment Type</th>
+                                <th>Gender</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${passRows.map(row => `
+                                <tr>
+                                    <td>${escapeHtml(row.directionLabel || '')}</td>
+                                    <td>${escapeHtml(row.personnelNumber || '')}</td>
+                                    <td>${escapeHtml(row.personnelName || '-')}</td>
+                                    <td>${escapeHtml(row.employmentType || '-')}</td>
+                                    <td>${escapeHtml(row.gender || '-')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
+    function renderRule26ClassificationNote(summary) {
+        const configuredCodes = escapeHtml(summary?.blankPayrollGroupPassCodes || els.blankPayrollGroupPassCodes?.value || 'Z');
+        return `
+            <div class="card" style="padding:20px;margin-bottom:16px">
+                <div class="alert alert--info" style="margin:0">
+                    <strong>Information Note</strong><br />
+                    Classification reference: A = African, C = Coloured, I = Indian, W = White, Z = No information.<br />
+                    Blank Payroll <code>GROUP_NAME</code> pass codes for this run: <strong>${configuredCodes}</strong>.
+                </div>
+            </div>`;
+    }
+
+    function getRule26EmployeeExceptionGroups(summary) {
+        const groups = new Map();
+        (summary?.exceptions || []).forEach(row => {
+            const key = `${row.directionKey || ''}|${row.personnelNumber || ''}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    directionLabel: row.directionLabel || '',
+                    personnelNumber: row.personnelNumber || '',
+                    personnelName: row.personnelName || '-',
+                    rows: []
+                });
+            }
+
+            const group = groups.get(key);
+            if ((!group.personnelName || group.personnelName === '-') && row.personnelName) {
+                group.personnelName = row.personnelName;
+            }
+            group.rows.push(row);
+        });
+
+        return Array.from(groups.values()).sort((left, right) => {
+            const exceptionCountCompare = right.rows.length - left.rows.length;
+            if (exceptionCountCompare !== 0) return exceptionCountCompare;
+            return (left.personnelNumber || '').localeCompare(right.personnelNumber || '');
+        });
+    }
+
+    function renderRule26EmployeeExceptionSummary(summary) {
+        const employeeGroups = getRule26EmployeeExceptionGroups(summary);
+        if (!employeeGroups.length) {
+            return `
+                <div class="card" style="padding:20px;margin-top:16px">
+                    <h3 class="section-title" style="margin-top:0">Employee Exception Summary</h3>
+                    <div class="alert alert--success" style="margin:0">No employee-level exceptions were recorded in this run.</div>
+                </div>`;
+        }
+
+        const multiExceptionCount = employeeGroups.filter(group => group.rows.length > 1).length;
+        return `
+            <div class="card" style="padding:20px;margin-top:16px">
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+                    <div>
+                        <h3 class="section-title" style="margin:0">Employee Exception Summary</h3>
+                        <div style="color:#64748b;margin-top:4px">
+                            Employees with exceptions: ${formatNumber(employeeGroups.length)} |
+                            Employees with multiple exceptions: ${formatNumber(multiExceptionCount)}
+                        </div>
+                    </div>
+                </div>
+                <div style="overflow:auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Direction</th>
+                                <th>Personnel Number</th>
+                                <th>Personnel Name</th>
+                                <th>Exception Count</th>
+                                <th>Controls</th>
+                                <th>Exception Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${employeeGroups.map(group => `
+                                <tr>
+                                    <td>${escapeHtml(group.directionLabel)}</td>
+                                    <td>${escapeHtml(group.personnelNumber)}</td>
+                                    <td>${escapeHtml(group.personnelName || '-')}</td>
+                                    <td>${formatNumber(group.rows.length)}</td>
+                                    <td>${group.rows.map(row => escapeHtml(`C${row.controlNumber} - ${row.controlName || ''}`)).join('<br />')}</td>
+                                    <td>${group.rows.map(row => escapeHtml(row.exceptionReason || '')).join('<br />')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
+    function renderExceptionDetails(summary) {
+        const passRows = summary?.passRows || [];
+        const hasExceptions = summary?.exceptions && summary.exceptions.length;
+
+        // Build combined rows: PASS rows + FAIL exception rows
+        const failPersonnel = new Set((summary.exceptions || []).map(e => e.personnelNumber));
+        const passRowsCombined = (summary.passRows || []).map(r => ({
+            result: 'PASS',
+            personnelNumber: r.personnelNumber,
+            personnelName: r.personnelName || '-',
+            employmentType: r.employmentType || '-',
+            gender: r.gender || '-',
+            controlNumber: null,
+            controlName: '',
+            exceptionReason: '',
+            baseValue: '',
+            referenceValue: ''
+        }));
+        const failRowsCombined = (summary.exceptions || []).map(e => ({
+            result: 'FAIL',
+            personnelNumber: e.personnelNumber,
+            personnelName: e.personnelName || '-',
+            employmentType: '-',
+            gender: '-',
+            controlNumber: e.controlNumber,
+            controlName: e.controlName || '',
+            exceptionReason: e.exceptionReason || '',
+            baseValue: e.baseValue || '',
+            referenceValue: e.referenceValue || ''
+        }));
+
+        const resultFilter = state.detailsDirectionFilter || 'ALL';
+        let combinedRows = [...passRowsCombined, ...failRowsCombined];
+        if (resultFilter === 'PASS') combinedRows = passRowsCombined;
+        if (resultFilter === 'FAIL') combinedRows = failRowsCombined;
+
+        const totalPass = passRowsCombined.length;
+        const totalFail = failRowsCombined.length;
+
+        const tableRows = combinedRows.map(row => {
+            const isPass = row.result === 'PASS';
+            const badge = isPass
+                ? '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.74rem;font-weight:700;background:#E8F5E9;color:#1E8449">&#10003; PASS</span>'
+                : '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.74rem;font-weight:700;background:#FFEBEE;color:#C0392B">&#10007; FAIL</span>';
+            return `<tr style="background:${isPass ? '#F1F8E9' : '#FFEBEE'}">
+                <td>${badge}</td>
+                <td>${escapeHtml(row.personnelNumber)}</td>
+                <td>${escapeHtml(row.personnelName)}</td>
+                <td>${row.controlNumber != null ? escapeHtml(`C${row.controlNumber} - ${row.controlName}`) : '<span style="color:#888">—</span>'}</td>
+                <td>${escapeHtml(row.exceptionReason) || '<span style="color:#888">—</span>'}</td>
+                <td>${escapeHtml(row.baseValue) || '<span style="color:#888">—</span>'}</td>
+                <td>${escapeHtml(row.referenceValue) || '<span style="color:#888">—</span>'}</td>
+            </tr>`;
+        }).join('');
+
+        els.detailsPane.innerHTML = `
+            <div style="display:flex;gap:8px;align-items:center;padding:12px 0;flex-wrap:wrap">
+                <label style="font-size:.85rem;font-weight:600">Filter:</label>
+                <button class="btn btn-sm ${resultFilter === 'ALL'  ? 'btn-primary' : 'btn-secondary'}" onclick="setRule26ResultFilter('ALL')">All (${formatNumber(totalPass + totalFail)})</button>
+                <button class="btn btn-sm ${resultFilter === 'PASS' ? 'btn-success' : 'btn-secondary'}" onclick="setRule26ResultFilter('PASS')">PASS (${formatNumber(totalPass)})</button>
+                <button class="btn btn-sm ${resultFilter === 'FAIL' ? 'btn-danger' : 'btn-secondary'}" onclick="setRule26ResultFilter('FAIL')">FAIL (${formatNumber(totalFail)})</button>
+            </div>
+            ${combinedRows.length === 0
+                ? '<div class="empty-state"><p>No records match the selected filter.</p></div>'
+                : `<div style="overflow-x:auto">
+                    <table class="data-table">
+                        <thead><tr>
+                            <th>Result</th>
+                            <th>Personnel Number</th>
+                            <th>Personnel Name</th>
+                            <th>Control</th>
+                            <th>Exception Reason</th>
+                            <th>PROF Value</th>
+                            <th>Payroll Value</th>
+                        </tr></thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                    <p style="font-size:.78rem;color:#777;padding:4px 0">
+                        Showing ${formatNumber(combinedRows.length)} row(s) — ${formatNumber(totalPass)} PASS, ${formatNumber(totalFail)} FAIL.
+                    </p>
+                  </div>`
+            }`;
+    }
+
+    window.setRule26ResultFilter = function(filter) {
+        state.detailsDirectionFilter = filter === 'ALL' ? '' : filter;
+        if (state.summary) renderExceptionDetails(state.summary);
+    };
+
+    function hydrateWorkspace(workspace, resetDirty) {
+        state.isHydrating = true;
+        state.currentRunId = workspace?.runId || null;
+        state.currentUserEngagementRole = workspace?.currentUserEngagementRole || '';
+        state.currentStatus = workspace?.currentStatus || '';
+        state.currentUserHasSignedOff = !!workspace?.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace?.isWorkspaceSaved;
+        state.hasDataAnalystSignoff = !!workspace?.hasDataAnalystSignoff;
+        state.resultsVisible = !!workspace?.resultsVisible;
+        state.summary = workspace?.summary || state.summary;
+
+        if (workspace) {
+            if (workspace.server) els.server.value = workspace.server;
+            if (workspace.driver) els.driver.value = workspace.driver;
+            if (workspace.database) ensureOptionSelected(els.database, workspace.database);
+            if (workspace.profTable) ensureOptionSelected(els.profTable, workspace.profTable);
+            if (workspace.payrollTable) ensureOptionSelected(els.payrollTable, workspace.payrollTable);
+            setSelectValue(els.profPersonnel, workspace.profPersonnelColumn);
+            setSelectValue(els.profEmployment, workspace.profEmploymentTypeColumn);
+            setSelectValue(els.profGender, workspace.profGenderColumn);
+            setSelectValue(els.profGroup, workspace.profGroupColumn);
+            setSelectValue(els.profBirth, workspace.profBirthDateColumn);
+            els.blankPayrollGroupPassCodes.value = workspace.blankPayrollGroupPassCodes || workspace.summary?.blankPayrollGroupPassCodes || 'Z';
+            setSelectValue(els.payrollPersonnel, workspace.payrollPersonnelColumn);
+            setSelectValue(els.payrollEmployment, workspace.payrollEmploymentTypeColumn);
+            setSelectValue(els.payrollGender, workspace.payrollGenderColumn);
+            setSelectValue(els.payrollGroup, workspace.payrollGroupColumn);
+            setSelectValue(els.payrollBirth, workspace.payrollBirthDateColumn);
+            els.workspaceSignoffComment.value = workspace.currentUserSignoffComment || '';
+        } else {
+            state.summary = null;
+        }
+
+        els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
+        els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+        els.workspaceEditedLabel.textContent = workspace?.lastEditedAt
+            ? `${workspace.lastEditedByUserName || 'Unknown'} on ${new Date(workspace.lastEditedAt).toLocaleString()}`
+            : '-';
+        els.workspaceRoleLabel.textContent = state.currentUserEngagementRole || currentSystemRole || '-';
+        els.workspaceRunState.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run loaded';
+        els.workspaceInfo.className = 'alert alert--info';
+        els.workspaceInfo.textContent = state.currentRunId
+            ? 'The current Rule 26 workspace is loaded for this engagement.'
+            : 'No saved Rule 26 workspace exists for this engagement yet.';
+
+        renderSummary(state.summary);
+        setStatusBadge(state.summary?.status || state.currentStatus || '');
+        updateWorkspaceButtons();
+        if (resetDirty) state.isDirty = false;
+        state.isHydrating = false;
+    }
+
+    function ensureOptionSelected(select, value) {
+        if (!value) return;
+        if (!Array.from(select.options).some(option => option.value === value)) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            select.appendChild(option);
+        }
+        select.value = value;
+    }
+
+    function setSelectValue(select, value) {
+        if (!select || !value) return;
+        ensureOptionSelected(select, value);
+    }
+
+    function updateWorkspaceButtons() {
+        const canEdit = currentSystemRole === 'DataAnalyst';
+        const canSign = !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
+            (currentSystemRole === 'DataAnalyst' ||
+             (state.resultsVisible && (state.currentUserEngagementRole === 'Manager' || state.currentUserEngagementRole === 'Director')));
+        const locked = !!state.currentUserHasSignedOff;
+        window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || locked);
+        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || locked);
+        window.ruleWorkspaceUi.applyStates([
+            { target: els.connectBtn, disabled: locked || !canEdit },
+            { target: els.verifyBtn, disabled: locked || !canEdit },
+            { target: els.verifyBtnBar, disabled: locked || !canEdit },
+            { target: els.runBtn, disabled: locked || !canEdit },
+            { target: els.sqlBtn, disabled: locked || !canEdit },
+            { target: els.beginEditBtn, disabled: locked || !canEdit || !state.currentRunId },
+            { target: els.saveWorkspaceBtn, disabled: locked || !canEdit || !state.currentRunId || !state.summary },
+            {
+                target: els.signoffBtn,
+                disabled: locked || !canSign,
+                text: state.currentUserHasSignedOff
+                    ? `Signed Off as ${state.currentUserEngagementRole || currentSystemRole}`
+                    : 'Save Signoff'
+            },
+            { target: els.removeSignoffBtn, show: state.currentUserHasSignedOff, display: '', disabled: !state.currentUserHasSignedOff },
+            { target: els.workspaceSignoffComment, disabled: locked || !canSign },
+            { target: els.downloadAllBtn, disabled: !state.summary },
+            { target: els.downloadExcelBtn, disabled: !state.summary },
+            { target: els.downloadCsvBtn, disabled: !state.summary },
+            { target: els.downloadSqlBtn, disabled: !state.summary }
+        ]);
+        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], locked, {
+            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
+        });
+    }
+
+    async function loadWorkspaceState() {
+        state.clientId = Number(els.clientId.value || 0);
+        if (!state.clientId) {
+            hydrateWorkspace(null, true);
+            return;
+        }
+
+        try {
+            const result = await getJson(`${apiBasePath}/GetWorkspaceState?clientId=${state.clientId}`);
+            state.resultsVisible = !!result.resultsVisible;
+            hydrateWorkspace(result.workspace || null, true);
+            if (result.workspace?.server) {
+                await connectServer(true);
+            }
+        } catch (error) {
+            els.workspaceInfo.className = 'alert alert--error';
+            els.workspaceInfo.textContent = toFriendlyRequestError(error);
+        }
+    }
+
+    async function connectServer(preserveSelection) {
+        const savedDb = state.summary?.database || (preserveSelection ? els.database.value : null);
+        try {
+            showSpinner('Loading databases...');
+            const result = await postJson(`${apiBasePath}/GetDatabases`, {
+                server: els.server.value.trim(),
+                driver: els.driver.value
+            });
+            if (!result.success) throw new Error(result.error || 'Could not load databases.');
+            populateSelect(els.database, result.databases || []);
+            if (preserveSelection && savedDb) {
+                ensureOptionSelected(els.database, savedDb);
+            } else if ((result.databases || []).includes(preferredDatabaseName)) {
+                els.database.value = preferredDatabaseName;
+            }
+            els.connectionOutput.innerHTML = `<div class="alert alert--success">Loaded ${(result.databases || []).length} databases.</div>`;
+            await loadTables(preserveSelection);
+        } catch (error) {
+            els.connectionOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(toFriendlyRequestError(error))}</div>`;
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadTables(preserveSelection) {
+        if (!els.database.value) return;
+        const result = await postJson(`${apiBasePath}/GetTables`, {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value
+        });
+        if (!result.success) throw new Error(result.error || 'Could not load tables.');
+        populateSelect(els.profTable, result.tables || [], preserveSelection ? state.summary?.profTable : (result.autoStudTable || ''));
+        populateSelect(els.payrollTable, result.tables || [], preserveSelection ? state.summary?.payrollTable : (result.autoDeceasedTable || ''));
+        if (els.profTable.value) await loadColumns(true, preserveSelection);
+        if (els.payrollTable.value) await loadColumns(false, preserveSelection);
+    }
+
+    async function loadColumns(isProfTable, preserveSelection) {
+        const tableName = isProfTable ? els.profTable.value : els.payrollTable.value;
+        if (!tableName || !els.database.value) return;
+
+        const result = await postJson(`${apiBasePath}/GetColumns`, {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value,
+            tableName,
+            isProfTable
+        });
+
+        if (!result.success) throw new Error(result.error || 'Could not load columns.');
+
+        const columns = result.columns || [];
+        if (isProfTable) {
+            populateSelect(els.profPersonnel, columns, preserveSelection ? state.summary?.profPersonnelColumn : result.autoPersonnelColumn);
+            populateSelect(els.profEmployment, columns, preserveSelection ? state.summary?.profEmploymentTypeColumn : result.autoEmploymentTypeColumn);
+            populateSelect(els.profGender, columns, preserveSelection ? state.summary?.profGenderColumn : result.autoGenderColumn);
+            populateSelect(els.profGroup, columns, preserveSelection ? state.summary?.profGroupColumn : result.autoGroupColumn);
+            populateSelect(els.profBirth, columns, preserveSelection ? state.summary?.profBirthDateColumn : result.autoBirthDateColumn);
+        } else {
+            populateSelect(els.payrollPersonnel, columns, preserveSelection ? state.summary?.payrollPersonnelColumn : result.autoPersonnelColumn);
+            populateSelect(els.payrollEmployment, columns, preserveSelection ? state.summary?.payrollEmploymentTypeColumn : result.autoEmploymentTypeColumn);
+            populateSelect(els.payrollGender, columns, preserveSelection ? state.summary?.payrollGenderColumn : result.autoGenderColumn);
+            populateSelect(els.payrollGroup, columns, preserveSelection ? state.summary?.payrollGroupColumn : result.autoGroupColumn);
+            populateSelect(els.payrollBirth, columns, preserveSelection ? state.summary?.payrollBirthDateColumn : result.autoBirthDateColumn);
+        }
+    }
+
+    async function verifyTables() {
+        const request = buildVerifyRequest();
+        if (!request.server || !request.database || !request.profTable || !request.payrollTable || !request.profPersonnelColumn || !request.payrollPersonnelColumn) {
+            els.connectionOutput.innerHTML = `<div class="alert alert--warning">Select the server, database, PROF table, Payroll table, and personnel columns first.</div>`;
+            return;
+        }
+
+        try {
+            showSpinner('Verifying populations...');
+            const result = await postJson(`${apiBasePath}/VerifyTables`, request);
+            if (!result.success) throw new Error(result.error || 'Verification failed.');
+            els.connectionOutput.innerHTML = `
+                <div class="alert alert--success">
+                    PROF records: ${formatNumber(result.profRecordCount)}<br />
+                    Payroll records: ${formatNumber(result.payrollRecordCount)}<br />
+                    Linked records: ${formatNumber(result.linkedRecordCount)}<br />
+                    PROF without Payroll: ${formatNumber(result.profWithoutPayrollCount)}
+                </div>`;
+        } catch (error) {
+            els.connectionOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(toFriendlyRequestError(error))}</div>`;
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function runValidation() {
+        const request = buildValidationRequest();
+        if (!request.clientId) {
+            setWorkspaceInfo('warning', 'Select the approved engagement assigned to you before running this rule.');
+            return;
+        }
+
+        try {
+            showSpinner('Running Rule 26 on dbo_PROF against Payroll_Sample...');
+            const result = await postJson(`${apiBasePath}/RunValidation`, request);
+            if (!result.success) throw new Error(result.error || 'Validation failed.');
+            state.summary = result;
+            state.currentRunId = result.savedRunId || state.currentRunId;
+            state.currentStatus = result.status || state.currentStatus;
+            renderSummary(result);
+            setStatusBadge(result.status);
+            switchTab('results');
+            updateWorkspaceButtons();
+            markWorkspaceDirty();
+            els.workspaceRunLabel.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run yet';
+            els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+            els.workspaceRunState.textContent = state.currentRunId ? `Run #${state.currentRunId}` : 'No saved run loaded';
+        } catch (error) {
+            els.resultsPane.innerHTML = `<div class="alert alert--error">${escapeHtml(toFriendlyRequestError(error))}</div>`;
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function generateSql() {
+        try {
+            showSpinner('Generating SQL...');
+            const result = await postJson(`${apiBasePath}/GenerateSql`, buildValidationRequest());
+            if (!result.success) throw new Error(result.error || 'SQL generation failed.');
+            state.sql = result.sql || '';
+            els.sqlText.value = state.sql;
+            switchTab('sql');
+        } catch (error) {
+            els.sqlText.value = toFriendlyRequestError(error);
+            switchTab('sql');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function beginEdit() {
+        try {
+            showSpinner('Unlocking workspace...');
+            const result = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, buildValidationRequest());
+            if (!result.success) throw new Error(result.error || 'Could not begin editing.');
+            state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
+            hydrateWorkspace(result.workspace || null, true);
+            els.workspaceInfo.className = 'alert alert--warning';
+            els.workspaceInfo.textContent = result.message || 'Workspace editing enabled.';
+        } catch (error) {
+            els.workspaceInfo.className = 'alert alert--error';
+            els.workspaceInfo.textContent = toFriendlyRequestError(error);
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function saveWorkspace() {
+        try {
+            showSpinner('Saving workspace...');
+            const result = await postJson(`${apiBasePath}/SaveWorkspace`, buildValidationRequest());
+            if (!result.success) throw new Error(result.error || 'Could not save workspace.');
+            hydrateWorkspace(result.workspace || null, true);
+            setWorkspaceInfo('success', result.message || 'Workspace saved.');
+        } catch (error) {
+            setWorkspaceInfo('error', toFriendlyRequestError(error));
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function signoffWorkspace() {
+        try {
+            showSpinner('Saving signoff...');
+            const result = await postJson(`${apiBasePath}/SignOffWorkspace`, {
+                clientId: Number(els.clientId.value || 0),
+                runId: state.currentRunId,
+                comment: els.workspaceSignoffComment.value.trim()
+            });
+            if (!result.success) throw new Error(result.error || 'Could not save signoff.');
+            hydrateWorkspace(result.workspace || null, true);
+            setWorkspaceInfo('success', result.message || 'Signoff saved.');
+            switchTab('downloads');
+        } catch (error) {
+            setWorkspaceInfo('error', toFriendlyRequestError(error));
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function removeWorkspaceSignoff() {
+        try {
+            showSpinner('Removing signoff...');
+            const result = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
+                clientId: Number(els.clientId.value || 0),
+                runId: state.currentRunId,
+                comment: ''
+            });
+            if (!result.success) throw new Error(result.error || 'Could not remove signoff.');
+            hydrateWorkspace(result.workspace || null, true);
+            setWorkspaceInfo('success', result.message || 'Signoff removed.');
+        } catch (error) {
+            setWorkspaceInfo('error', toFriendlyRequestError(error));
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function downloadAll() {
+        if (!state.summary) return;
+        try {
+            showSpinner('Preparing downloads...');
+            if (document.getElementById('chkExcel').checked) {
+                await downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, `Rule26_ProfToPayroll_Validation_${fileStamp()}.xlsx`);
+            }
+            if (document.getElementById('chkCsv').checked) {
+                await downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, `Rule26_ProfToPayroll_Exceptions_${fileStamp()}.csv`);
+            }
+            if (document.getElementById('chkSql').checked) {
+                await downloadPost(`${apiBasePath}/DownloadSql`, buildValidationRequest(), `Rule26_ProfToPayroll_Validation_${fileStamp()}.sql`);
+            }
+            switchTab('downloads');
+        } catch (error) {
+            els.workspaceInfo.className = 'alert alert--error';
+            els.workspaceInfo.textContent = toFriendlyRequestError(error);
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    function fileStamp() {
+        const now = new Date();
+        const pad = value => String(value).padStart(2, '0');
+        return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    }
+
+    function formatNumber(value) {
+        return Number(value || 0).toLocaleString();
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    [
+        els.server, els.driver, els.database, els.profTable, els.payrollTable,
+        els.profPersonnel, els.profEmployment, els.profGender, els.profGroup, els.profBirth,
+        els.blankPayrollGroupPassCodes,
+        els.payrollPersonnel, els.payrollEmployment, els.payrollGender, els.payrollGroup, els.payrollBirth,
+        els.workspaceSignoffComment
+    ].forEach(element => {
+        if (element) element.addEventListener('change', markWorkspaceDirty);
+        if (element && element.tagName === 'INPUT') element.addEventListener('input', markWorkspaceDirty);
+        if (element && element.tagName === 'TEXTAREA') element.addEventListener('input', markWorkspaceDirty);
+    });
+
+    els.clientId.addEventListener('change', loadWorkspaceState);
+    els.connectBtn.addEventListener('click', () => connectServer(false));
+    els.database.addEventListener('change', () => loadTables(false));
+    els.profTable.addEventListener('change', () => loadColumns(true, false));
+    els.payrollTable.addEventListener('change', () => loadColumns(false, false));
+    els.verifyBtn.addEventListener('click', verifyTables);
+    els.verifyBtnBar.addEventListener('click', verifyTables);
+    els.runBtn.addEventListener('click', runValidation);
+    els.sqlBtn.addEventListener('click', generateSql);
+    els.beginEditBtn.addEventListener('click', beginEdit);
+    els.saveWorkspaceBtn.addEventListener('click', saveWorkspace);
+    els.signoffBtn.addEventListener('click', signoffWorkspace);
+    els.removeSignoffBtn.addEventListener('click', removeWorkspaceSignoff);
+    els.downloadAllBtn.addEventListener('click', downloadAll);
+    els.downloadExcelBtn.addEventListener('click', async () => {
+        if (!state.summary) return;
+        await downloadPost(`${apiBasePath}/DownloadExcel`, state.summary, `Rule26_ProfToPayroll_Validation_${fileStamp()}.xlsx`);
+    });
+    els.downloadCsvBtn.addEventListener('click', async () => {
+        if (!state.summary) return;
+        await downloadPost(`${apiBasePath}/DownloadCsv`, state.summary, `Rule26_ProfToPayroll_Exceptions_${fileStamp()}.csv`);
+    });
+    els.downloadSqlBtn.addEventListener('click', async () => {
+        await downloadPost(`${apiBasePath}/DownloadSql`, buildValidationRequest(), `Rule26_ProfToPayroll_Validation_${fileStamp()}.sql`);
+    });
+
+    hydrateWorkspace(null, true);
+    updateWorkspaceButtons();
+    if (state.clientId) loadWorkspaceState();
+})();
+</script>
+
+

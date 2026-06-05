@@ -1,0 +1,1355 @@
+@using HemisAudit.Models
+@using HemisAudit.ViewModels
+@{
+    ViewData["Title"] = "Rule 12 - Active Students";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var clients = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
+    var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
+    var isResultsOnlyRole =
+        string.Equals(currentSystemRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(currentSystemRole, "Trainee", StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation = ViewBag.ModuleNavigation as ModuleSequenceNavigationViewModel;
+}
+
+<style>
+    .Rule14-results-wrap { display:grid; gap:24px; }
+    .Rule14-filterbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:18px; }
+    .Rule14-filterbar label { font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); display:block; margin-bottom:6px; }
+    .Rule14-preview-note { margin-bottom:16px; }
+    .Rule14-control-card { background:var(--rule15-card); padding:0 0 4px 0; color:var(--text); }
+    .Rule14-control-title { font-weight:800; font-size:15px; margin:0 0 14px 0; color:var(--text); }
+    .Rule14-mini-meta { color:var(--text-muted); font-size:13px; margin:0 0 14px 0; }
+    .Rule14-table-wrap { overflow-x:auto; border:1px solid var(--rule15-table-border); border-radius:14px; background:var(--rule15-card-alt); }
+    .Rule14-grid { width:100%; min-width:860px; border-collapse:collapse; table-layout:fixed; }
+    .Rule14-grid th, .Rule14-grid td { border:1px solid var(--rule15-table-border); padding:8px 10px; text-align:left; white-space:normal; word-break:normal; overflow-wrap:anywhere; vertical-align:top; font-family:Consolas, "Courier New", monospace; font-size:12px; color:var(--text); }
+    .Rule14-grid .group-stud { background:var(--rule15-group-stud); }
+    .Rule14-grid .group-bridge { background:var(--rule15-group-bridge); }
+    .Rule14-grid .group-final { background:var(--rule15-group-final); }
+    .Rule14-grid .criteria-head, .Rule14-grid .criteria-cell, .Rule14-grid .mid-pass-cell { background:var(--rule15-criteria); }
+    .Rule14-grid .criteria-head, .Rule14-grid .criteria-cell { width:132px; }
+    .Rule14-grid .mid-pass-cell { width:120px; font-weight:700; }
+    .Rule14-grid .final-head { width:210px; }
+    .Rule14-grid .final-cell { width:210px; line-height:1.25; }
+    .Rule14-grid .is-pass { color:var(--rule15-pass); font-weight:800; }
+    .Rule14-grid .is-fail { color:var(--rule15-fail); font-weight:800; }
+    .Rule14-grid .result-text { font-weight:800; margin-bottom:4px; display:block; }
+    .Rule14-grid .message-text { display:block; }
+    .Rule14-summary-grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }
+    .Rule14-control-summary { margin-top:18px; }
+    .Rule14-control-summary table { width:100%; }
+    .Rule14-control-summary th { background:var(--rule15-summary-head); color:#fff; }
+</style>
+
+<div id="app" class="rule-page-shell">
+    @if (moduleNavigation != null)
+    {
+        @await Html.PartialAsync("_ModuleSequenceNav", moduleNavigation)
+    }
+
+    <div class="engagement-selector">
+        <label for="clientId">Engagement</label>
+        <select id="clientId">
+            <option value="">Select engagement (results saved here)</option>
+            @foreach (var client in clients)
+            {
+                <option value="@client.Id" selected="@(client.Id == selectedClientId ? "selected" : null)">
+                    @client.Name (@client.FiscalYear)
+                </option>
+            }
+        </select>
+        <small>Rule 12 filters active students from <code>dbo_CREG</code> where <code>dbo_CRES._031 = 'A'</code>, then validates their qualification code against <code>dbo_QUAL._001</code>.</small>
+    </div>
+
+    <div class="rule-header">
+        <div class="rule-header__icon">R12</div>
+        <div>
+            <h1 class="rule-header__title">HEMIS Rule 12: Active Students</h1>
+            <p class="rule-header__sub">Filter active students (<code>dbo_CRES._031 = 'A'</code>) from <code>dbo_CREG</code> and validate their qualification codes against <code>dbo_QUAL._001</code>.</p>
+        </div>
+        <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:20px;border-left:5px solid #1565C0;background:var(--rule15-card,#fff)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span style="background:#1565C0;color:#fff;font-size:11px;font-weight:800;padding:3px 10px;border-radius:4px;letter-spacing:.5px;text-transform:uppercase">Audit Procedures Note</span>
+            <span style="color:var(--text-muted);font-size:12px">Course Registration File (CREG) — Sample of 40 Students</span>
+        </div>
+        <p style="margin:0 0 12px 0;font-size:13px;color:var(--text)">
+            Select a sample of <strong>40 students</strong> from the Course Registration file (CREG) and perform the following procedures:
+        </p>
+        <div style="margin-bottom:14px">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#1565C0;margin-bottom:8px">Supporting Documents to Obtain from the Registrar</div>
+            <ul style="margin:0;padding-left:20px;font-size:13px;color:var(--text);line-height:1.8">
+                <li>The student's signed application and/or registration form, or proof of online registration;</li>
+                <li>The student's examination script or academic records; and</li>
+                <li>The electronic registration records.</li>
+            </ul>
+        </div>
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#1565C0;margin-bottom:8px">Verification Steps</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+                <tr style="background:#1565C0;color:#fff">
+                    <th style="padding:7px 10px;text-align:left;width:120px">Element</th>
+                    <th style="padding:7px 10px;text-align:left">Procedure</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="background:#EEF4FF">
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 064<br><span style="font-weight:400;font-size:11px;color:#555">Attendance Mode</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Verify that the attendance mode recorded in the Course Registration file (CREG) agrees to the student's signed application and/or registration documentation.</td>
+                </tr>
+                <tr>
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 018<br><span style="font-weight:400;font-size:11px;color:#555">Funding Status</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Obtain confirmation from the Registrar that the student is <strong>not</strong> registered for the same course at another public institution as part of a collaborative arrangement.</td>
+                </tr>
+                <tr style="background:#EEF4FF">
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 030<br><span style="font-weight:400;font-size:11px;color:#555">Course Code</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Agree the course code per the Course Registration file to the student's signed application, registration, and/or change-of-course documentation.</td>
+                </tr>
+                <tr>
+                    <td style="padding:7px 10px;font-weight:700;border-bottom:1px solid #ccd9f0;white-space:nowrap">Element 032<br><span style="font-weight:400;font-size:11px;color:#555">Course Completion Status</span></td>
+                    <td style="padding:7px 10px;border-bottom:1px solid #ccd9f0;color:var(--text)">Agree the completion status recorded in the Course Registration file to the student academic records.</td>
+                </tr>
+                <tr style="background:#EEF4FF">
+                    <td style="padding:7px 10px;font-weight:700;white-space:nowrap">Element 051<br><span style="font-weight:400;font-size:11px;color:#555">Examination Indicator</span></td>
+                    <td style="padding:7px 10px;color:var(--text)">Agree the examination indicator per the Course Registration file to the registration records and student academic records.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    @if (!isResultsOnlyRole)
+    {
+        <div class="accordion-stack">
+            <div class="accordion-item">
+                <button class="accordion-toggle" type="button" onclick="toggleAccordion('connection')">
+                    <span class="acc-icon">DB</span>
+                    <span>Database Connection</span>
+                    <span class="acc-chevron">v</span>
+                </button>
+                <div class="accordion-body" id="body-connection">
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="server">Server Name</label>
+                            <input id="server" type="text" placeholder="e.g. MYSERVER or MYSERVER\INSTANCE" />
+                        </div>
+                        <div class="field-group">
+                            <label for="driver">Driver</label>
+                            <select id="driver">
+                                <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
+                                <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
+                                <option value="SQL Server">SQL Server</option>
+                            </select>
+                        </div>
+                        <div class="field-group">
+                            <label for="database">Database</label>
+                            <select id="database"></select>
+                        </div>
+                    </div>
+                    <div class="action-bar" style="justify-content:flex-start;margin:12px 0 0">
+                        <button type="button" class="btn btn-primary" id="connectBtn">Connect</button>
+                    </div>
+                    <div id="connectionOutput" class="status-output"></div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-toggle" type="button" onclick="toggleAccordion('config')">
+                    <span class="acc-icon">CF</span>
+                    <span>Rule Configuration</span>
+                    <span class="acc-chevron">v</span>
+                </button>
+                <div class="accordion-body" id="body-config" style="display:none">
+                    <div class="info-box info-box--red">
+                        <strong>Rule 12 Logic — Active Students:</strong><br />
+                        <span>Step 1: Join <strong>dbo_CREG</strong> to <strong>dbo_CRES</strong> on the course column (<strong>_030</strong>) and filter <strong>CRES._031 = 'A'</strong> to identify active students.</span><br />
+                        <span>Step 2: For each active student, test whether their qualification code (<strong>CREG._001</strong>) exists in <strong>dbo_QUAL._001</strong>.</span><br />
+                        <span>Rows are marked PASS when the qualification exists in QUAL and FAIL when it does not.</span>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field-group">
+                            <label for="cregTable">CREG Table</label>
+                            <select id="cregTable" onchange="loadColumnsForTable('creg', this.value)"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="qualTable">QUAL Table <small style="font-weight:normal">(qualification reference)</small></label>
+                            <select id="qualTable" onchange="loadColumnsForTable('qual', this.value)"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresTable">CRES Table <small style="font-weight:normal">(registration status)</small></label>
+                            <select id="cresTable" onchange="loadColumnsForTable('cres', this.value)"></select>
+                        </div>
+                    </div>
+                    <div class="form-grid" style="margin-top:12px">
+                        <div class="field-group">
+                            <label for="cregStudentCol">CREG Student No. Column <small style="font-weight:normal">(display, default _007)</small></label>
+                            <select id="cregStudentCol"><option value="_007">_007</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cregQualCol">CREG Qualification Column <small style="font-weight:normal">(join to QUAL, default _001)</small></label>
+                            <select id="cregQualCol"><option value="_001">_001</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cregCourseCol">CREG Course Column <small style="font-weight:normal">(join to CRES, default _030)</small></label>
+                            <select id="cregCourseCol"><option value="_030">_030</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="qualJoinCol">QUAL Join Column <small style="font-weight:normal">(default _001)</small></label>
+                            <select id="qualJoinCol"><option value="_001">_001</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="qualDescCol">QUAL Description Column <small style="font-weight:normal">(display, default _003)</small></label>
+                            <select id="qualDescCol"><option value="_003">_003</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresCourseCol">CRES Course Column <small style="font-weight:normal">(join from CREG, default _030)</small></label>
+                            <select id="cresCourseCol"><option value="_030">_030</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresStatusCol">CRES Status Column <small style="font-weight:normal">(filter column, default _031)</small></label>
+                            <select id="cresStatusCol"><option value="_031">_031</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="cresStatusFilter">Active Status Filter Value <small style="font-weight:normal">(default A)</small></label>
+                            <input id="cresStatusFilter" type="text" value="A" maxlength="20" style="text-transform:uppercase" />
+                        </div>
+                    </div>
+                    <div class="action-bar" style="justify-content:flex-start;margin:10px 0 0">
+                        <button type="button" class="btn btn-secondary" onclick="detectRule12Columns()">Auto-Detect Columns</button>
+                    </div>
+                    <div class="alert alert--info" style="margin-top:16px">
+                        <strong>Control 1:</strong> <code>[CREG].[_001] = [QUAL].[_001]</code> &nbsp;|&nbsp; <strong>Filter:</strong> <code>[CRES].[_031] = 'A'</code><br/>
+                        All table and column names are configurable. Use Auto-Detect after connecting to populate dropdowns.
+                    </div>
+                    <div id="configOutput" class="status-output"></div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <button class="accordion-toggle" type="button" onclick="toggleAccordion('downloads')">
+                    <span class="acc-icon">DL</span>
+                    <span>Export Options</span>
+                    <span class="acc-chevron">v</span>
+                </button>
+                <div class="accordion-body" id="body-downloads" style="display:none">
+                    <div class="checkbox-row">
+                        <label class="checkbox-label"><input type="checkbox" id="chkExcel" checked /> Excel</label>
+                        <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV</label>
+                        <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="workspace-signoff-card">
+        <div class="workspace-signoff-card__header">
+            <div>
+                <div class="workspace-signoff-card__title">Saved Workspace</div>
+                <div class="workspace-signoff-card__subtitle">The latest Rule 12 connection, results, and signoffs reload automatically for this engagement.</div>
+            </div>
+            <div id="workspaceRunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
+        </div>
+        <div id="workspaceInfo" class="alert alert--info">
+            Select an engagement to load the saved Rule 12 workspace.
+        </div>
+        <div class="workspace-signoff-grid">
+            <div>
+                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
+                <div id="workspaceRunLabel">No saved run yet</div>
+            </div>
+            <div>
+                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
+                <div id="workspaceStatusLabel">-</div>
+            </div>
+            <div>
+                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
+                <div id="workspaceEditedLabel">-</div>
+            </div>
+            <div>
+                <div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
+                <div id="workspaceRoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <label for="workspaceSignoffComment">Signoff Comment</label>
+                <textarea id="workspaceSignoffComment" rows="3" placeholder="Add review or completion notes"></textarea>
+            </div>
+        </div>
+        <div class="workspace-signoff-actions">
+            @if (!isResultsOnlyRole)
+            {
+                <button type="button" class="btn btn-secondary" id="beginEditBtn">Begin Edit</button>
+                <button type="button" class="btn btn-success" id="saveWorkspaceBtn">Save Workspace</button>
+            }
+            <button type="button" class="btn btn-primary" id="signoffBtn">Save Signoff</button>
+            <button type="button" class="btn btn-warning" id="removeSignoffBtn">Remove Signoff</button>
+        </div>
+    </div>
+
+    @if (!isResultsOnlyRole)
+    {
+        <div class="action-bar">
+            <button type="button" class="btn btn-info" id="verifyBtn">Verify Tables</button>
+            <button type="button" class="btn btn-success" id="runBtn">Run Rule 12</button>
+            <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+            <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
+        </div>
+    }
+
+    <div class="results-panel">
+        <div class="results-tabs">
+            <button class="tab-btn active" type="button" data-tab="analysis">Analysis</button>
+            <button class="tab-btn" type="button" data-tab="results">Results</button>
+            <button class="tab-btn" type="button" data-tab="charts">Charts</button>
+            <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+            <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
+        </div>
+        <div class="tab-pane active" data-tab-panel="analysis" id="analysisPane"></div>
+        <div class="tab-pane" data-tab-panel="results" id="resultsPane"></div>
+        <div class="tab-pane" data-tab-panel="charts" id="chartsPane"></div>
+        <div class="tab-pane" data-tab-panel="sql">
+            <textarea id="sqlText" rows="18" readonly></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="downloads">
+            <div class="alert alert--info" style="margin-bottom:16px">
+                Excel includes summary sheets and the full Rule 12 result set. CSV includes the current Rule 12 result set. SQL includes the full dbo_CREG/dbo_CRSE validation query.
+            </div>
+            <div class="action-bar" style="justify-content:flex-start;margin:0">
+                <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn">SQL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="spinner" class="spinner-overlay" style="display:none">
+        <div class="spinner-box">
+            <div class="spinner-ring"></div>
+            <p id="spinnerMsg">Processing...</p>
+        </div>
+    </div>
+</div>
+
+<form id="antiForgeryForm" method="post" style="display:none">
+    @Html.AntiForgeryToken()
+</form>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+window.toggleAccordion = function (section) {
+    const body = document.getElementById(`body-${section}`);
+    if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
+};
+
+(() => {
+    const apiBasePath = '/Rule12';
+    const currentSystemRole = '@currentSystemRole';
+    const isResultsOnlyRole = @(isResultsOnlyRole.ToString().ToLowerInvariant());
+    const browserResultsRenderLimit = 10;
+    const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
+    const defaultCrseTable = 'dbo_QUAL';
+    const state = {
+        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
+        currentRunId: null,
+        summary: null,
+        sql: '',
+        resultsVisible: false,
+        hasPendingValidation: false,
+        currentUserEngagementRole: '',
+        currentUserHasSignedOff: false,
+        isWorkspaceSaved: false,
+        hasDataAnalystSignoff: false,
+        currentStatus: '',
+        resultFilter: 'ALL',
+        controlFilter: 'ALL',
+        chartInstances: {}
+    };
+    let workspaceLoadToken = 0;
+
+    const els = {
+        clientId: document.getElementById('clientId'),
+        server: document.getElementById('server'),
+        driver: document.getElementById('driver'),
+        database: document.getElementById('database'),
+        cregTable: document.getElementById('cregTable'),
+        qualTable: document.getElementById('qualTable'),
+        cresTable: document.getElementById('cresTable'),
+        cregStudentCol: document.getElementById('cregStudentCol'),
+        cregQualCol: document.getElementById('cregQualCol'),
+        cregCourseCol: document.getElementById('cregCourseCol'),
+        qualJoinCol: document.getElementById('qualJoinCol'),
+        qualDescCol: document.getElementById('qualDescCol'),
+        cresCourseCol: document.getElementById('cresCourseCol'),
+        cresStatusCol: document.getElementById('cresStatusCol'),
+        cresStatusFilter: document.getElementById('cresStatusFilter'),
+        connectionOutput: document.getElementById('connectionOutput'),
+        configOutput: document.getElementById('configOutput'),
+        analysisPane: document.getElementById('analysisPane'),
+        resultsPane: document.getElementById('resultsPane'),
+        chartsPane: document.getElementById('chartsPane'),
+        sqlText: document.getElementById('sqlText'),
+        downloadAllBtn: document.getElementById('downloadAllBtn'),
+        workspaceInfo: document.getElementById('workspaceInfo'),
+        workspaceRunState: document.getElementById('workspaceRunState'),
+        workspaceRunLabel: document.getElementById('workspaceRunLabel'),
+        workspaceStatusLabel: document.getElementById('workspaceStatusLabel'),
+        workspaceEditedLabel: document.getElementById('workspaceEditedLabel'),
+        workspaceRoleLabel: document.getElementById('workspaceRoleLabel'),
+        workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
+        beginEditBtn: document.getElementById('beginEditBtn'),
+        saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
+        signoffBtn: document.getElementById('signoffBtn'),
+        removeSignoffBtn: document.getElementById('removeSignoffBtn'),
+        statusBadge: document.getElementById('statusBadge')
+    };
+
+    const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+    tabButtons.forEach(btn => btn.addEventListener('click', () => setActiveTab(btn.dataset.tab)));
+
+    function showSpinner(message) {
+        document.getElementById('spinnerMsg').textContent = message || 'Processing...';
+        document.getElementById('spinner').style.display = 'flex';
+    }
+
+    function hideSpinner() {
+        document.getElementById('spinner').style.display = 'none';
+    }
+
+    function getActiveTab() {
+        return document.querySelector('.tab-btn.active')?.dataset.tab || 'analysis';
+    }
+
+    function setActiveTab(tab) {
+        tabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+        document.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.classList.toggle('active', pane.dataset.tabPanel === tab);
+        });
+
+        if (tab === 'results') {
+            window.setTimeout(() => renderResults(true), 0);
+        } else if (tab === 'charts') {
+            window.setTimeout(() => renderCharts(state.summary), 0);
+        }
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function formatNumber(value) {
+        return Number(value || 0).toLocaleString();
+    }
+
+    function normalizeRole(value) {
+        return String(value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();
+    }
+
+    function setAlert(target, type, message) {
+        if (!target) return;
+        target.innerHTML = `<div class="alert alert--${type}">${message}</div>`;
+    }
+
+    function setWorkspaceState(message, type) {
+        els.workspaceInfo.className = `alert alert--${type}`;
+        els.workspaceInfo.textContent = message || '';
+        window.showWorkspaceActionToast?.(message, type);
+    }
+
+    function setStatusBadge(text, type) {
+        if (!text) {
+            els.statusBadge.style.display = 'none';
+            els.statusBadge.textContent = '';
+            return;
+        }
+
+        els.statusBadge.style.display = 'inline-block';
+        els.statusBadge.className = `rule-header__badge ${type === 'fail' ? 'badge--fail' : 'badge--pass'}`;
+        els.statusBadge.textContent = text;
+    }
+
+    async function postJson(url, data) {
+        return await window.fetchJsonWithProgress(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(data)
+        });
+    }
+
+    async function fetchWorkspaceState(clientId, includeSummary = false) {
+        const response = await fetch(`${apiBasePath}/GetWorkspaceState?clientId=${encodeURIComponent(clientId)}&includeSummary=${includeSummary ? 'true' : 'false'}`, {
+            method: 'GET'
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to load workspace.');
+        }
+
+        return data;
+    }
+
+    async function downloadBlob(url, payload, defaultName) {
+        await window.downloadFileWithProgress({
+            url,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': token
+            },
+            body: JSON.stringify(payload),
+            defaultFileName: defaultName,
+            label: 'Downloading result'
+        });
+    }
+
+    function populateSelect(select, values, selected) {
+        if (!select) return;
+        select.innerHTML = '<option value="">Select table</option>';
+        values.forEach(value => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            select.appendChild(option);
+        });
+        if (selected) {
+            if (![...select.options].some(option => option.value === selected)) {
+                const option = document.createElement('option');
+                option.value = selected;
+                option.textContent = selected;
+                select.appendChild(option);
+            }
+            select.value = selected;
+        }
+    }
+
+    function getRequest() {
+        return {
+            clientId:        parseInt(els.clientId.value || '0', 10) || 0,
+            runId:           state.currentRunId,
+            server:          els.server?.value.trim() || '',
+            database:        els.database?.value || '',
+            driver:          els.driver?.value || 'ODBC Driver 17 for SQL Server',
+            cregTable:       els.cregTable?.value || 'dbo_CREG',
+            qualTable:       els.qualTable?.value || 'dbo_QUAL',
+            cresTable:       els.cresTable?.value || 'dbo_CRES',
+            cregStudentCol:  els.cregStudentCol?.value || '_007',
+            cregQualCol:     els.cregQualCol?.value || '_001',
+            cregCourseCol:   els.cregCourseCol?.value || '_030',
+            qualJoinCol:     els.qualJoinCol?.value || '_001',
+            qualDescCol:     els.qualDescCol?.value || '_003',
+            cresCourseCol:   els.cresCourseCol?.value || '_030',
+            cresStatusCol:   els.cresStatusCol?.value || '_031',
+            cresStatusFilter:(els.cresStatusFilter?.value || 'A').trim().toUpperCase()
+        };
+    }
+
+    function fillColSel(selEl, cols, preferredCol) {
+        if (!selEl) return;
+        const cur = selEl.value;
+        selEl.innerHTML = '';
+        (cols || []).forEach(function(c) {
+            const o = document.createElement('option');
+            o.value = o.textContent = c;
+            if (c === (preferredCol || cur)) o.selected = true;
+            selEl.appendChild(o);
+        });
+        if (!selEl.value && cols.length) selEl.value = cols[0];
+    }
+
+    async function loadColumnsForTable(role, tableName) {
+        const server = els.server?.value?.trim();
+        const db = els.database?.value;
+        if (!server || !db || !tableName) return;
+        try {
+            const data = await postJson(`/Rule12/GetColumns`, {
+                server, database: db,
+                driver: els.driver?.value || 'ODBC Driver 17 for SQL Server',
+                cregTable: tableName
+            });
+            if (!data.success || !data.columns) return;
+            const cols = data.columns || [];
+            if (role === 'creg') {
+                fillColSel(els.cregStudentCol, cols, '_007');
+                fillColSel(els.cregQualCol,    cols, '_001');
+                fillColSel(els.cregCourseCol,  cols, '_030');
+            } else if (role === 'qual') {
+                fillColSel(els.qualJoinCol,  cols, '_001');
+                fillColSel(els.qualDescCol,  cols, '_003');
+            } else if (role === 'cres') {
+                fillColSel(els.cresCourseCol, cols, '_030');
+                fillColSel(els.cresStatusCol, cols, '_031');
+            }
+            setAlert(els.configOutput, 'success', `Columns loaded for ${tableName}.`);
+        } catch (e) { /* silently ignore */ }
+    }
+
+    window.detectRule12Columns = async function() {
+        await Promise.all([
+            loadColumnsForTable('creg', els.cregTable?.value),
+            loadColumnsForTable('qual', els.qualTable?.value),
+            loadColumnsForTable('cres', els.cresTable?.value)
+        ]);
+    };
+
+    function updateWorkspaceButtons() {
+        const role = state.currentUserEngagementRole || currentSystemRole || '';
+        const normalizedRole = normalizeRole(role);
+        const normalizedSystemRole = normalizeRole(currentSystemRole);
+        const hasRanValidation = !!state.summary;
+        const canEdit = !isResultsOnlyRole &&
+            (normalizedSystemRole === 'dataanalyst' || normalizedRole === 'dataanalyst');
+        const canSaveWorkspace = hasRanValidation && canEdit;
+        const canSign = !state.hasPendingValidation && !!state.currentRunId &&
+            !!state.isWorkspaceSaved &&
+            (normalizedRole === 'dataanalyst' || (state.resultsVisible && (normalizedRole === 'manager' || normalizedRole === 'director')));
+        const signoffLocked = !!state.currentUserHasSignedOff;
+
+        window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signoffLocked);
+        window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signoffLocked);
+        window.ruleWorkspaceUi.applyStates([
+            { target: 'connectBtn', disabled: !canEdit || signoffLocked },
+            { target: 'verifyBtn', disabled: !canEdit || signoffLocked },
+            { target: 'runBtn', disabled: !canEdit || signoffLocked },
+            { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
+            { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || state.hasPendingValidation },
+            { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canSaveWorkspace },
+            {
+                target: els.signoffBtn,
+                disabled: signoffLocked || !canSign,
+                text: state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff'
+            },
+            { target: els.removeSignoffBtn, show: state.currentUserHasSignedOff, display: '', disabled: !state.currentUserHasSignedOff },
+            { target: els.workspaceSignoffComment, disabled: signoffLocked || !canSign },
+            { target: els.downloadAllBtn, disabled: !state.summary }
+        ]);
+        window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signoffLocked, {
+            allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
+        });
+    }
+
+    function destroyCharts() {
+        Object.values(state.chartInstances || {}).forEach(chart => {
+            if (chart && typeof chart.destroy === 'function') {
+                chart.destroy();
+            }
+        });
+        state.chartInstances = {};
+    }
+
+    function renderCharts(summary) {
+        destroyCharts();
+
+        if (!els.chartsPane) {
+            return;
+        }
+
+        if (!summary) {
+            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts will appear after running Rule 12.</p></div>';
+            return;
+        }
+
+        if (typeof Chart === 'undefined') {
+            els.chartsPane.innerHTML = '<div class="empty-card"><p>Charts could not load because Chart.js is unavailable.</p></div>';
+            return;
+        }
+
+        const controls = summary.controlSummaries || [];
+        const labels = controls.map(item => item.controlLabel || String(item.controlType || '').replace('_', ' '));
+        const totalCounts = controls.map(item => Number(item.totalCount || 0));
+        const passCounts = controls.map(item => Number(item.passCount || 0));
+        const failCounts = controls.map(item => Number(item.failCount || 0));
+        const successRates = controls.map(item => {
+            const total = Number(item.totalCount || 0);
+            return total > 0 ? Number(((Number(item.passCount || 0) / total) * 100).toFixed(2)) : 0;
+        });
+
+        els.chartsPane.innerHTML = `
+            <div class="card" style="padding:20px">
+                <h3 class="section-title" style="margin-top:0">Rule 12 Visual Summary</h3>
+                <div class="charts-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                    <div class="chart-card">
+                        <h4>Rows by Rule Outcome</h4>
+                        <canvas id="Rule12ChartControlTotals"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4>Overall PASS vs FAIL</h4>
+                        <canvas id="Rule12ChartOutcome"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4>Control Success Rate</h4>
+                        <canvas id="Rule12ChartRates"></canvas>
+                    </div>
+                    <div class="chart-card chart-card--status ${summary.failCount > 0 ? 'chart-card--fail' : 'chart-card--pass'}">
+                        <h4>Run Status</h4>
+                        <div class="big-status">${escapeHtml(summary.status || '')}</div>
+                        <div class="summary-text" style="width:100%;margin-top:12px">
+                            <div><span>Selected Courses</span><strong>${formatNumber(summary.totalValidated)}</strong></div>
+                            <div><span>Matched Courses</span><strong>${formatNumber(summary.passCount)}</strong></div>
+                            <div><span>PASS</span><strong class="text-success">${formatNumber(summary.passCount)}</strong></div>
+                            <div><span>FAIL</span><strong class="text-danger">${formatNumber(summary.failCount)}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+        state.chartInstances.controlTotals = new Chart(document.getElementById('Rule12ChartControlTotals'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'PASS', data: passCounts, backgroundColor: '#4CAF50' },
+                    { label: 'FAIL', data: failCounts, backgroundColor: '#F44336' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+
+        state.chartInstances.outcome = new Chart(document.getElementById('Rule12ChartOutcome'), {
+            type: 'doughnut',
+            data: {
+                labels: ['PASS', 'FAIL'],
+                datasets: [{
+                    data: [Number(summary.passCount || 0), Number(summary.failCount || 0)],
+                    backgroundColor: ['#4CAF50', '#F44336'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+
+        state.chartInstances.rates = new Chart(document.getElementById('Rule12ChartRates'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Success %',
+                    data: successRates,
+                    backgroundColor: ['#2563EB', '#0EA5E9', '#0F766E']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, max: 100 }
+                }
+            }
+        });
+    }
+
+    function normalizeBrowserSummary(summary) {
+        if (!summary) return summary;
+        const rows = Array.isArray(summary.reviewRows) ? summary.reviewRows : [];
+        if (rows.length <= browserResultsRenderLimit) {
+            return summary;
+        }
+
+        return {
+            ...summary,
+            reviewRows: rows.slice(0, browserResultsRenderLimit),
+            displayedCount: Math.min(Number(summary.displayedCount || rows.length), browserResultsRenderLimit),
+            isPreviewOnly: true,
+            previewLimit: Number(summary.previewLimit || browserResultsRenderLimit)
+        };
+    }
+
+    function applySummary(summary, options = {}) {
+        state.summary = normalizeBrowserSummary(summary);
+        if (!options.fromWorkspace) {
+            state.currentRunId = summary?.savedRunId || state.currentRunId;
+        }
+        state.currentStatus = summary?.status || state.currentStatus;
+        state.resultsVisible = !!summary || state.resultsVisible;
+
+        if (!summary) {
+            els.analysisPane.innerHTML = '<div class="empty-card"><p>No Rule 12 results loaded.</p></div>';
+            els.resultsPane.innerHTML = '<div class="empty-card"><p>No Rule 12 results loaded.</p></div>';
+            setStatusBadge('', 'pass');
+            updateWorkspaceButtons();
+            return;
+        }
+
+        if (state.hasPendingValidation) {
+            els.workspaceRunState.textContent = `Pending save | ${summary.status || 'Completed'}`;
+            els.workspaceRunLabel.textContent = 'Unsaved Rule 12 validation';
+            els.workspaceStatusLabel.textContent = 'Pending Save';
+        } else {
+            els.workspaceRunState.textContent = state.currentRunId
+                ? `Run #${state.currentRunId} | ${state.currentStatus || 'Completed'}`
+                : 'No saved run loaded';
+            els.workspaceRunLabel.textContent = state.currentRunId
+                ? `Run #${state.currentRunId}`
+                : 'No saved run yet';
+            els.workspaceStatusLabel.textContent = state.currentStatus || '-';
+        }
+        if (!els.workspaceRoleLabel.textContent?.trim()) {
+            els.workspaceRoleLabel.textContent = state.currentUserEngagementRole || currentSystemRole || '-';
+        }
+
+        setStatusBadge(summary.status, summary.failCount > 0 ? 'fail' : 'pass');
+        renderAnalysis(summary);
+        renderResults();
+        renderCharts(summary);
+        updateWorkspaceButtons();
+    }
+
+    function applyWorkspace(workspace, resultsVisible, preserveExistingSummary = false) {
+        if (!workspace) {
+            state.currentRunId = null;
+            state.currentStatus = '';
+            state.currentUserEngagementRole = '';
+            state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
+            state.hasDataAnalystSignoff = false;
+            state.resultsVisible = false;
+            state.hasPendingValidation = false;
+            els.workspaceRunState.textContent = 'No saved run loaded';
+            els.workspaceRunLabel.textContent = 'No saved run yet';
+            els.workspaceStatusLabel.textContent = '-';
+            els.workspaceEditedLabel.textContent = '-';
+            setWorkspaceState('No saved Rule 12 workspace exists for this engagement yet.', 'info');
+            if (!preserveExistingSummary) {
+                applySummary(null);
+            } else {
+                updateWorkspaceButtons();
+            }
+            return;
+        }
+
+        state.clientId = workspace.clientId || state.clientId;
+        state.currentRunId = workspace.runId || null;
+        state.currentStatus = workspace.currentStatus || '';
+        state.currentUserEngagementRole = workspace.currentUserEngagementRole || currentSystemRole || '';
+        state.currentUserHasSignedOff = !!workspace.currentUserHasSignedOff;
+        state.isWorkspaceSaved = !!workspace.isWorkspaceSaved;
+        state.hasDataAnalystSignoff = !!workspace.hasDataAnalystSignoff;
+        state.resultsVisible = !!resultsVisible;
+        state.hasPendingValidation = false;
+
+        if (els.server) els.server.value = workspace.server || '';
+        if (els.driver) els.driver.value = workspace.driver || 'ODBC Driver 17 for SQL Server';
+        populateSelect(els.database, workspace.database ? [workspace.database] : [], workspace.database);
+        populateSelect(els.cregTable, workspace.cregTable ? [workspace.cregTable] : [], workspace.cregTable);
+        populateSelect(els.qualTable, [workspace.qualTable || 'dbo_QUAL'], workspace.qualTable || 'dbo_QUAL');
+        populateSelect(els.cresTable, [workspace.cresTable || 'dbo_CRES'], workspace.cresTable || 'dbo_CRES');
+        if (els.cresStatusFilter) els.cresStatusFilter.value = workspace.cresStatusFilter || 'A';
+
+        els.workspaceRunState.textContent = workspace.runId ? `Run #${workspace.runId}` : 'No saved run loaded';
+        els.workspaceRunLabel.textContent = workspace.runId ? `Rule 12 Run #${workspace.runId}` : 'No saved run yet';
+        els.workspaceStatusLabel.textContent = workspace.currentStatus || '-';
+        els.workspaceEditedLabel.textContent = workspace.lastEditedAt ? new Date(workspace.lastEditedAt).toLocaleString() : '-';
+        els.workspaceRoleLabel.textContent = workspace.currentUserEngagementRole || currentSystemRole || '-';
+        els.workspaceSignoffComment.value = workspace.currentUserSignoffComment || '';
+
+        if (!resultsVisible) {
+            setWorkspaceState('Saved Rule 12 results are not available for your engagement role.', 'info');
+            if (!preserveExistingSummary) {
+                applySummary(null);
+            } else {
+                updateWorkspaceButtons();
+            }
+            return;
+        }
+
+        setWorkspaceState(workspace.summary
+            ? 'Saved workspace loaded. The last analyst configuration and results are ready.'
+            : 'Saved workspace loaded. Loading the saved results in the background.',
+            'success');
+
+        if (workspace.summary) {
+            applySummary(workspace.summary, { fromWorkspace: true });
+        } else if (!preserveExistingSummary) {
+            applySummary(null);
+        } else {
+            updateWorkspaceButtons();
+        }
+    }
+
+    async function loadWorkspace() {
+        state.clientId = Number(els.clientId?.value || 0);
+        workspaceLoadToken += 1;
+        const loadToken = workspaceLoadToken;
+        if (!state.clientId) {
+            applyWorkspace(null, false);
+            return;
+        }
+
+        const data = await fetchWorkspaceState(state.clientId, false);
+        if (loadToken !== workspaceLoadToken || state.clientId !== Number(els.clientId?.value || 0)) return;
+        applyWorkspace(data.workspace, data.resultsVisible);
+
+        if (data.resultsVisible && data.workspace?.runId) {
+            void hydrateWorkspaceSummary(state.clientId, loadToken);
+        }
+    }
+
+    async function hydrateWorkspaceSummary(clientId, loadToken) {
+        try {
+            const data = await fetchWorkspaceState(clientId, true);
+            if (loadToken !== workspaceLoadToken || state.clientId !== clientId) return;
+            applyWorkspace(data.workspace, data.resultsVisible, true);
+        } catch (err) {
+            if (loadToken === workspaceLoadToken && state.clientId === clientId) {
+                console.warn('Rule 12 saved results could not be loaded in the background.', err);
+            }
+        }
+    }
+
+    async function connect() {
+        const server = els.server?.value?.trim();
+        if (!server) throw new Error('Enter the SQL Server name first.');
+
+        showSpinner('Loading databases...');
+        try {
+            const data = await postJson(`${apiBasePath}/GetDatabases`, {
+                server,
+                driver: els.driver.value
+            });
+            if (!data.success) throw new Error(data.error || 'Connection failed.');
+
+            els.database.innerHTML = '<option value="">Select database</option>';
+            data.databases.forEach(db => {
+                const option = document.createElement('option');
+                option.value = db;
+                option.textContent = db;
+                els.database.appendChild(option);
+            });
+
+            setAlert(els.connectionOutput, 'success', `Connected. Found ${data.databases.length} database(s).`);
+            if ((data.databases || []).length) {
+                await loadTables();
+            }
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function loadTables() {
+        if (!els.database.value) return;
+        const data = await postJson(`${apiBasePath}/GetTables`, {
+            server: els.server.value.trim(),
+            database: els.database.value,
+            driver: els.driver.value
+        });
+
+        if (!data.success) throw new Error(data.error || 'Could not load tables.');
+
+        populateSelect(els.cregTable, data.tables || [], data.autoCregTable || data.autoStudTable);
+        populateSelect(els.qualTable, data.tables || [], data.autoQualTable);
+        populateSelect(els.cresTable, data.tables || [], data.autoCresTable);
+        setAlert(els.configOutput, 'success', `Loaded ${data.tables.length} table(s).`);
+    }
+
+    async function verifyTables() {
+        showSpinner('Verifying Rule 12 tables...');
+        try {
+            const data = await postJson(`${apiBasePath}/VerifyTables`, getRequest());
+            if (!data.success) throw new Error(data.error || 'Verification failed.');
+
+            els.configOutput.innerHTML = `
+                <div class="alert alert--success">
+                    CREG rows: <strong>${formatNumber(data.cregRecordCount)}</strong> |
+                    QUAL rows: <strong>${formatNumber(data.qualRecordCount)}</strong> |
+                    CRES active (${(els.cresStatusFilter?.value || 'A').toUpperCase()}): <strong>${formatNumber(data.cresActiveCount)}</strong> |
+                    Active students tested: <strong>${formatNumber(data.totalActiveStudents)}</strong> |
+                    Matched quals: <strong>${formatNumber(data.matchedQualCount)}</strong> |
+                    Missing quals: <strong>${formatNumber(data.missingQualCount)}</strong>
+                </div>`;
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function runValidation() {
+        const request = getRequest();
+        if (!request.clientId) {
+            setWorkspaceState('Select the approved engagement assigned to you before running this rule.', 'warning');
+            return;
+        }
+
+        try {
+            showSpinner('Running Rule 12 course selection validation...');
+            const data = await postJson(`${apiBasePath}/RunValidation`, request);
+            if (!data.success) throw new Error(data.error || 'Rule 12 failed.');
+
+            state.hasPendingValidation = true;
+            state.currentRunId = null;
+            state.currentStatus = data.status || '';
+            state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
+            state.hasDataAnalystSignoff = false;
+            state.resultsVisible = true;
+            state.currentUserEngagementRole = state.currentUserEngagementRole || currentSystemRole || 'DataAnalyst';
+            applySummary(data);
+
+            const control1 = (data.controlSummaries || []).find(item => item.controlType === 'Control_1');
+            setWorkspaceState(`Rule 12 validation completed. Active students tested: ${formatNumber(data.totalValidated)} | Matched qualifications: ${formatNumber(control1?.passCount || 0)} | Missing qualifications: ${formatNumber(control1?.failCount || 0)}. Click Save Workspace before signoff or visibility to other users.`, 'success');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function generateSql() {
+        showSpinner('Generating SQL...');
+        try {
+            const data = await postJson(`${apiBasePath}/GenerateSql`, getRequest());
+            if (!data.success) throw new Error(data.error || 'SQL generation failed.');
+            state.sql = data.sql || '';
+            els.sqlText.value = state.sql;
+            setActiveTab('sql');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function beginEdit() {
+        showSpinner('Preparing workspace edit...');
+        try {
+            const data = await postJson(`${apiBasePath}/BeginWorkspaceEdit`, getRequest());
+            if (!data.success) throw new Error(data.error || 'Could not begin editing.');
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
+            setWorkspaceState(data.message || 'Workspace ready for editing.', 'warning');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function saveWorkspace() {
+        showSpinner('Saving workspace...');
+        try {
+            const data = await postJson(`${apiBasePath}/SaveWorkspace`, getRequest());
+            if (!data.success) throw new Error(data.error || 'Could not save workspace.');
+            state.hasPendingValidation = false;
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
+            setWorkspaceState(data.message || 'Workspace saved.', data.signoffsCleared ? 'warning' : 'success');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function signoffWorkspace() {
+        showSpinner('Saving signoff...');
+        try {
+            const data = await postJson(`${apiBasePath}/SignOffWorkspace`, {
+                clientId: state.clientId,
+                runId: state.currentRunId,
+                comment: els.workspaceSignoffComment.value.trim()
+            });
+            if (!data.success) throw new Error(data.error || 'Signoff failed.');
+            state.currentUserHasSignedOff = true;
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            applyWorkspace(data.workspace, workspaceResultsVisible, true);
+            setWorkspaceState(data.message || 'Signoff saved.', 'success');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    async function removeWorkspaceSignoff() {
+        showSpinner('Removing signoff...');
+        try {
+            const previousRunId = state.currentRunId;
+            const data = await postJson(`${apiBasePath}/RemoveWorkspaceSignoff`, {
+                clientId: state.clientId,
+                runId: state.currentRunId,
+                comment: ''
+            });
+            if (!data.success) throw new Error(data.error || 'Could not remove signoff.');
+            state.currentUserHasSignedOff = false;
+            state.isWorkspaceSaved = false;
+            const workspaceResultsVisible = Object.prototype.hasOwnProperty.call(data, 'resultsVisible')
+                ? !!data.resultsVisible
+                : !!data.workspace?.resultsVisible;
+            const preserveExistingSummary = !!(data.workspace && previousRunId && data.workspace.runId === previousRunId);
+            applyWorkspace(data.workspace, workspaceResultsVisible, preserveExistingSummary);
+            setWorkspaceState(data.message || 'Signoff removed.', 'warning');
+        } finally {
+            hideSpinner();
+        }
+    }
+
+    function renderAnalysis(summary) {
+        if (!summary) {
+            els.analysisPane.innerHTML = '<div class="empty-card"><p>No Rule 12 results loaded.</p></div>';
+            return;
+        }
+
+        const control1 = (summary.controlSummaries || []).find(item => item.controlType === 'Control_1');
+
+        const controlRows = (summary.controlSummaries || [])
+            .map(item => `<tr><td>${escapeHtml(item.controlLabel)}</td><td>${escapeHtml(item.criteriaText)}</td><td>${item.totalCount.toLocaleString()}</td><td>${item.passCount.toLocaleString()}</td><td>${item.failCount.toLocaleString()}</td><td>${escapeHtml(item.status)}</td></tr>`)
+            .join('');
+
+        els.analysisPane.innerHTML = `
+            ${summary.isPreviewOnly ? `<div class="alert alert--warning Rule14-preview-note">The browser shows a preview of ${summary.previewLimit.toLocaleString()} rows to stay responsive. Excel and CSV keep the full Rule 12 result set.</div>` : ''}
+            <div class="Rule14-summary-grid">
+                <div class="stat-card"><div class="stat-card__label">CREG Records</div><div class="stat-card__value">${(summary.cregRecordCount||0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">QUAL Records</div><div class="stat-card__value">${(summary.qualRecordCount||0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">CRES Active (${escapeHtml(summary.cresStatusFilter||'A')})</div><div class="stat-card__value">${(summary.cresActiveCount||0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">Active Students Tested</div><div class="stat-card__value">${summary.totalValidated.toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">Matched Qualifications</div><div class="stat-card__value">${summary.passCount.toLocaleString()}</div></div>
+                <div class="stat-card stat-card--fail"><div class="stat-card__label">Missing Qualifications</div><div class="stat-card__value">${summary.failCount.toLocaleString()}</div></div>
+            </div>
+            <div class="alert alert--info" style="margin-top:16px">
+                Active students tested: <strong>${formatNumber(control1?.totalCount || 0)}</strong> |
+                Qualifications found in QUAL: <strong>${formatNumber(control1?.passCount || 0)}</strong> |
+                Qualifications missing from QUAL: <strong>${formatNumber(control1?.failCount || 0)}</strong>
+            </div>
+            <div class="card" style="padding:20px;margin-top:20px">
+                <h3 class="section-title" style="margin-top:0">Run Summary</h3>
+                <div class="form-grid">
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Database</div><div>${escapeHtml(summary.database)}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Linkage</div><div style="font-size:12px">${escapeHtml(summary.tableLinkageText)}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">CREG Records</div><div>${(summary.cregRecordCount||0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">QUAL Records</div><div>${(summary.qualRecordCount||0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">CRES Active</div><div>${(summary.cresActiveCount||0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-muted);font-size:12px;text-transform:uppercase;font-weight:700">Status</div><div>${escapeHtml(summary.status)}</div></div>
+                </div>
+                <div class="Rule14-control-summary">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Control</th><th>Criteria</th><th>Rows Tested</th><th>PASS</th><th>FAIL</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>${controlRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
+    function getFilteredRows(summary) {
+        return (summary.reviewRows || []).filter(row => {
+            const matchesControl = state.controlFilter === 'ALL' || row.controlType === state.controlFilter;
+            const matchesResult = state.resultFilter === 'ALL' || String(row.validationResult || '').toUpperCase() === state.resultFilter;
+            return matchesControl && matchesResult;
+        });
+    }
+
+    function getControlHeading(controlType, criteriaText) {
+        const number = String(controlType || '').replace('Control_', '').trim();
+        return `CONTROL ${number}: ${criteriaText || ''}`;
+    }
+
+    function buildFinalMessage(resultText, criteriaText) {
+        return `${resultText} this Criteria: ${criteriaText || ''}`;
+    }
+
+    function renderControlSection(summary, controlType) {
+        const controlMeta = (summary.controlSummaries || []).find(item => item.controlType === controlType);
+        const rows = getFilteredRows(summary).filter(row => row.controlType === controlType);
+        if (state.controlFilter !== 'ALL' && state.controlFilter !== controlType) {
+            return '';
+        }
+
+        const criteriaText = controlMeta?.criteriaText || '';
+        const cregStudentCol  = summary.cregStudentCol  || '_007';
+        const cregQualCol     = summary.cregQualCol     || '_001';
+        const cregCourseCol   = summary.cregCourseCol   || '_030';
+        const qualJoinCol     = summary.qualJoinCol     || '_001';
+        const qualDescCol     = summary.qualDescCol     || '_003';
+        const cresCourseCol   = summary.cresCourseCol   || '_030';
+        const cresStatusCol   = summary.cresStatusCol   || '_031';
+
+        const rowHtml = rows.map(row => {
+            const rawV = row.displayValues || {}; const v = Object.fromEntries(Object.entries(rawV).map(([k, val]) => [k.toUpperCase(), val]));
+            const resultText = String(row.validationResult || '').toUpperCase() === 'FAIL' ? 'FAIL' : 'PASS';
+            const isFail = resultText === 'FAIL';
+            return `
+                <tr>
+                    <td class="group-stud">${escapeHtml(v.CREG__007 || '')}</td>
+                    <td class="group-stud">${escapeHtml(v.CREG__001 || '')}</td>
+                    <td class="group-stud">${escapeHtml(v.CREG__030 || '')}</td>
+                    <td class="group-bridge">${escapeHtml(v.QUAL__001 || '')}</td>
+                    <td class="group-bridge">${escapeHtml(v.QUAL__003 || '')}</td>
+                    <td class="group-final">${escapeHtml(v.CRES__030 || '')}</td>
+                    <td class="group-final ${isFail ? 'is-fail' : 'is-pass'}">${escapeHtml(v.CRES__031 || '')}</td>
+                    <td class="final-cell ${isFail ? 'is-fail' : 'is-pass'}">
+                        <div class="result-text">${escapeHtml(resultText)}</div>
+                        <div class="message-text">${escapeHtml(v.FINAL_RESULT_MESSAGE || buildFinalMessage(resultText, criteriaText))}</div>
+                    </td>
+                </tr>`;
+        }).join('');
+
+        return `
+            <div class="Rule14-control-card">
+                <div class="Rule14-control-title">${escapeHtml(getControlHeading(controlType, criteriaText))}</div>
+                ${rows.length === 0 ? `<div class="alert alert--info" style="margin:0">No rows match the selected control/result filters in the current browser result set.</div>` : `
+                <div class="Rule14-table-wrap">
+                    <table class="Rule14-grid">
+                        <thead>
+                            <tr>
+                                <th class="group-stud" colspan="3">${escapeHtml(summary.cregTable || 'dbo_CREG')}</th>
+                                <th class="group-bridge" colspan="2">${escapeHtml(summary.qualTable || 'dbo_QUAL')}</th>
+                                <th class="group-final" colspan="2">${escapeHtml(summary.cresTable || 'dbo_CRES')}</th>
+                                <th class="group-final">Final Results</th>
+                            </tr>
+                            <tr>
+                                <th class="group-stud">${escapeHtml(cregStudentCol)}</th>
+                                <th class="group-stud">${escapeHtml(cregQualCol)}</th>
+                                <th class="group-stud">${escapeHtml(cregCourseCol)}</th>
+                                <th class="group-bridge">${escapeHtml(qualJoinCol)}</th>
+                                <th class="group-bridge">${escapeHtml(qualDescCol)}</th>
+                                <th class="group-final">${escapeHtml(cresCourseCol)}</th>
+                                <th class="group-final">${escapeHtml(cresStatusCol)}</th>
+                                <th class="final-head">pass/fail</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowHtml}</tbody>
+                    </table>
+                </div>`}
+            </div>`;
+    }
+
+    function renderResults(force = false) {
+        if (!state.summary) {
+            els.resultsPane.innerHTML = '<div class="empty-card"><p>No Rule 12 results loaded.</p></div>';
+            return;
+        }
+
+        if (!force && getActiveTab() !== 'results') {
+            els.resultsPane.innerHTML = '<div class="empty-card"><p>Open the Results tab to load the browser preview.</p></div>';
+            return;
+        }
+
+        const summary = state.summary;
+        const filteredRows = getFilteredRows(summary);
+        els.resultsPane.innerHTML = `
+            <div class="Rule14-filterbar">
+                <div class="field-group" style="margin:0;min-width:180px">
+                    <label for="liveControlFilter">Control Filter</label>
+                    <select id="liveControlFilter">
+                        <option value="ALL">All controls</option>
+                        <option value="Control_1">Control 1</option>
+                    </select>
+                </div>
+                <div class="field-group" style="margin:0;min-width:180px">
+                    <label for="liveResultFilter">Result Filter</label>
+                    <select id="liveResultFilter">
+                        <option value="PASS">PASS</option>
+                        <option value="FAIL">FAIL</option>
+                        <option value="ALL">All results</option>
+                    </select>
+                </div>
+            </div>
+            <div class="alert alert--info" style="margin-bottom:16px">
+                Showing ${formatNumber(filteredRows.length)} loaded result row(s) in the screenshot layout.
+            </div>
+            <div class="Rule14-results-wrap">
+                ${summary.isPreviewOnly ? `<div class="alert alert--warning">Only the saved browser preview is shown here. Downloads keep the saved Rule 12 result set.</div>` : ''}
+                ${renderControlSection(summary, 'Control_1')}
+            </div>`;
+
+        const controlFilter = document.getElementById('liveControlFilter');
+        const resultFilter = document.getElementById('liveResultFilter');
+        if (controlFilter) controlFilter.value = state.controlFilter;
+        if (resultFilter) resultFilter.value = state.resultFilter;
+
+        controlFilter?.addEventListener('change', () => {
+            state.controlFilter = controlFilter.value;
+            renderResults(summary);
+        });
+        resultFilter?.addEventListener('change', () => {
+            state.resultFilter = resultFilter.value;
+            renderResults(summary);
+        });
+    }
+
+    if (!isResultsOnlyRole) {
+        els.database?.addEventListener('change', () => loadTables().catch(err => {
+            els.configOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;
+        }));
+        document.getElementById('connectBtn')?.addEventListener('click', () => connect().catch(err => {
+            hideSpinner();
+            els.connectionOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;
+        }));
+        document.getElementById('verifyBtn')?.addEventListener('click', () => verifyTables().catch(err => {
+            hideSpinner();
+            els.configOutput.innerHTML = `<div class="alert alert--error">${escapeHtml(err.message)}</div>`;
+        }));
+        document.getElementById('runBtn')?.addEventListener('click', () => runValidation().catch(err => {
+            hideSpinner();
+            setWorkspaceState(err.message, 'error');
+        }));
+        document.getElementById('sqlBtn')?.addEventListener('click', () => generateSql().catch(err => {
+            hideSpinner();
+            els.sqlText.value = err.message;
+        }));
+        els.beginEditBtn?.addEventListener('click', () => beginEdit().catch(err => {
+            hideSpinner();
+            setWorkspaceState(err.message, 'error');
+        }));
+        els.saveWorkspaceBtn?.addEventListener('click', () => saveWorkspace().catch(err => {
+            hideSpinner();
+            setWorkspaceState(err.message, 'error');
+        }));
+        els.downloadAllBtn?.addEventListener('click', async () => {
+            try {
+                if (!state.summary) throw new Error('Run Rule 12 first.');
+                if (document.getElementById('chkExcel')?.checked) await downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule12_Course_Selection.xlsx');
+                if (document.getElementById('chkCsv')?.checked) await downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule12_Course_Selection.csv');
+                if (document.getElementById('chkSql')?.checked) await downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule12_Course_Selection.sql');
+            } catch (err) {
+                setWorkspaceState(err.message || 'Download failed.', 'error');
+            }
+        });
+    }
+
+    els.signoffBtn?.addEventListener('click', () => signoffWorkspace().catch(err => {
+        hideSpinner();
+        setWorkspaceState(err.message, 'error');
+    }));
+    els.removeSignoffBtn?.addEventListener('click', () => removeWorkspaceSignoff().catch(err => {
+        hideSpinner();
+        setWorkspaceState(err.message, 'error');
+    }));
+    document.getElementById('downloadExcelBtn')?.addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule12_Course_Selection.xlsx').catch(err => setWorkspaceState(err.message, 'error')));
+    document.getElementById('downloadCsvBtn')?.addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule12_Course_Selection.csv').catch(err => setWorkspaceState(err.message, 'error')));
+    document.getElementById('downloadSqlBtn')?.addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule12_Course_Selection.sql').catch(err => setWorkspaceState(err.message, 'error')));
+    els.clientId?.addEventListener('change', () => loadWorkspace().catch(err => setWorkspaceState(err.message, 'error')));
+
+    renderAnalysis(null);
+    renderResults();
+    renderCharts(null);
+    updateWorkspaceButtons();
+    if (state.clientId) {
+        loadWorkspace().catch(err => setWorkspaceState(err.message, 'error'));
+    } else if (isResultsOnlyRole) {
+        setWorkspaceState('Select an engagement to load the saved Rule 12 results.', 'info');
+    }
+})();
+</script>
+
+
+
+
+
+
+
+

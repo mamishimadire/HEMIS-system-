@@ -1,0 +1,76 @@
+@model HemisAudit.ViewModels.CreateUserViewModel
+@{ ViewData["Title"] = "Add User"; Layout = "~/Views/Shared/_Layout.cshtml"; }
+
+<div class="page-header">
+    <h1>Add New User</h1>
+    <a asp-action="Users" class="btn btn-secondary">← Back</a>
+</div>
+
+<div class="card" style="max-width:560px">
+    <form asp-action="CreateUser" method="post">
+        @Html.AntiForgeryToken()
+
+        <div class="form-grid">
+            <div class="field-group">
+                <label>First Name *</label>
+                <input asp-for="FirstName" placeholder="e.g. Mamishi" />
+                <span asp-validation-for="FirstName" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label>Last Name *</label>
+                <input asp-for="LastName" placeholder="e.g. Madire" />
+                <span asp-validation-for="LastName" class="field-error"></span>
+            </div>
+        </div>
+
+        <div class="field-group" style="margin-bottom:14px">
+            <label>Email Address *</label>
+            <input asp-for="Email" type="email" placeholder="user@sng.gt.com" />
+            <span asp-validation-for="Email" class="field-error"></span>
+        </div>
+
+        <div class="form-grid">
+            <div class="field-group">
+                <label>Employee Code</label>
+                <input asp-for="EmployeeCode" placeholder="e.g. MADM007" />
+            </div>
+            <div class="field-group">
+                <label>System Role *</label>
+                <select asp-for="Role">
+                    @foreach (var r in (string[])ViewBag.Roles)
+                    {
+                        <option value="@r">@r</option>
+                    }
+                </select>
+                <span asp-validation-for="Role" class="field-error"></span>
+            </div>
+        </div>
+
+        <div class="form-grid" style="margin-top:14px">
+            <div class="field-group">
+                <label>Password *</label>
+                <input asp-for="Password" type="password" placeholder="Min 8 chars" />
+                <span asp-validation-for="Password" class="field-error"></span>
+            </div>
+            <div class="field-group">
+                <label>Confirm Password *</label>
+                <input asp-for="ConfirmPassword" type="password" />
+                <span asp-validation-for="ConfirmPassword" class="field-error"></span>
+            </div>
+        </div>
+
+        <div class="info-box info-box--red" style="margin-top:16px">
+            <strong>Role permissions:</strong><br>
+            <strong>Admin</strong> – Full access, user &amp; client management<br>
+            <strong>Director</strong> – Sign final review, download results<br>
+            <strong>Manager</strong> – Sign preliminary review, view results<br>
+            <strong>DataAnalyst</strong> – Connect DB, run rules, download<br>
+            <strong>Trainee</strong> – Download results only
+        </div>
+
+        <div class="action-bar" style="margin-top:20px">
+            <button type="submit" class="btn btn-success">✓ Create User</button>
+            <a asp-action="Users" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>

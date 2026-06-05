@@ -1,0 +1,1385 @@
+using Microsoft.Data.SqlClient;
+using Newtonsoft.Json;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using HemisAudit.ViewModels;
+
+namespace HemisAudit.Services
+{
+    public class Rule11Service : IRule11Service
+    {
+        private const int BrowserPreviewRowLimit = 10;
+        private static readonly string[] DefaultQualTypeCodes = ["07", "27", "28", "49", "72", "73", "08", "30", "50", "74", "75"];
+        private readonly IConfiguration _configuration;
+        private readonly IPendingValidationCacheService _pendingValidationCache;
+
+        public Rule11Service(IConfiguration configuration, IPendingValidationCacheService pendingValidationCache)
+        {
+            _configuration = configuration;
+            _pendingValidationCache = pendingValidationCache;
+        }
+
+        private static string BuildConnectionString(string server, string database, string driver) =>
+            $"Server={server};Database={database};Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False;Connection Timeout=180;";
+
+        private static string NormName(string? v)
+        {
+            if (v == null) return "";
+            return Regex.Replace(v.Trim().ToUpperInvariant(), @"\s+", " ");
+        }
+
+        private static string NormValue(string? v) =>
+            v == null ? "" : v.Trim().ToUpperInvariant();
+
+        private static string ClassifyPopulationType(string? qualHeqfType, ISet<string> postgraduateTypeCodes) =>
+            postgraduateTypeCodes.Contains(NormValue(qualHeqfType)) ? "Postgraduate" : "Undergraduate";
+
+        // ── Internal record types ─────────────────────────────────────────────
+
+        private record QualRecord(
+            string QualId,
+            string QualName,
+            string QualApproval,
+            string QualHeqfType,
+            string Qual053,
+            string Qual054,
+            string Qual084,
+            string Qual090,
+            string? CesmCode);
+        private record PqmRow(string? Name, string? HeqfType, string? Code);
+
+        // ── Core validation ───────────────────────────────────────────────────
+
+        private static Rule11ValidationRow ValidateRecord(int rowNo, QualRecord q, List<PqmRow> pqm, ISet<string> postgraduateTypeCodes)
+        {
+            var hNorm    = NormName(q.QualName);
+            var heqfNorm = NormValue(q.QualHeqfType);
+            var codeNorm = NormValue(q.CesmCode);
+            var populationType = ClassifyPopulationType(q.QualHeqfType, postgraduateTypeCodes);
+
+            var nameRows = pqm
+                .Where(p => string.Equals(NormName(p.Name), hNorm, StringComparison.Ordinal))
+                .ToList();
+
+            if (nameRows.Count == 0)
+            {
+                return new Rule11ValidationRow
+                {
+                    ValidationNumber = rowNo,
+                    QualId           = q.QualId,
+                    QualName         = q.QualName,
+                    QualApproval     = q.QualApproval,
+                    QualHeqfType     = q.QualHeqfType,
+                    Qual053          = q.Qual053,
+                    Qual054          = q.Qual054,
+                    Qual084          = q.Qual084,
+                    Qual090          = q.Qual090,
+                    PopulationType   = populationType,
+                    CesmCode         = q.CesmCode,
+                    PqmName          = null,
+                    PqmHeqfType      = null,
+                    PqmCode          = null,
+                    NameMatch        = false,
+                    HeqfTypeMatch    = false,
+                    CesmCodeMatch    = false,
+                    ValidationResult = "FAIL",
+                    ExceptionReason  = "Qualification name not found in PQM (Authorised_Qualification_Name)"
+                };
+            }
+
+            // All three must match on the same PQM row
+            var tripleMatch = nameRows
+                .Where(p => string.Equals(NormValue(p.HeqfType), heqfNorm, StringComparison.Ordinal)
+                         && string.Equals(NormValue(p.Code), codeNorm, StringComparison.Ordinal))
+                .ToList();
+
+            if (tripleMatch.Count > 0)
+            {
+                var best = tripleMatch[0];
+                return new Rule11ValidationRow
+                {
+                    ValidationNumber = rowNo,
+                    QualId           = q.QualId,
+                    QualName         = q.QualName,
+                    QualApproval     = q.QualApproval,
+                    QualHeqfType     = q.QualHeqfType,
+                    Qual053          = q.Qual053,
+                    Qual054          = q.Qual054,
+                    Qual084          = q.Qual084,
+                    Qual090          = q.Qual090,
+                    PopulationType   = populationType,
+                    CesmCode         = q.CesmCode,
+                    PqmName          = best.Name?.Trim(),
+                    PqmHeqfType      = best.HeqfType?.Trim(),
+                    PqmCode          = best.Code?.Trim(),
+                    NameMatch        = true,
+                    HeqfTypeMatch    = true,
+                    CesmCodeMatch    = true,
+                    ValidationResult = "PASS",
+                    ExceptionReason  = null
+                };
+            }
+
+            // Name + HEQF matched but CESM code did not
+            var heqfMatch = nameRows
+                .Where(p => string.Equals(NormValue(p.HeqfType), heqfNorm, StringComparison.Ordinal))
+                .ToList();
+
+            if (heqfMatch.Count > 0)
+            {
+                var best = heqfMatch[0];
+                var pqmCodeValues = string.Join(" | ",
+                    heqfMatch.Take(3)
+                             .Select(p => p.Code?.Trim())
+                             .Where(v => v != null)
+                             .Distinct());
+                return new Rule11ValidationRow
+                {
+                    ValidationNumber = rowNo,
+                    QualId           = q.QualId,
+                    QualName         = q.QualName,
+                    QualApproval     = q.QualApproval,
+                    QualHeqfType     = q.QualHeqfType,
+                    Qual053          = q.Qual053,
+                    Qual054          = q.Qual054,
+                    Qual084          = q.Qual084,
+                    Qual090          = q.Qual090,
+                    PopulationType   = populationType,
+                    CesmCode         = q.CesmCode,
+                    PqmName          = best.Name?.Trim(),
+                    PqmHeqfType      = best.HeqfType?.Trim(),
+                    PqmCode          = best.Code?.Trim(),
+                    NameMatch        = true,
+                    HeqfTypeMatch    = true,
+                    CesmCodeMatch    = false,
+                    ValidationResult = "FAIL",
+                    ExceptionReason  = $"Name and HEQF matched but CESM code mismatch — CESM._006: '{q.CesmCode}' | PQM CESM_Code: '{pqmCodeValues}'"
+                };
+            }
+
+            // Name matched, HEQF type did not
+            var bestName = nameRows[0];
+            var pqmHeqfValues = string.Join(" | ",
+                nameRows.Take(3)
+                        .Select(p => p.HeqfType?.Trim())
+                        .Where(v => v != null)
+                        .Distinct());
+
+            return new Rule11ValidationRow
+            {
+                ValidationNumber = rowNo,
+                QualId           = q.QualId,
+                QualName         = q.QualName,
+                QualApproval     = q.QualApproval,
+                QualHeqfType     = q.QualHeqfType,
+                Qual053          = q.Qual053,
+                Qual054          = q.Qual054,
+                Qual084          = q.Qual084,
+                Qual090          = q.Qual090,
+                PopulationType   = populationType,
+                CesmCode         = q.CesmCode,
+                PqmName          = bestName.Name?.Trim(),
+                PqmHeqfType      = bestName.HeqfType?.Trim(),
+                PqmCode          = bestName.Code?.Trim(),
+                NameMatch        = true,
+                HeqfTypeMatch    = false,
+                CesmCodeMatch    = false,
+                ValidationResult = "FAIL",
+                ExceptionReason  = $"Name matched but HEQF_Qual_Type mismatch — QUAL._005: '{q.QualHeqfType}' | PQM HEQF_Qual_Type: '{pqmHeqfValues}'"
+            };
+        }
+
+        // ── Public API ────────────────────────────────────────────────────────
+
+        public async Task<DatabaseListResult> GetDatabasesAsync(string server, string driver)
+        {
+            try
+            {
+                var connStr = $"Server={server};Database=master;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False;Connection Timeout=180;";
+                using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+                using var cmd = new SqlCommand(
+                    "SELECT name FROM sys.databases " +
+                    "WHERE name NOT IN ('master','tempdb','model','msdb') ORDER BY name", conn)
+                    .WithLargeDataTimeout();
+                using var reader = await cmd.ExecuteReaderAsync();
+                var dbs = new List<string>();
+                while (await reader.ReadAsync())
+                    dbs.Add(reader.GetString(0));
+                return new DatabaseListResult { Success = true, Databases = dbs };
+            }
+            catch (Exception ex)
+            {
+                return new DatabaseListResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        public async Task<Rule11TableListResult> GetTablesAsync(string server, string database, string driver)
+        {
+            try
+            {
+                var connStr = BuildConnectionString(server, database, driver);
+                using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+                using var cmd = new SqlCommand(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES " +
+                    "WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME", conn)
+                    .WithLargeDataTimeout();
+                using var reader = await cmd.ExecuteReaderAsync();
+                var tables = new List<string>();
+                while (await reader.ReadAsync())
+                    tables.Add(reader.GetString(0));
+
+                return new Rule11TableListResult
+                {
+                    Success = true,
+                    Tables = tables,
+                    AutoQualTable = tables.FirstOrDefault(t =>
+                        t.Equals("dbo_QUAL", StringComparison.OrdinalIgnoreCase)),
+                    AutoCesmTable = tables.FirstOrDefault(t =>
+                        t.Equals("dbo_CESM", StringComparison.OrdinalIgnoreCase)),
+                    AutoPqmTable = tables.FirstOrDefault(t =>
+                        t.Equals("PQM", StringComparison.OrdinalIgnoreCase) ||
+                        t.Contains("PQM", StringComparison.OrdinalIgnoreCase))
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Rule11TableListResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        public async Task<ColumnListResult> GetColumnsAsync(
+            string server, string database, string driver, string tableName, string tableRole)
+        {
+            try
+            {
+                var connStr = BuildConnectionString(server, database, driver);
+                using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+                using var cmd = new SqlCommand(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS " +
+                    "WHERE TABLE_NAME=@t ORDER BY ORDINAL_POSITION", conn)
+                    .WithLargeDataTimeout();
+                cmd.Parameters.AddWithValue("@t", tableName);
+                using var reader = await cmd.ExecuteReaderAsync();
+                var columns = new List<string>();
+                while (await reader.ReadAsync())
+                    columns.Add(reader.GetString(0));
+
+                string? autoSelected = tableRole?.ToLowerInvariant() switch
+                {
+                    "qual_id"        => columns.FirstOrDefault(c => c.Equals("_001", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "qual_name"      => columns.FirstOrDefault(c => c.Equals("_003", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "qual_approval"  => columns.FirstOrDefault(c => c.Equals("_004", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "qual_heqf_type" => columns.FirstOrDefault(c => c.Equals("_005", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "cesm_id"        => columns.FirstOrDefault(c => c.Equals("_001", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "cesm_code"      => columns.FirstOrDefault(c => c.Equals("CESM_Code", StringComparison.OrdinalIgnoreCase) || c.Equals("CESM_Code1", StringComparison.OrdinalIgnoreCase) || c.Equals("_006", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "pqm_name"       => columns.FirstOrDefault(c => c.Contains("Authorised", StringComparison.OrdinalIgnoreCase) || c.Contains("Qualification_Name", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "pqm_heqf_type"  => columns.FirstOrDefault(c => c.Contains("HEQF", StringComparison.OrdinalIgnoreCase) || c.Contains("Qual_Type", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "pqm_code"       => columns.FirstOrDefault(c => c.Equals("CESM_Code", StringComparison.OrdinalIgnoreCase) || c.Equals("CESM_Code1", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    _                => columns.FirstOrDefault()
+                };
+
+                return new ColumnListResult
+                {
+                    Success = true,
+                    Columns = columns,
+                    AutoSelected = autoSelected
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ColumnListResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        public async Task<Rule11FilterValueResult> GetFilterValuesAsync(string server, string database, string driver, string qualTable, string approvalColumn)
+        {
+            try
+            {
+                var connStr = BuildConnectionString(server, database, driver);
+                using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+
+                var safeTable = Sanitise(qualTable);
+                var safeColumn = Sanitise(approvalColumn);
+
+                using var cmd = new SqlCommand($@"
+SELECT
+    ISNULL(CAST([{safeColumn}] AS nvarchar(100)), '(NULL)') AS FilterValue,
+    COUNT(*) AS RecordCount
+FROM [{safeTable}]
+WHERE [{safeColumn}] IS NOT NULL
+  AND LTRIM(RTRIM(CAST([{safeColumn}] AS nvarchar(100)))) <> ''
+GROUP BY [{safeColumn}]
+ORDER BY COUNT(*) DESC, FilterValue ASC;", conn)
+                    .WithLargeDataTimeout();
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                var options = new List<Rule11FilterValueOption>();
+                while (await reader.ReadAsync())
+                {
+                    var value = reader.IsDBNull(0) ? "" : reader.GetValue(0)?.ToString() ?? "";
+                    var count = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+                    options.Add(new Rule11FilterValueOption
+                    {
+                        Value = value,
+                        Count = count,
+                        Label = $"{value} ({count:N0} records)"
+                    });
+                }
+
+                return new Rule11FilterValueResult
+                {
+                    Success = true,
+                    Options = options,
+                    DefaultValue = options.FirstOrDefault()?.Value
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Rule11FilterValueResult
+                {
+                    Success = false,
+                    Error = ex.Message
+                };
+            }
+        }
+
+        public async Task<Rule11VerifyResult> VerifyDataAsync(Rule11VerifyRequest request)
+        {
+            try
+            {
+                var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+                using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+
+                var qt  = Sanitise(request.QualTable);
+                var ct  = Sanitise(request.CesmTable);
+                var pt  = Sanitise(request.PqmTable);
+                var qi  = Sanitise(request.QualIdCol);
+                var ci  = Sanitise(request.CesmIdCol);
+                var qa  = Sanitise(request.QualApprovalCol);
+                var approvalValue = NormalizeFilterValue(request.QualApprovalFilterValue, "A");
+
+                var sql = $@"
+SELECT
+    (SELECT COUNT(*) FROM [{qt}]) AS QUAL_Total,
+    (SELECT COUNT(*) FROM [{ct}]) AS CESM_Total,
+    (SELECT COUNT(*) FROM [{pt}]) AS PQM_Total,
+    (SELECT COUNT(*) FROM [{qt}] q LEFT JOIN [{ct}] c ON q.[{qi}] = c.[{ci}]
+      WHERE UPPER(LTRIM(RTRIM(CAST(q.[{qa}] AS NVARCHAR(255))))) = @QualApprovalValue
+    ) AS Merged_Total";
+
+                using var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout();
+                cmd.Parameters.AddWithValue("@QualApprovalValue", approvalValue);
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return new Rule11VerifyResult
+                    {
+                        Success     = true,
+                        QualTotal   = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0)),
+                        CesmTotal   = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1)),
+                        PqmTotal    = reader.IsDBNull(2) ? 0 : Convert.ToInt32(reader.GetValue(2)),
+                        MergedTotal = reader.IsDBNull(3) ? 0 : Convert.ToInt32(reader.GetValue(3))
+                    };
+                }
+                return new Rule11VerifyResult { Success = false, Error = "No data returned" };
+            }
+            catch (Exception ex)
+            {
+                return new Rule11VerifyResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        public async Task<Rule11ValidationSummary> RunValidationAsync(
+            Rule11ValidationRequest request, string? userEmail = null, string? userName = null)
+        {
+            try
+            {
+                var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+                using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+
+                var qt  = Sanitise(request.QualTable);
+                var ct  = Sanitise(request.CesmTable);
+                var pt  = Sanitise(request.PqmTable);
+                var qi  = Sanitise(request.QualIdCol);
+                var qn  = Sanitise(request.QualNameCol);
+                var qa  = Sanitise(request.QualApprovalCol);
+                var qht = Sanitise(request.QualHeqfTypeCol);
+                var ci  = Sanitise(request.CesmIdCol);
+                var cc  = Sanitise(request.CesmCodeCol);
+                var pn  = Sanitise(request.PqmNameCol);
+                var pht = Sanitise(request.PqmHeqfTypeCol);
+                var pc  = Sanitise(request.PqmCodeCol);
+                var approvalValue = NormalizeFilterValue(request.QualApprovalFilterValue, "A");
+                var typeCodes = ParseQualTypeCodes(request.QualTypeCodesText);
+                var postgraduateTypeCodes = new HashSet<string>(typeCodes, StringComparer.OrdinalIgnoreCase);
+
+                // Load QUAL ⋈ CESM (LEFT JOIN so QUAL rows with no CESM row are included)
+                var qualRecords = new List<QualRecord>();
+                using (var cmd = new SqlCommand($@"
+SELECT q.[{qi}], q.[{qn}], q.[{qa}], q.[{qht}], q.[_053], q.[_054], q.[_084], q.[_090], c.[{cc}]
+FROM [{qt}] q
+LEFT JOIN [{ct}] c ON q.[{qi}] = c.[{ci}]
+WHERE UPPER(LTRIM(RTRIM(CAST(q.[{qa}] AS NVARCHAR(255))))) = @QualApprovalValue", conn)
+                    .WithLargeDataTimeout())
+                {
+                    cmd.Parameters.AddWithValue("@QualApprovalValue", approvalValue);
+                    using var r = await cmd.ExecuteReaderAsync();
+                    while (await r.ReadAsync())
+                    {
+                        qualRecords.Add(new QualRecord(
+                            r.IsDBNull(0) ? "" : r.GetValue(0)?.ToString() ?? "",
+                            r.IsDBNull(1) ? "" : r.GetValue(1)?.ToString() ?? "",
+                            r.IsDBNull(2) ? "" : r.GetValue(2)?.ToString() ?? "",
+                            r.IsDBNull(3) ? "" : r.GetValue(3)?.ToString() ?? "",
+                            r.IsDBNull(4) ? "" : r.GetValue(4)?.ToString() ?? "",
+                            r.IsDBNull(5) ? "" : r.GetValue(5)?.ToString() ?? "",
+                            r.IsDBNull(6) ? "" : r.GetValue(6)?.ToString() ?? "",
+                            r.IsDBNull(7) ? "" : r.GetValue(7)?.ToString() ?? "",
+                            r.IsDBNull(8) ? null : r.GetValue(8)?.ToString()));
+                    }
+                }
+
+                // Load PQM
+                var pqm = new List<PqmRow>();
+                using (var cmd = new SqlCommand(
+                    $"SELECT [{pn}], [{pht}], [{pc}] FROM [{pt}]", conn).WithLargeDataTimeout())
+                using (var r = await cmd.ExecuteReaderAsync())
+                {
+                    while (await r.ReadAsync())
+                    {
+                        pqm.Add(new PqmRow(
+                            r.IsDBNull(0) ? null : r.GetValue(0)?.ToString(),
+                            r.IsDBNull(1) ? null : r.GetValue(1)?.ToString(),
+                            r.IsDBNull(2) ? null : r.GetValue(2)?.ToString()));
+                    }
+                }
+
+                // Validate in memory
+                var validationRows = qualRecords
+                    .Select((q, idx) => ValidateRecord(idx + 1, q, pqm, postgraduateTypeCodes))
+                    .ToList();
+
+                var total     = validationRows.Count;
+                var passCount = validationRows.Count(row => row.ValidationResult == "PASS");
+                var failCount = validationRows.Count(row => row.ValidationResult == "FAIL");
+                var rate      = total > 0 ? Math.Round((decimal)failCount / total * 100, 2) : 0;
+
+                var exceptions = validationRows
+                    .Where(row => row.ValidationResult == "FAIL")
+                    .Select(row => new Rule11ExceptionRecord
+                    {
+                        ValidationNumber = row.ValidationNumber,
+                        QualId           = row.QualId,
+                        QualName         = row.QualName,
+                        QualApproval     = row.QualApproval,
+                        QualHeqfType     = row.QualHeqfType,
+                        Qual053          = row.Qual053,
+                        Qual054          = row.Qual054,
+                        Qual084          = row.Qual084,
+                        Qual090          = row.Qual090,
+                        PopulationType   = row.PopulationType,
+                        CesmCode         = row.CesmCode,
+                        PqmName          = row.PqmName,
+                        PqmHeqfType      = row.PqmHeqfType,
+                        PqmCode          = row.PqmCode,
+                        NameMatch        = row.NameMatch,
+                        HeqfTypeMatch    = row.HeqfTypeMatch,
+                        CesmCodeMatch    = row.CesmCodeMatch,
+                        ValidationResult = row.ValidationResult,
+                        ExceptionReason  = row.ExceptionReason ?? ""
+                    })
+                    .ToList();
+
+                var summary = new Rule11ValidationSummary
+                {
+                    Success          = true,
+                    TotalValidated   = total,
+                    PassCount        = passCount,
+                    FailCount        = failCount,
+                    ExceptionRate    = rate,
+                    Status           = failCount == 0 ? "PASS" : "FAIL",
+                    Timestamp        = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    Database         = request.Database,
+                    QualTable        = request.QualTable,
+                    QualIdCol        = request.QualIdCol,
+                    QualNameCol      = request.QualNameCol,
+                    QualApprovalCol  = request.QualApprovalCol,
+                    QualHeqfTypeCol  = request.QualHeqfTypeCol,
+                    QualApprovalFilterValue = approvalValue,
+                    QualTypeCodesText = string.Join(", ", typeCodes),
+                    CesmTable        = request.CesmTable,
+                    CesmIdCol        = request.CesmIdCol,
+                    CesmCodeCol      = request.CesmCodeCol,
+                    PqmTable         = request.PqmTable,
+                    PqmNameCol       = request.PqmNameCol,
+                    PqmHeqfTypeCol   = request.PqmHeqfTypeCol,
+                    PqmCodeCol       = request.PqmCodeCol,
+                    ClientId         = request.ClientId,
+                    ValidationRows   = validationRows,
+                    Exceptions       = exceptions
+                };
+
+                if (request.ClientId > 0)
+                {
+                    await using var systemConnection = await OpenSystemConnectionAsync();
+                    var systemUserId = await GetSystemUserIdByEmailAsync(systemConnection, userEmail);
+                    if (!systemUserId.HasValue)
+                        throw new InvalidOperationException("Current user is not available in the system database.");
+
+                    await EnsureClientNotArchivedAsync(systemConnection, request.ClientId);
+                    await ClearRuleSignoffsAsync(systemConnection, request.ClientId, 11);
+                    await MarkPreviousRunsHistoricalAsync(systemConnection, request.ClientId, 11);
+
+                    var runId = await InsertValidationRunAsync(systemConnection, request, summary, systemUserId.Value, userName);
+                    summary.SavedRunId = runId;
+
+                    await using var update = systemConnection.CreateConfiguredCommand();
+                    update.CommandText = @"
+UPDATE dbo.ValidationRuns
+SET ResultsJSON = @ResultsJSON
+WHERE RunID = @RunID;";
+                    update.Parameters.AddWithValue("@RunID", runId);
+                    update.Parameters.AddWithValue("@ResultsJSON",
+                        ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary)));
+                    await update.ExecuteNonQueryAsync();
+                }
+
+                ApplyBrowserPreview(summary);
+                return summary;
+            }
+            catch (Exception ex)
+            {
+                return new Rule11ValidationSummary { Success = false, Error = ex.Message };
+            }
+        }
+
+        public async Task<Rule11WorkspaceSaveResult> SaveWorkspaceAsync(
+            Rule11ValidationRequest request, string reviewerEmail, string? reviewerName = null)
+        {
+            try
+            {
+                if (request.RunId is null || request.RunId <= 0)
+                    return new Rule11WorkspaceSaveResult { Success = false, Error = "Run validation before saving the workspace." };
+
+                await using var connection = await OpenSystemConnectionAsync();
+                var clientId = await GetClientIdForRunAsync(request.RunId.Value);
+                if (!clientId.HasValue || clientId.Value != request.ClientId)
+                    return new Rule11WorkspaceSaveResult { Success = false, Error = "The saved workspace could not be found for this engagement." };
+
+                await EnsureClientNotArchivedAsync(connection, request.ClientId);
+
+                var reviewerId = await GetSystemUserIdByEmailAsync(connection, reviewerEmail);
+                if (!reviewerId.HasValue)
+                    return new Rule11WorkspaceSaveResult { Success = false, Error = "Current user is not available in the system database." };
+
+                var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
+                var previousHash    = await GetValidationRecordHashAsync(connection, request.RunId.Value);
+
+                await using var command = connection.CreateConfiguredCommand();
+                command.CommandText = @"
+UPDATE dbo.ValidationRuns
+SET HemisServer          = @HemisServer,
+    AuditDatabase        = @AuditDatabase,
+    StudTable            = @StudTable,
+    DeceasedTable        = @DeceasedTable,
+    StudColumn           = @StudColumn,
+    DeceasedColumn       = @DeceasedColumn,
+    LastEditedByUserName = @LastEditedByUserName,
+    LastEditedAt         = GETDATE(),
+    WorkspaceSavedAt     = GETDATE(),
+    PreviousHash         = @PreviousHash,
+    RecordHash           = @RecordHash,
+    Status               = 'Needs Review'
+WHERE RunID   = @RunID
+  AND ClientID = @ClientID;";
+                command.Parameters.AddWithValue("@RunID",               request.RunId.Value);
+                command.Parameters.AddWithValue("@ClientID",            request.ClientId);
+                command.Parameters.AddWithValue("@HemisServer",         request.Server);
+                command.Parameters.AddWithValue("@AuditDatabase",       request.Database);
+                command.Parameters.AddWithValue("@StudTable",           request.QualTable);
+                command.Parameters.AddWithValue("@DeceasedTable",       request.CesmTable);
+                command.Parameters.AddWithValue("@StudColumn",          request.PqmTable);
+                command.Parameters.AddWithValue("@DeceasedColumn",      "");
+                command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
+                command.Parameters.AddWithValue("@PreviousHash",        (object?)previousHash ?? DBNull.Value);
+                command.Parameters.AddWithValue("@RecordHash", ComputeHash(
+                    $"WorkspaceSave|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|" +
+                    $"{request.QualTable}|{request.CesmTable}|{request.PqmTable}|" +
+                    $"{request.QualApprovalFilterValue}|{request.QualTypeCodesText}|" +
+                    $"{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
+                await command.ExecuteNonQueryAsync();
+
+                var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail);
+                return new Rule11WorkspaceSaveResult
+                {
+                    Success = true,
+                    Message = clearedSignoffs > 0
+                        ? "Workspace saved. Existing signoffs were removed and the run must be reviewed again."
+                        : "Workspace saved and marked for review again.",
+                    SignoffsCleared     = clearedSignoffs > 0,
+                    ClearedSignoffCount = clearedSignoffs,
+                    Workspace           = workspace
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Rule11WorkspaceSaveResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        public async Task<Rule11WorkspaceSaveResult> BeginWorkspaceEditAsync(
+            int runId, string reviewerEmail, string? reviewerName = null)
+        {
+            try
+            {
+                await using var connection = await OpenSystemConnectionAsync();
+                var reviewerId = await GetSystemUserIdByEmailAsync(connection, reviewerEmail);
+                if (!reviewerId.HasValue)
+                    return new Rule11WorkspaceSaveResult { Success = false, Error = "Current user is not available in the system database." };
+
+                var clientId = await GetClientIdForRunAsync(runId);
+                if (!clientId.HasValue)
+                    return new Rule11WorkspaceSaveResult { Success = false, Error = "Saved workspace was not found." };
+
+                await EnsureClientNotArchivedAsync(connection, clientId.Value);
+
+                var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, runId);
+                var previousHash    = await GetValidationRecordHashAsync(connection, runId);
+
+                await using (var markEdit = connection.CreateConfiguredCommand())
+                {
+                    markEdit.CommandText = @"
+UPDATE dbo.ValidationRuns
+SET LastEditedByUserName = @LastEditedByUserName,
+    LastEditedAt         = GETDATE(),
+    WorkspaceSavedAt     = NULL,
+    PreviousHash         = @PreviousHash,
+    RecordHash           = @RecordHash,
+    Status               = 'Needs Review'
+WHERE RunID = @RunID;";
+                    markEdit.Parameters.AddWithValue("@RunID", runId);
+                    markEdit.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? reviewerEmail);
+                    markEdit.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+                    markEdit.Parameters.AddWithValue("@RecordHash", ComputeHash(
+                        $"WorkspaceEdit|{runId}|{reviewerName ?? reviewerEmail}|{DateTime.UtcNow:o}|{previousHash}"));
+                    await markEdit.ExecuteNonQueryAsync();
+                }
+
+                var workspace = await GetCurrentWorkspaceStateAsync(clientId.Value, reviewerEmail);
+                return new Rule11WorkspaceSaveResult
+                {
+                    Success             = true,
+                    Message             = clearedSignoffs > 0
+                        ? "Editing has begun. Existing signoffs were removed so the workspace must be reviewed again."
+                        : "Editing has begun.",
+                    SignoffsCleared     = clearedSignoffs > 0,
+                    ClearedSignoffCount = clearedSignoffs,
+                    Workspace           = workspace
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Rule11WorkspaceSaveResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        public async Task<int?> GetClientIdForRunAsync(int runId)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = "SELECT TOP 1 ClientID FROM dbo.ValidationRuns WHERE RunID = @RunID;";
+            command.Parameters.AddWithValue("@RunID", runId);
+            var value = await command.ExecuteScalarAsync();
+            return value == null || value == DBNull.Value ? null : Convert.ToInt32(value);
+        }
+
+        public async Task<Rule11WorkspaceStateViewModel?> GetCurrentWorkspaceStateAsync(
+            int clientId, string? currentUserEmail = null)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT TOP 1
+    vr.RunID,
+    vr.ClientID,
+    ISNULL(vr.HemisServer,   '') AS HemisServer,
+    ISNULL(vr.AuditDatabase, '') AS AuditDatabase,
+    ISNULL(vr.StudTable,     '') AS QualTable,
+    ISNULL(vr.DeceasedTable, '') AS CesmTable,
+    ISNULL(vr.StudColumn,    '') AS PqmTable,
+    ISNULL(vr.Status,        '') AS Status,
+    ISNULL(vr.LastEditedByUserName, '') AS LastEditedByUserName,
+    vr.LastEditedAt,
+    vr.ResultsJSON
+FROM dbo.ValidationRuns vr
+WHERE vr.ClientID   = @ClientID
+  AND vr.RuleNumber = 11
+ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
+            command.Parameters.AddWithValue("@ClientID", clientId);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+                return null;
+
+            var summaryJson = reader.IsDBNull(10) ? null : reader.GetString(10);
+            var summary = DeserializeSummary(summaryJson);
+            if (summary != null)
+                ApplyBrowserPreview(summary);
+
+            var workspace = new Rule11WorkspaceStateViewModel
+            {
+                RunId         = reader.GetInt32(0),
+                ClientId      = reader.GetInt32(1),
+                Server        = reader.GetString(2),
+                Database      = reader.GetString(3),
+                Driver        = "ODBC Driver 17 for SQL Server",
+                QualTable     = reader.GetString(4),
+                CesmTable     = reader.GetString(5),
+                PqmTable      = reader.GetString(6),
+                CurrentStatus = reader.GetString(7),
+                LastEditedByUserName = reader.IsDBNull(8) ? null : reader.GetString(8),
+                LastEditedAt         = reader.IsDBNull(9) ? null : reader.GetDateTime(9),
+                Summary              = summary
+            };
+
+            if (summary != null)
+            {
+                workspace.QualIdCol       = summary.QualIdCol;
+                workspace.QualNameCol     = summary.QualNameCol;
+                workspace.QualApprovalCol = summary.QualApprovalCol;
+                workspace.QualHeqfTypeCol = summary.QualHeqfTypeCol;
+                workspace.QualApprovalFilterValue = summary.QualApprovalFilterValue;
+                workspace.QualTypeCodesText = summary.QualTypeCodesText;
+                workspace.CesmIdCol       = summary.CesmIdCol;
+                workspace.CesmCodeCol     = summary.CesmCodeCol;
+                workspace.PqmNameCol      = summary.PqmNameCol;
+                workspace.PqmHeqfTypeCol  = summary.PqmHeqfTypeCol;
+                workspace.PqmCodeCol      = summary.PqmCodeCol;
+            }
+
+            await reader.CloseAsync();
+
+            int? currentUserId = null;
+            if (!string.IsNullOrWhiteSpace(currentUserEmail))
+            {
+                currentUserId = await GetSystemUserIdByEmailAsync(connection, currentUserEmail);
+                if (currentUserId.HasValue)
+                    workspace.CurrentUserEngagementRole =
+                        await GetEngagementRoleAsync(connection, clientId, currentUserId.Value) ?? "";
+            }
+
+            var signoffs = await GetRunSignoffsAsync(connection, workspace.RunId!.Value, currentUserId);
+            workspace.HasDataAnalystSignoff = signoffs.Any(s =>
+                string.Equals(s.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
+
+            var currentRoleSignoff = signoffs.FirstOrDefault(s =>
+                HemisAudit.Helpers.ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(
+                    s.SignoffRole, workspace.CurrentUserEngagementRole));
+            workspace.CurrentUserHasSignedOff   = currentRoleSignoff != null;
+            workspace.CurrentUserSignoffComment = currentRoleSignoff?.Comment ?? "";
+            workspace.IsWorkspaceSaved          = await IsWorkspaceSavedAsync(connection, workspace.RunId!.Value);
+
+            if (workspace.Summary != null)
+                workspace.Summary.SavedRunId = workspace.RunId;
+
+            if (string.IsNullOrWhiteSpace(workspace.CurrentStatus))
+                workspace.CurrentStatus = workspace.Summary?.Status ?? "";
+
+            return workspace;
+        }
+
+        public async Task<Rule11RunReviewViewModel?> GetSavedRunAsync(int runId, string? currentUserEmail = null)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT vr.RunID, vr.ClientID, vr.IsCurrent, c.EngagementName, c.MaconomyNumber, vr.HemisServer, vr.ResultsJSON
+FROM dbo.ValidationRuns vr
+INNER JOIN dbo.Clients c ON c.ClientID = vr.ClientID
+WHERE vr.RunID = @RunID;";
+            command.Parameters.AddWithValue("@RunID", runId);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+                return null;
+
+            var summaryJson = reader.IsDBNull(6) ? null : reader.GetString(6);
+                var summary = DeserializeSummary(summaryJson);
+                if (summary == null)
+                    return null;
+                EnsurePopulationTypes(summary);
+
+            var viewModel = new Rule11RunReviewViewModel
+            {
+                RunId          = reader.GetInt32(0),
+                ClientId       = reader.GetInt32(1),
+                IsCurrentRun   = !reader.IsDBNull(2) && reader.GetBoolean(2),
+                EngagementName = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                MaconomyNumber = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                SourceServer   = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                Summary        = summary
+            };
+
+            await reader.CloseAsync();
+
+            int? currentUserId = null;
+            if (!string.IsNullOrWhiteSpace(currentUserEmail))
+            {
+                currentUserId = await GetSystemUserIdByEmailAsync(connection, currentUserEmail);
+                if (currentUserId.HasValue)
+                    viewModel.CurrentUserEngagementRole =
+                        await GetEngagementRoleAsync(connection, viewModel.ClientId, currentUserId.Value) ?? "";
+            }
+
+            viewModel.Signoffs = await GetRunSignoffsAsync(connection, runId, currentUserId);
+            viewModel.HasDataAnalystSignoff = viewModel.Signoffs.Any(s =>
+                string.Equals(s.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
+
+            return viewModel;
+        }
+
+        public async Task AddOrUpdateSignoffAsync(int runId, string reviewerEmail, string comment)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+            var reviewerId = await GetSystemUserIdByEmailAsync(connection, reviewerEmail);
+            if (!reviewerId.HasValue)
+                throw new InvalidOperationException("Reviewer could not be resolved in the system database.");
+
+            var clientId = await GetClientIdForRunAsync(runId);
+            if (!clientId.HasValue)
+                throw new InvalidOperationException("Validation run was not found.");
+
+            await EnsureClientNotArchivedAsync(connection, clientId.Value);
+
+            if (!await IsWorkspaceSavedAsync(connection, runId))
+                throw new InvalidOperationException("The data analyst must save the workspace before signoff is available.");
+
+            var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
+            if (!CanSignOffAsRole(engagementRole))
+                throw new InvalidOperationException("Only assigned data analysts, managers, and directors can sign off a validation run.");
+
+            if (!string.Equals(engagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) &&
+                !await HasSignoffRoleAsync(connection, runId, "DataAnalyst"))
+            {
+                throw new InvalidOperationException("The assigned data analyst must sign off before this review can be completed.");
+            }
+
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+IF EXISTS (SELECT 1 FROM dbo.ReviewSignoffs WHERE RunID = @RunID AND ReviewerID = @ReviewerID)
+BEGIN
+    UPDATE dbo.ReviewSignoffs
+    SET SignoffRole = @SignoffRole, ReviewType = 'Final', Comment = @Comment, SignedOffAt = GETDATE()
+    WHERE RunID = @RunID AND ReviewerID = @ReviewerID;
+END
+ELSE
+BEGIN
+    INSERT INTO dbo.ReviewSignoffs (ClientID, RunID, ReviewerID, SignoffRole, ReviewType, Comment, SignedOffAt)
+    VALUES (@ClientID, @RunID, @ReviewerID, @SignoffRole, 'Final', @Comment, GETDATE());
+END";
+            command.Parameters.AddWithValue("@ClientID",    clientId.Value);
+            command.Parameters.AddWithValue("@RunID",       runId);
+            command.Parameters.AddWithValue("@ReviewerID",  reviewerId.Value);
+            command.Parameters.AddWithValue("@SignoffRole", engagementRole!);
+            command.Parameters.AddWithValue("@Comment",
+                string.IsNullOrWhiteSpace(comment) ? DBNull.Value : comment.Trim());
+            await command.ExecuteNonQueryAsync();
+
+            await UpdateRunStatusFromSignoffsAsync(connection, runId);
+        }
+
+        public async Task RemoveSignoffAsync(int runId, string reviewerEmail)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+            var reviewerId = await GetSystemUserIdByEmailAsync(connection, reviewerEmail);
+            if (!reviewerId.HasValue)
+                throw new InvalidOperationException("Reviewer could not be resolved in the system database.");
+
+            var clientId = await GetClientIdForRunAsync(runId);
+            if (!clientId.HasValue)
+                throw new InvalidOperationException("Validation run was not found.");
+
+            await EnsureClientNotArchivedAsync(connection, clientId.Value);
+
+            var engagementRole = await GetEngagementRoleAsync(connection, clientId.Value, reviewerId.Value);
+            if (!HemisAudit.Helpers.ValidationRunAccessPolicy.CanAssignedUserRemoveSignoff(engagementRole))
+                throw new InvalidOperationException("Only the assigned data analyst, manager, or director can remove signoff from this run.");
+
+            var removal = await ReviewSignoffSqlHelper.RemoveRoleSignoffWithVersioningAsync(
+                connection, runId, engagementRole!, reviewerEmail);
+            if (removal.RemovedCount <= 0) return;
+        }
+
+        public string GenerateSql(Rule11ValidationRequest request)
+        {
+            var qt  = request.QualTable;
+            var ct  = request.CesmTable;
+            var pt  = request.PqmTable;
+            var qi  = request.QualIdCol;
+            var qn  = request.QualNameCol;
+            var qa  = request.QualApprovalCol;
+            var qht = request.QualHeqfTypeCol;
+            var ci  = request.CesmIdCol;
+            var cc  = request.CesmCodeCol;
+            var pn  = request.PqmNameCol;
+            var pht = request.PqmHeqfTypeCol;
+            var pc  = request.PqmCodeCol;
+            var approvalValue = NormalizeFilterValue(request.QualApprovalFilterValue, "A");
+                var typeCodes = ParseQualTypeCodes(request.QualTypeCodesText);
+                var typeCodeSql = string.Join(", ", typeCodes.Select(code => $"'{EscapeSqlString(code)}'"));
+                var populationTypeSql = $"CASE WHEN UPPER(LTRIM(RTRIM(CAST(q.[{qht}] AS NVARCHAR(255))))) IN ({typeCodeSql}) THEN 'Postgraduate' ELSE 'Undergraduate' END";
+
+            return $@"-- ============================================================================
+-- HEMIS 2026 - RULE 11: QUAL vs CESM vs PQM VALIDATION
+-- Generated : {DateTime.Now:yyyy-MM-dd HH:mm:ss}
+-- EL §5.1.2: Inspect E005 Qualification Type and agree correct type has been allocated per PQM.
+-- ============================================================================
+-- TABLES
+--   {qt}  : [{qi}] (qual code / join key), [{qn}] (qual name), [{qa}] (approval status), [{qht}] (HEQF type)
+--   {ct}  : [{ci}] (qual code / join key), [{cc}] (CESM code)
+--   {pt}  : [{pn}] (Authorised_Qualification_Name), [{pht}] (HEQF_Qual_Type), [{pc}] (code)
+-- FILTERS
+--   {qt}.[{qa}] = '{approvalValue}'
+--   {qt}.[{qht}] in the configured postgraduate list are labelled Postgraduate; all other approved rows are labelled Undergraduate
+--
+-- JOIN:   {qt}.[{qi}] = {ct}.[{ci}]  (LEFT JOIN — QUAL rows without CESM row are still included)
+--
+-- MATCHING RULES (all three on the SAME PQM row):
+--   ① UPPER(TRIM([{qn}])) = UPPER(TRIM([{pn}]))   -- qualification name match (case-insensitive)
+--   ② UPPER(TRIM([{qht}])) = UPPER(TRIM([{pht}]))  -- HEQF type match
+--   ③ UPPER(TRIM([{cc}])) = UPPER(TRIM([{pc}]))    -- CESM code match (_006 = CESM_Code)
+-- ============================================================================
+
+IF OBJECT_ID('tempdb..#R11_Base') IS NOT NULL DROP TABLE #R11_Base;
+IF OBJECT_ID('tempdb..#R11_Val')  IS NOT NULL DROP TABLE #R11_Val;
+
+-- Step 1: QUAL LEFT JOIN CESM → per-qualification dataset
+SELECT
+    q.[{qi}]  AS Qual_ID,
+    q.[{qn}]  AS Qual_Name,
+    q.[{qa}]  AS Qual_Approval,
+    q.[{qht}] AS Qual_HEQF_Type,
+    {populationTypeSql} AS Population_Type,
+    c.[{cc}]  AS CESM_Code
+INTO #R11_Base
+FROM [{qt}] q
+LEFT JOIN [{ct}] c ON q.[{qi}] = c.[{ci}]
+WHERE UPPER(LTRIM(RTRIM(CAST(q.[{qa}] AS NVARCHAR(255))))) = '{approvalValue}';
+
+-- Step 2: Validate each QUAL record against PQM
+SELECT
+    ROW_NUMBER() OVER (ORDER BY b.Qual_ID)        AS Validation_Number,
+    b.Qual_ID,
+    b.Qual_Name,
+    b.Qual_Approval,
+    b.Qual_HEQF_Type,
+    b.Population_Type,
+    b.CESM_Code,
+
+    -- PQM Authorised_Qualification_Name (first name-matched row)
+    (SELECT TOP 1 CAST(p.[{pn}] AS NVARCHAR(500))
+     FROM [{pt}] p
+     WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name AS NVARCHAR(500)))))
+           = UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500)))))
+    )                                              AS PQM_Qual_Name,
+
+    -- PQM HEQF_Qual_Type (from first name-matched row)
+    (SELECT TOP 1 CAST(p.[{pht}] AS NVARCHAR(100))
+     FROM [{pt}] p
+     WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name AS NVARCHAR(500)))))
+           = UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500)))))
+    )                                              AS PQM_HEQF_Type,
+
+    -- Qual name match flag
+    CASE WHEN EXISTS (
+        SELECT 1 FROM [{pt}] p
+        WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name AS NVARCHAR(500)))))
+              = UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500)))))
+    ) THEN 'YES' ELSE 'NO' END                     AS Name_Match,
+
+    -- Combined match flag (ALL THREE on same row)
+    CASE WHEN EXISTS (
+        SELECT 1 FROM [{pt}] p
+        WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name    AS NVARCHAR(500)))))
+              = UPPER(LTRIM(RTRIM(CAST(p.[{pn}]      AS NVARCHAR(500)))))
+          AND UPPER(LTRIM(RTRIM(CAST(b.Qual_HEQF_Type AS NVARCHAR(100)))))
+              = UPPER(LTRIM(RTRIM(CAST(p.[{pht}]      AS NVARCHAR(100)))))
+          AND UPPER(LTRIM(RTRIM(CAST(b.CESM_Code     AS NVARCHAR(100)))))
+              = UPPER(LTRIM(RTRIM(CAST(p.[{pc}]       AS NVARCHAR(100)))))
+    ) THEN 'PASS' ELSE 'FAIL' END                  AS Validation_Result
+
+INTO #R11_Val
+FROM #R11_Base b;
+
+-- Step 3: Summary
+SELECT
+    COUNT(*)                                                             AS Total,
+    SUM(CASE WHEN Validation_Result='PASS' THEN 1 ELSE 0 END)           AS Pass_Count,
+    SUM(CASE WHEN Validation_Result='FAIL' THEN 1 ELSE 0 END)           AS Fail_Count,
+    CAST(SUM(CASE WHEN Validation_Result='FAIL' THEN 1 ELSE 0 END)
+         * 100.0 / NULLIF(COUNT(*),0) AS DECIMAL(5,2))                  AS Exception_Rate_Pct
+FROM #R11_Val;
+
+-- Step 4: Full result
+SELECT Validation_Number, Qual_ID, Qual_Name, Qual_Approval, Qual_HEQF_Type,
+       Population_Type, CESM_Code, PQM_Qual_Name, PQM_HEQF_Type,
+       Name_Match, Validation_Result
+FROM #R11_Val ORDER BY Validation_Number;
+
+-- Step 5: Exceptions only
+SELECT * FROM #R11_Val WHERE Validation_Result='FAIL' ORDER BY Validation_Number;
+
+DROP TABLE #R11_Base; DROP TABLE #R11_Val;
+-- ============================================================================
+-- END OF RULE 11 QUAL vs CESM vs PQM VALIDATION
+-- ============================================================================
+";
+        }
+
+        // ── Private helpers ───────────────────────────────────────────────────
+
+        private async Task<int> InsertValidationRunAsync(
+            SqlConnection connection,
+            Rule11ValidationRequest request,
+            Rule11ValidationSummary summary,
+            int systemUserId,
+            string? userName)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+INSERT INTO dbo.ValidationRuns
+(ClientID, UserID, HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
+ RuleNumber, RuleName, Status, RunTimestamp, TotalRecords, PassCount, FailCount, ExceptionRate,
+ ExceptionsJSON, ResultsJSON, RunByUserName, LastEditedByUserName, LastEditedAt, PreviousHash, RecordHash, IsCurrent)
+VALUES
+(@ClientID, @UserID, @HemisServer, @AuditDatabase, @StudTable, @DeceasedTable, @StudColumn, @DeceasedColumn,
+ @RuleNumber, @RuleName, @Status, GETDATE(), @TotalRecords, @PassCount, @FailCount, @ExceptionRate,
+ @ExceptionsJSON, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, 1);
+SELECT CAST(SCOPE_IDENTITY() AS INT);";
+            command.Parameters.AddWithValue("@ClientID",      request.ClientId);
+            command.Parameters.AddWithValue("@UserID",        systemUserId);
+            command.Parameters.AddWithValue("@HemisServer",   request.Server);
+            command.Parameters.AddWithValue("@AuditDatabase", request.Database);
+            command.Parameters.AddWithValue("@StudTable",     request.QualTable);
+            command.Parameters.AddWithValue("@DeceasedTable", request.CesmTable);
+            command.Parameters.AddWithValue("@StudColumn",    request.PqmTable);
+            command.Parameters.AddWithValue("@DeceasedColumn", "");
+            command.Parameters.AddWithValue("@RuleNumber",    11);
+            command.Parameters.AddWithValue("@RuleName",      "QUAL vs CESM vs PQM Validation");
+            command.Parameters.AddWithValue("@Status",        summary.FailCount == 0 ? "Pass" : "Fail");
+            command.Parameters.AddWithValue("@TotalRecords",  summary.TotalValidated);
+            command.Parameters.AddWithValue("@PassCount",     summary.PassCount);
+            command.Parameters.AddWithValue("@FailCount",     summary.FailCount);
+            command.Parameters.AddWithValue("@ExceptionRate", summary.ExceptionRate);
+            command.Parameters.AddWithValue("@ExceptionsJSON",
+                ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary.Exceptions)));
+            command.Parameters.AddWithValue("@ResultsJSON",
+                ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary)));
+            command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? DBNull.Value);
+
+            var previousHash = await GetLatestValidationHashAsync(connection, request.ClientId, 11);
+            command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+
+            var value = await command.ExecuteScalarAsync();
+            var runId = Convert.ToInt32(value);
+
+            await using var hashCmd = connection.CreateConfiguredCommand();
+            hashCmd.CommandText = @"UPDATE dbo.ValidationRuns SET RecordHash = @RecordHash WHERE RunID = @RunID;";
+            hashCmd.Parameters.AddWithValue("@RunID", runId);
+            hashCmd.Parameters.AddWithValue("@RecordHash", ComputeHash(
+                $"ValidationRun|{runId}|{request.ClientId}|{systemUserId}|{summary.Status}|" +
+                $"{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{summary.ExceptionRate}|" +
+                $"{summary.Timestamp}|{request.QualApprovalFilterValue}|{request.QualTypeCodesText}|{previousHash}"));
+            await hashCmd.ExecuteNonQueryAsync();
+            return runId;
+        }
+
+        private async Task<int> ClearSignoffsAndFlagForReviewAsync(SqlConnection connection, int runId)
+        {
+            await using var cnt = connection.CreateConfiguredCommand();
+            cnt.CommandText = "SELECT COUNT(1) FROM dbo.ReviewSignoffs WHERE RunID = @RunID;";
+            cnt.Parameters.AddWithValue("@RunID", runId);
+            var existingCount = Convert.ToInt32(await cnt.ExecuteScalarAsync());
+
+            await using var del = connection.CreateConfiguredCommand();
+            del.CommandText = "DELETE FROM dbo.ReviewSignoffs WHERE RunID = @RunID;";
+            del.Parameters.AddWithValue("@RunID", runId);
+            await del.ExecuteNonQueryAsync();
+
+            await using var upd = connection.CreateConfiguredCommand();
+            upd.CommandText = "UPDATE dbo.ValidationRuns SET Status = 'Needs Review' WHERE RunID = @RunID;";
+            upd.Parameters.AddWithValue("@RunID", runId);
+            await upd.ExecuteNonQueryAsync();
+
+            return existingCount;
+        }
+
+        private async Task UpdateRunStatusFromSignoffsAsync(SqlConnection connection, int runId)
+        {
+            var hasAll = await HasAllRequiredSignoffsAsync(connection, runId);
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = "UPDATE dbo.ValidationRuns SET Status = @Status WHERE RunID = @RunID;";
+            cmd.Parameters.AddWithValue("@RunID", runId);
+            cmd.Parameters.AddWithValue("@Status", hasAll ? "Reviewed and Completed" : "Needs Review");
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private async Task<bool> HasAllRequiredSignoffsAsync(SqlConnection connection, int runId)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = @"
+SELECT
+    CASE WHEN EXISTS (SELECT 1 FROM dbo.ReviewSignoffs WHERE RunID = @RunID AND SignoffRole = 'DataAnalyst') THEN 1 ELSE 0 END AS HasDA,
+    CASE WHEN EXISTS (SELECT 1 FROM dbo.ReviewSignoffs WHERE RunID = @RunID AND SignoffRole = 'Manager')     THEN 1 ELSE 0 END AS HasMgr,
+    CASE WHEN EXISTS (SELECT 1 FROM dbo.ReviewSignoffs WHERE RunID = @RunID AND SignoffRole = 'Director')    THEN 1 ELSE 0 END AS HasDir;";
+            cmd.Parameters.AddWithValue("@RunID", runId);
+            await using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return false;
+            return (!r.IsDBNull(0) && r.GetInt32(0) == 1) &&
+                   (!r.IsDBNull(1) && r.GetInt32(1) == 1) &&
+                   (!r.IsDBNull(2) && r.GetInt32(2) == 1);
+        }
+
+        private async Task<int> ClearRuleSignoffsAsync(SqlConnection connection, int clientId, int ruleNumber)
+        {
+            await using var cnt = connection.CreateConfiguredCommand();
+            cnt.CommandText = @"SELECT COUNT(1) FROM dbo.ReviewSignoffs rs
+INNER JOIN dbo.ValidationRuns vr ON vr.RunID = rs.RunID
+WHERE vr.ClientID = @ClientID AND vr.RuleNumber = @RuleNumber;";
+            cnt.Parameters.AddWithValue("@ClientID",   clientId);
+            cnt.Parameters.AddWithValue("@RuleNumber", ruleNumber);
+            var count = Convert.ToInt32(await cnt.ExecuteScalarAsync());
+
+            await using var del = connection.CreateConfiguredCommand();
+            del.CommandText = @"DELETE rs FROM dbo.ReviewSignoffs rs
+INNER JOIN dbo.ValidationRuns vr ON vr.RunID = rs.RunID
+WHERE vr.ClientID = @ClientID AND vr.RuleNumber = @RuleNumber;";
+            del.Parameters.AddWithValue("@ClientID",   clientId);
+            del.Parameters.AddWithValue("@RuleNumber", ruleNumber);
+            await del.ExecuteNonQueryAsync();
+            return count;
+        }
+
+        private async Task MarkPreviousRunsHistoricalAsync(SqlConnection connection, int clientId, int ruleNumber)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = @"UPDATE dbo.ValidationRuns SET IsCurrent = 0
+WHERE ClientID = @ClientID AND RuleNumber = @RuleNumber AND IsCurrent = 1;";
+            cmd.Parameters.AddWithValue("@ClientID",   clientId);
+            cmd.Parameters.AddWithValue("@RuleNumber", ruleNumber);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private async Task<List<RunSignoffViewModel>> GetRunSignoffsAsync(
+            SqlConnection connection, int runId, int? currentUserId)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = @"
+SELECT rs.SignoffID,
+       ISNULL(rs.SignoffRole, '') AS SignoffRole,
+       LTRIM(RTRIM(ISNULL(u.FirstName, '') + ' ' + ISNULL(u.LastName, ''))) AS ReviewerName,
+       ISNULL(u.Email, '') AS ReviewerEmail,
+       ISNULL(rs.Comment, '') AS Comment,
+       rs.SignedOffAt,
+       CASE WHEN @CurrentUserID IS NOT NULL AND rs.ReviewerID = @CurrentUserID THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS IsCurrentUser
+FROM dbo.ReviewSignoffs rs
+INNER JOIN dbo.Users u ON u.UserID = rs.ReviewerID
+WHERE rs.RunID = @RunID
+ORDER BY CASE ISNULL(rs.SignoffRole,'')
+           WHEN 'DataAnalyst' THEN 1 WHEN 'Manager' THEN 2 WHEN 'Director' THEN 3 ELSE 4 END,
+         rs.SignedOffAt DESC;";
+            cmd.Parameters.AddWithValue("@RunID", runId);
+            cmd.Parameters.AddWithValue("@CurrentUserID", currentUserId.HasValue ? currentUserId.Value : DBNull.Value);
+            await using var r = await cmd.ExecuteReaderAsync();
+            var list = new List<RunSignoffViewModel>();
+            while (await r.ReadAsync())
+            {
+                list.Add(new RunSignoffViewModel
+                {
+                    Id            = r.GetInt32(0),
+                    SignoffRole   = r.IsDBNull(1) ? "" : r.GetString(1),
+                    ReviewerName  = r.IsDBNull(2) ? "" : r.GetString(2),
+                    ReviewerEmail = r.IsDBNull(3) ? "" : r.GetString(3),
+                    Comment       = r.IsDBNull(4) ? "" : r.GetString(4),
+                    SignedOffAt   = r.IsDBNull(5) ? DateTime.UtcNow : r.GetDateTime(5),
+                    IsCurrentUser = !r.IsDBNull(6) && r.GetBoolean(6)
+                });
+            }
+            return list;
+        }
+
+        private async Task<int?> GetSystemUserIdByEmailAsync(SqlConnection connection, string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return null;
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = "SELECT TOP 1 UserID FROM dbo.Users WHERE Email = @Email;";
+            cmd.Parameters.AddWithValue("@Email", email);
+            var v = await cmd.ExecuteScalarAsync();
+            return v == null || v == DBNull.Value ? null : Convert.ToInt32(v);
+        }
+
+        private async Task<string?> GetEngagementRoleAsync(SqlConnection connection, int clientId, int userId)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = @"SELECT TOP 1 EngagementRole FROM dbo.UserClientAssignments
+WHERE ClientID = @ClientID AND UserID = @UserID;";
+            cmd.Parameters.AddWithValue("@ClientID", clientId);
+            cmd.Parameters.AddWithValue("@UserID",   userId);
+            var v = await cmd.ExecuteScalarAsync();
+            return v == null || v == DBNull.Value ? null : Convert.ToString(v);
+        }
+
+        private static async Task<bool> IsWorkspaceSavedAsync(SqlConnection connection, int runId)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = @"SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM dbo.ValidationRuns
+    WHERE RunID = @RunID
+      AND (WorkspaceSavedAt IS NOT NULL
+           OR EXISTS (SELECT 1 FROM dbo.ReviewSignoffs rs
+                      WHERE rs.RunID = ValidationRuns.RunID AND rs.SignoffRole = 'DataAnalyst'))
+) THEN 1 ELSE 0 END;";
+            cmd.Parameters.AddWithValue("@RunID", runId);
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 1;
+        }
+
+        private async Task<bool> HasSignoffRoleAsync(SqlConnection connection, int runId, string signoffRole)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = "SELECT COUNT(1) FROM dbo.ReviewSignoffs WHERE RunID=@RunID AND SignoffRole=@SignoffRole;";
+            cmd.Parameters.AddWithValue("@RunID",       runId);
+            cmd.Parameters.AddWithValue("@SignoffRole", signoffRole);
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+        }
+
+        private async Task<string?> GetValidationRecordHashAsync(SqlConnection connection, int runId)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = "SELECT TOP 1 RecordHash FROM dbo.ValidationRuns WHERE RunID = @RunID;";
+            cmd.Parameters.AddWithValue("@RunID", runId);
+            var v = await cmd.ExecuteScalarAsync();
+            return v == null || v == DBNull.Value ? null : Convert.ToString(v);
+        }
+
+        private async Task<string?> GetLatestValidationHashAsync(SqlConnection connection, int clientId, int ruleNumber)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = @"SELECT TOP 1 RecordHash FROM dbo.ValidationRuns
+WHERE ClientID = @ClientID AND RuleNumber = @RuleNumber AND RecordHash IS NOT NULL
+ORDER BY RunTimestamp DESC, RunID DESC;";
+            cmd.Parameters.AddWithValue("@ClientID",   clientId);
+            cmd.Parameters.AddWithValue("@RuleNumber", ruleNumber);
+            var v = await cmd.ExecuteScalarAsync();
+            return v == null || v == DBNull.Value ? null : Convert.ToString(v);
+        }
+
+        private async Task EnsureClientNotArchivedAsync(SqlConnection connection, int clientId)
+        {
+            await using var cmd = connection.CreateConfiguredCommand();
+            cmd.CommandText = "SELECT TOP 1 Status FROM dbo.Clients WHERE ClientID = @ClientID;";
+            cmd.Parameters.AddWithValue("@ClientID", clientId);
+            var status = Convert.ToString(await cmd.ExecuteScalarAsync());
+            if (string.Equals(status, "Archived", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Archived engagements are read-only.");
+        }
+
+        private async Task<SqlConnection> OpenSystemConnectionAsync()
+        {
+            var server   = _configuration["SystemDatabase:Server"] ?? @"(localdb)\MSSQLLocalDB";
+            var database = _configuration["SystemDatabase:Name"] ?? "HEMISBaseSystem";
+            var trust    = _configuration.GetValue("SystemDatabase:TrustServerCertificate", true);
+
+            var builder = new SqlConnectionStringBuilder
+            {
+                DataSource             = server,
+                InitialCatalog         = database,
+                IntegratedSecurity     = true,
+                TrustServerCertificate = trust,
+                Encrypt                = false,
+                ConnectTimeout         = 180
+            };
+
+            var connection = new SqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            return connection;
+        }
+
+        private static Rule11ValidationSummary? DeserializeSummary(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            try
+            {
+                var decoded = ValidationPayloadCodec.Decode(json);
+                if (string.IsNullOrWhiteSpace(decoded)) return null;
+                return JsonConvert.DeserializeObject<Rule11ValidationSummary>(decoded);
+            }
+            catch { return null; }
+        }
+
+        private static void ApplyBrowserPreview(Rule11ValidationSummary summary)
+        {
+            summary.ValidationRows = summary.ValidationRows.Take(BrowserPreviewRowLimit).ToList();
+            summary.Exceptions     = summary.Exceptions.Take(BrowserPreviewRowLimit).ToList();
+        }
+
+        private static void EnsurePopulationTypes(Rule11ValidationSummary summary)
+        {
+            var postgraduateTypeCodes = new HashSet<string>(
+                ParseQualTypeCodes(summary.QualTypeCodesText),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var row in summary.ValidationRows)
+            {
+                if (string.IsNullOrWhiteSpace(row.PopulationType))
+                    row.PopulationType = ClassifyPopulationType(row.QualHeqfType, postgraduateTypeCodes);
+            }
+
+            foreach (var ex in summary.Exceptions)
+            {
+                if (string.IsNullOrWhiteSpace(ex.PopulationType))
+                    ex.PopulationType = ClassifyPopulationType(ex.QualHeqfType, postgraduateTypeCodes);
+            }
+        }
+
+        private static bool CanSignOffAsRole(string? role) =>
+            string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "Manager",     StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "Director",    StringComparison.OrdinalIgnoreCase);
+
+        private static string NormalizeFilterValue(string? value, string defaultValue) =>
+            string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim().ToUpperInvariant();
+
+        private static List<string> ParseQualTypeCodes(string? text)
+        {
+            var values = Regex.Split(text ?? "", @"[,\r\n;]+")
+                .Select(value => value.Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return values.Count > 0 ? values : DefaultQualTypeCodes.ToList();
+        }
+
+        private static string EscapeSqlString(string value) =>
+            (value ?? "").Replace("'", "''");
+
+        private static string Sanitise(string? name) =>
+            (name ?? "").Replace("]", "").Replace("[", "").Replace("'", "").Replace(";", "").Trim();
+
+        private static string ComputeHash(string input)
+        {
+            using var sha = SHA256.Create();
+            var bytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            return Convert.ToHexString(bytes);
+        }
+    }
+}
