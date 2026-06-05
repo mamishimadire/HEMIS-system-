@@ -52,8 +52,25 @@
     </script>
     <script>
         (function () {
-            var theme = localStorage.getItem('hemis-theme') || 'dark';
+            var theme = localStorage.getItem('hemis-theme') || 'light';
             if (theme === 'light') document.documentElement.classList.add('light');
+        })();
+    </script>
+    <script>
+        (function () {
+            var widthKey = 'hemis-sidebar-width';
+            var hiddenKey = 'hemis-sidebar-hidden';
+            var minWidth = 256;
+            var maxWidth = 420;
+            var defaultWidth = 304;
+            var storedWidth = parseInt(localStorage.getItem(widthKey) || '', 10);
+            var resolvedWidth = isNaN(storedWidth) ? defaultWidth : Math.max(minWidth, Math.min(maxWidth, storedWidth));
+
+            document.documentElement.style.setProperty('--sidebar-width', resolvedWidth + 'px');
+
+            if (localStorage.getItem(hiddenKey) === '1') {
+                document.documentElement.classList.add('sidebar-hidden');
+            }
         })();
     </script>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
@@ -141,23 +158,45 @@
 <body>
 <div class="layout app-shell">
     <aside class="sidebar">
-        <div class="sidebar__brand">
-            <div class="sidebar__brand-icon" aria-hidden="true">H</div>
-            <div>
-                <div class="sidebar__brand-title">HEMIS Audit</div>
-                <div class="sidebar__brand-sub">Management System</div>
-            </div>
-        </div>
+        <a href="/Dashboard" class="sidebar__brand sidebar__brand-link" aria-label="Go to dashboard home">
+            <span class="sidebar__brand-icon" aria-hidden="true">
+                <svg class="sidebar__brand-glyph" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path fill-rule="evenodd" clip-rule="evenodd" d="M8 0C12.4183 0 16 3.58172 16 8C16 12.4183 12.4183 16 8 16C3.58172 16 0 12.4183 0 8C0 3.58172 3.58172 0 8 0ZM6.0723 5.0642C3.3673 5.0642 1.16934 7.23514 1.12565 9.9297L1.12498 10.0115C1.9471 12.8471 4.47997 14.9554 7.53328 15.1517C5.5806 14.2235 4.23085 12.2332 4.23085 9.92762C4.23085 7.95745 5.22572 6.17059 6.8031 5.11776C6.56464 5.08259 6.32017 5.0642 6.0723 5.0642ZM9.92762 11.7691C7.95787 11.7691 6.17135 10.7746 5.11843 9.19784C5.08254 9.43603 5.0642 9.68013 5.0642 9.92762C5.0642 12.6326 7.23514 14.8306 9.9297 14.8743L10.0115 14.8749C12.8471 14.0529 14.9554 11.52 15.1517 8.46672C14.2235 10.4193 12.2332 11.7691 9.92762 11.7691ZM8.46672 0.848301L8.4769 0.853207C10.4239 1.78323 11.7691 3.77068 11.7691 6.0723C11.7691 8.04205 10.7746 9.82857 9.19784 10.8815C9.43603 10.9174 9.68013 10.9357 9.92762 10.9357C12.6326 10.9357 14.8306 8.76479 14.8743 6.07022L14.8749 5.98841C14.0527 3.15272 11.5199 1.04457 8.46672 0.848301ZM7.94602 5.4319L8.08588 5.36895C6.86503 5.88531 5.92024 6.86061 5.43195 8.05384L5.36895 7.91404C5.88546 9.13523 6.86115 10.0802 8.05485 10.5684L7.91404 10.631C9.13523 10.1145 10.0802 9.13877 10.5684 7.94508L10.6251 8.07204C10.1071 6.85764 9.13463 5.91827 7.94602 5.4319ZM5.9881 1.1196C3.15272 1.94731 1.04457 4.4801 0.848301 7.53328C1.77645 5.5806 3.76676 4.23085 6.0723 4.23085C8.04164 4.23085 9.82807 5.22483 10.8812 6.80163C10.9174 6.56321 10.9357 6.31944 10.9357 6.0723C10.9357 3.3673 8.76479 1.16934 6.07022 1.12565L5.98841 1.12498L5.9881 1.1196Z" fill="currentColor" />
+                </svg>
+            </span>
+            <span class="sidebar__brand-copy">
+                <span class="sidebar__brand-title">SNG Grant Thornton</span>
+                <span class="sidebar__brand-sub">South Africa</span>
+            </span>
+        </a>
 
         <nav class="sidebar__nav">
             <a href="/Dashboard" class="sidebar__nav-item @(currentPath.StartsWith("/dashboard") ? "sidebar__nav-item--active" : "")">
-                <span class="nav-icon">DB</span> Active engagements
+                <span class="nav-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" class="nav-icon__svg" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M5 10.5 12 4l7 6.5V20H5v-9.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="M9 20v-5h6v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <span class="sidebar__nav-label">My engagements</span>
             </a>
             <a href="/Profile/Edit" class="sidebar__nav-item @(currentPath.StartsWith("/profile") ? "sidebar__nav-item--active" : "")">
-                <span class="nav-icon">PF</span> Profile
+                <span class="nav-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" class="nav-icon__svg" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </span>
+                <span class="sidebar__nav-label">Profile</span>
             </a>
             <a href="/Messages" class="sidebar__nav-item @(currentPath.StartsWith("/messages") ? "sidebar__nav-item--active" : "")">
-                <span class="nav-icon">MS</span> Messages
+                <span class="nav-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" class="nav-icon__svg" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v8A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5v-8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="m5.5 7 6.5 5 6.5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+                <span class="sidebar__nav-label">Messages</span>
                 @if (unreadMessages > 0)
                 {
                     <span class="nav-rule-num">@unreadMessages</span>
@@ -168,17 +207,37 @@
             {
                 <div class="sidebar__nav-section">Administration</div>
                 <a href="/Admin/Clients" class="sidebar__nav-item @(currentPath.Contains("/admin/client") ? "sidebar__nav-item--active" : "")">
-                    <span class="nav-icon">EG</span> Engagements
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" class="nav-icon__svg" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h11A2.5 2.5 0 0 1 20 8.5v9A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                            <path d="M9 6V4.5h6V6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar__nav-label">Engagements</span>
                 </a>
             }
 
             @if (role == "Admin")
             {
                 <a href="/Admin/Users" class="sidebar__nav-item @(currentPath.Contains("/admin/user") ? "sidebar__nav-item--active" : "")">
-                    <span class="nav-icon">US</span> Users
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" class="nav-icon__svg" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.8"/>
+                            <path d="M16.5 12a2.5 2.5 0 1 0 0-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                            <path d="M4.5 19a4.5 4.5 0 0 1 9 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                            <path d="M15 18.5c.28-1.73 1.77-3 3.53-3 .35 0 .69.05 1.02.15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar__nav-label">Users</span>
                 </a>
                 <a href="/Admin/AuditLog" class="sidebar__nav-item @(currentPath.Contains("/admin/audit") ? "sidebar__nav-item--active" : "")">
-                    <span class="nav-icon">AL</span> Audit Log
+                    <span class="nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" class="nav-icon__svg" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v12.5L16 17l-3.5 2.5L9 17l-3.5 2.5V7A2.5 2.5 0 0 1 8 4.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                            <path d="M9 9h6M9 12.5h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar__nav-label">Audit log</span>
                 </a>
             }
 
@@ -196,6 +255,7 @@
                     <button type="submit" class="btn-logout" title="Sign out">Out</button>
                 </form>
             </div>
+            <div class="sidebar__signature">Auther : Mamishi Tonny Madire</div>
         </div>
     </aside>
 
@@ -221,6 +281,11 @@
                 </form>
             }
             <div class="topnav-right">
+                <div class="shell-sidebar-tools" aria-label="Sidebar controls">
+                    <button type="button" class="shell-sidebar-tool" id="sidebarNarrowBtn" title="Decrease sidebar width" aria-label="Decrease sidebar width">&lt;</button>
+                    <button type="button" class="shell-sidebar-tool" id="sidebarWideBtn" title="Increase sidebar width" aria-label="Increase sidebar width">&gt;</button>
+                    <button type="button" class="shell-sidebar-tool shell-sidebar-tool--toggle" id="sidebarHideBtn" title="Hide sidebar" aria-label="Hide sidebar">Hide</button>
+                </div>
                 <a href="/Messages" class="topnav-pill" title="Messages">
                     Messages
                     @if (unreadMessages > 0)
@@ -273,11 +338,68 @@
     var overlay = document.getElementById('appShellOverlay');
     var mobileQuery = window.matchMedia('(max-width: 900px)');
     var btn = document.getElementById('themeToggle');
+    var sidebarNarrowBtn = document.getElementById('sidebarNarrowBtn');
+    var sidebarWideBtn = document.getElementById('sidebarWideBtn');
+    var sidebarHideBtn = document.getElementById('sidebarHideBtn');
     var root = document.documentElement;
+    var sidebarWidthKey = 'hemis-sidebar-width';
+    var sidebarHiddenKey = 'hemis-sidebar-hidden';
+    var minSidebarWidth = 256;
+    var maxSidebarWidth = 420;
+    var defaultSidebarWidth = 304;
+    var sidebarStep = 24;
 
     if (sidebar) {
         sidebar.id = 'appSidebar';
     }
+
+    function clampSidebarWidth(value) {
+        return Math.max(minSidebarWidth, Math.min(maxSidebarWidth, value));
+    }
+
+    function getSidebarWidth() {
+        var storedWidth = parseInt(localStorage.getItem(sidebarWidthKey) || '', 10);
+        return clampSidebarWidth(isNaN(storedWidth) ? defaultSidebarWidth : storedWidth);
+    }
+
+    function applySidebarWidth(width) {
+        var resolvedWidth = clampSidebarWidth(width);
+        root.style.setProperty('--sidebar-width', resolvedWidth + 'px');
+        localStorage.setItem(sidebarWidthKey, String(resolvedWidth));
+        return resolvedWidth;
+    }
+
+    function isSidebarHidden() {
+        return root.classList.contains('sidebar-hidden');
+    }
+
+    function setSidebarHidden(hidden) {
+        root.classList.toggle('sidebar-hidden', hidden);
+        localStorage.setItem(sidebarHiddenKey, hidden ? '1' : '0');
+        syncSidebarControls();
+    }
+
+    function syncSidebarControls() {
+        if (!sidebarHideBtn) return;
+
+        var hidden = isSidebarHidden();
+        var currentWidth = getSidebarWidth();
+
+        sidebarHideBtn.textContent = hidden ? 'Show' : 'Hide';
+        sidebarHideBtn.title = hidden ? 'Show sidebar' : 'Hide sidebar';
+        sidebarHideBtn.setAttribute('aria-label', hidden ? 'Show sidebar' : 'Hide sidebar');
+
+        if (sidebarNarrowBtn) {
+            sidebarNarrowBtn.disabled = hidden || currentWidth <= minSidebarWidth;
+        }
+
+        if (sidebarWideBtn) {
+            sidebarWideBtn.disabled = hidden || currentWidth >= maxSidebarWidth;
+        }
+    }
+
+    applySidebarWidth(getSidebarWidth());
+    syncSidebarControls();
 
     function syncSidebarState(open) {
         if (!shell || !sidebar || !overlay || !menuBtn) return;
@@ -313,6 +435,7 @@
 
         var handleViewportChange = function(event){
             if (!event.matches) closeSidebar();
+            syncSidebarControls();
         };
 
         if (typeof mobileQuery.addEventListener === 'function') {
@@ -335,6 +458,26 @@
             var isLight = root.classList.toggle('light');
             localStorage.setItem('hemis-theme', isLight ? 'light' : 'dark');
             syncIcons(isLight);
+        });
+    }
+
+    if (sidebarNarrowBtn) {
+        sidebarNarrowBtn.addEventListener('click', function () {
+            applySidebarWidth(getSidebarWidth() - sidebarStep);
+            syncSidebarControls();
+        });
+    }
+
+    if (sidebarWideBtn) {
+        sidebarWideBtn.addEventListener('click', function () {
+            applySidebarWidth(getSidebarWidth() + sidebarStep);
+            syncSidebarControls();
+        });
+    }
+
+    if (sidebarHideBtn) {
+        sidebarHideBtn.addEventListener('click', function () {
+            setSidebarHidden(!isSidebarHidden());
         });
     }
 

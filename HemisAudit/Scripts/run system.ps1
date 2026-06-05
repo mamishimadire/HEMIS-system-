@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+# Auther : Mamishi Tonny Madire
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptRoot

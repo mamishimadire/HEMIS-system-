@@ -116,13 +116,16 @@
 </div>
 
 <div class="dashboard-toolbar">
-    <div>
+    <div class="dashboard-toolbar__copy">
         <h3 class="section-title" style="margin-bottom:6px">@scopeTitle</h3>
         <p class="dashboard-band__subtitle">@scopeSubtitle</p>
     </div>
     <form method="get" asp-action="Index" class="dashboard-filter-form">
         <input type="hidden" name="scope" value="@currentScope" />
-        <input id="portfolioFilter" name="q" type="search" value="@Model.CurrentSearch" placeholder="Search engagements, industries, or maconomy numbers" />
+        <div class="dashboard-filter-form__search">
+            <span class="dashboard-filter-form__icon" aria-hidden="true">&#128269;</span>
+            <input id="portfolioFilter" name="q" type="search" value="@Model.CurrentSearch" placeholder="Search engagements, industries, or maconomy numbers" />
+        </div>
         <button class="btn btn-secondary" type="submit">Search</button>
         @if (!string.IsNullOrWhiteSpace(Model.CurrentSearch))
         {
