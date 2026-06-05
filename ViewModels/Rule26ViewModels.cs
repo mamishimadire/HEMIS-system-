@@ -59,6 +59,7 @@ namespace HemisAudit.ViewModels
         public string ProfGenderColumn { get; set; } = "";
         public string ProfGroupColumn { get; set; } = "";
         public string ProfBirthDateColumn { get; set; } = "";
+        public string BlankPayrollGroupPassCodes { get; set; } = "Z";
         public string PayrollPersonnelColumn { get; set; } = "";
         public string PayrollEmploymentTypeColumn { get; set; } = "";
         public string PayrollGenderColumn { get; set; } = "";
@@ -133,6 +134,7 @@ namespace HemisAudit.ViewModels
         public string ProfGenderColumn { get; set; } = "";
         public string ProfGroupColumn { get; set; } = "";
         public string ProfBirthDateColumn { get; set; } = "";
+        public string BlankPayrollGroupPassCodes { get; set; } = "Z";
         public string PayrollPersonnelColumn { get; set; } = "";
         public string PayrollEmploymentTypeColumn { get; set; } = "";
         public string PayrollGenderColumn { get; set; } = "";
@@ -185,6 +187,7 @@ namespace HemisAudit.ViewModels
         public string ProfGenderColumn { get; set; } = "";
         public string ProfGroupColumn { get; set; } = "";
         public string ProfBirthDateColumn { get; set; } = "";
+        public string BlankPayrollGroupPassCodes { get; set; } = "Z";
         public string PayrollPersonnelColumn { get; set; } = "";
         public string PayrollEmploymentTypeColumn { get; set; } = "";
         public string PayrollGenderColumn { get; set; } = "";

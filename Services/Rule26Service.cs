@@ -10,7 +10,7 @@ namespace HemisAudit.Services
     public class Rule26Service : IRule26Service
     {
         private const int RuleNumber = 26;
-        private const string RuleName = "Rule 26 - dbo_PROF to Payroll_Sample 5-Control Validation";
+        private const string RuleName = "Rule 26 - dbo_PROF to Payroll_Sample 4-Control Validation";
         private const int BrowserPreviewRowLimit = 1000;
 
         private readonly IConfiguration _configuration;
@@ -152,7 +152,7 @@ PayrollBase AS
 SELECT
     (SELECT COUNT(*) FROM ProfBase) AS ProfCount,
     (SELECT COUNT(*) FROM PayrollBase) AS PayrollCount,
-    (SELECT COUNT(*) FROM ProfBase p INNER JOIN PayrollBase py ON p.PersonnelKey = py.PersonnelKey) AS LinkedCount,
+    (SELECT COUNT(*) FROM ProfBase p WHERE EXISTS (SELECT 1 FROM PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)) AS LinkedCount,
     (SELECT COUNT(*) FROM ProfBase p WHERE NOT EXISTS (SELECT 1 FROM PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)) AS ProfWithoutPayroll,
     (SELECT COUNT(*) FROM PayrollBase py WHERE NOT EXISTS (SELECT 1 FROM ProfBase p WHERE p.PersonnelKey = py.PersonnelKey)) AS PayrollWithoutProf;";
 
@@ -269,6 +269,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 ProfGenderColumn = deserializedSummary?.ProfGenderColumn ?? "",
                 ProfGroupColumn = deserializedSummary?.ProfGroupColumn ?? "",
                 ProfBirthDateColumn = deserializedSummary?.ProfBirthDateColumn ?? "",
+                BlankPayrollGroupPassCodes = deserializedSummary?.BlankPayrollGroupPassCodes ?? "Z",
                 PayrollEmploymentTypeColumn = deserializedSummary?.PayrollEmploymentTypeColumn ?? "",
                 PayrollGenderColumn = deserializedSummary?.PayrollGenderColumn ?? "",
                 PayrollGroupColumn = deserializedSummary?.PayrollGroupColumn ?? "",
@@ -354,6 +355,8 @@ WHERE vr.RunID = @RunID
                         Error = "Run the validation first so the workspace can be saved."
                     };
                 }
+
+                ValidateRequest(request);
 
                 await using var connection = await OpenSystemConnectionAsync();
                 var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
@@ -576,6 +579,7 @@ END";
             var payrollGender = Sanitise(request.PayrollGenderColumn);
             var payrollGroup = Sanitise(request.PayrollGroupColumn);
             var payrollBirth = Sanitise(request.PayrollBirthDateColumn);
+            var blankPayrollGroupPassCodeSqlList = BuildRule26SqlCharacterList(request.BlankPayrollGroupPassCodes);
 
             var profPersonnelExpr = $"LTRIM(RTRIM(CAST([{profPersonnel}] AS nvarchar(4000))))";
             var payrollPersonnelExpr = $"LTRIM(RTRIM(CAST([{payrollPersonnel}] AS nvarchar(4000))))";
@@ -588,7 +592,7 @@ END";
 -- Base population : dbo_PROF
 -- Reference table : Payroll_Sample
 -- Logic           : same one-direction population-testing pattern as Rules 51/52,
---                   but across 5 mapped payroll controls.
+--                   but across 4 mapped payroll controls.
 -- ============================================================================
 
 IF OBJECT_ID('tempdb..#ProfBase') IS NOT NULL DROP TABLE #ProfBase;
@@ -600,6 +604,7 @@ SELECT
     LTRIM(RTRIM(CAST([{profEmployment}] AS nvarchar(4000)))) AS EmploymentType,
     UPPER(LTRIM(RTRIM(CAST([{profGender}] AS nvarchar(100))))) AS GenderValue,
     LTRIM(RTRIM(CAST([{profGroup}] AS nvarchar(4000)))) AS GroupValue,
+    LTRIM(RTRIM(CAST([{profBirth}] AS nvarchar(50)))) AS BirthRawValue,
     {profBirthExpr} AS BirthDateValue
 INTO #ProfBase
 FROM [{profTable}]
@@ -611,6 +616,7 @@ SELECT
     LTRIM(RTRIM(CAST([{payrollEmployment}] AS nvarchar(4000)))) AS EmploymentType,
     UPPER(LTRIM(RTRIM(CAST([{payrollGender}] AS nvarchar(100))))) AS GenderValue,
     LTRIM(RTRIM(CAST([{payrollGroup}] AS nvarchar(4000)))) AS GroupValue,
+    LTRIM(RTRIM(CAST([{payrollBirth}] AS nvarchar(50)))) AS BirthRawValue,
     {payrollBirthExpr} AS BirthDateValue
 INTO #PayrollBase
 FROM [{payrollTable}];
@@ -620,7 +626,7 @@ SELECT 'PROF population' AS Metric, COUNT(*) AS RecordCount FROM #ProfBase
 UNION ALL
 SELECT 'Payroll population', COUNT(*) FROM #PayrollBase
 UNION ALL
-SELECT 'Linked population', COUNT(*) FROM #ProfBase p INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
+SELECT 'Linked population', COUNT(*) FROM #ProfBase p WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
 UNION ALL
 SELECT 'PROF without Payroll', COUNT(*)
 FROM #ProfBase p
@@ -632,30 +638,29 @@ SELECT *
 FROM
 (
     SELECT
-        'dbo_PROF -> Payroll_Sample' AS DirectionLabel,
-        1 AS ControlNumber,
-        'Personnel Number Existence' AS ControlName,
-        p.PersonnelNumber,
-        'Personnel number exists in dbo_PROF but not in Payroll_Sample.' AS ExceptionReason,
-        p.PersonnelNumber AS BaseValue,
-        '' AS ReferenceValue
-    FROM #ProfBase p
-    LEFT JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
-    WHERE py.PersonnelKey IS NULL
-
-    UNION ALL
-
-    SELECT
         'dbo_PROF -> Payroll_Sample',
         2,
         'Employment Type Match',
         p.PersonnelNumber,
         'dbo_PROF employment type first letter does not match Payroll_Sample PERMANENT_OR_TEMP.',
         p.EmploymentType,
-        py.EmploymentType
+        mismatch.EmploymentType
     FROM #ProfBase p
-    INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
-    WHERE LEFT(p.EmploymentType, 1) <> LEFT(py.EmploymentType, 1)
+    OUTER APPLY
+    (
+        SELECT TOP 1 py.EmploymentType
+        FROM #PayrollBase py
+        WHERE py.PersonnelKey = p.PersonnelKey
+          AND LEFT(p.EmploymentType, 1) <> LEFT(py.EmploymentType, 1)
+    ) mismatch
+    WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+      AND NOT EXISTS
+      (
+          SELECT 1
+          FROM #PayrollBase py
+          WHERE py.PersonnelKey = p.PersonnelKey
+            AND LEFT(p.EmploymentType, 1) = LEFT(py.EmploymentType, 1)
+      )
 
     UNION ALL
 
@@ -666,10 +671,23 @@ FROM
         p.PersonnelNumber,
         'dbo_PROF gender first letter does not match Payroll_Sample GENDER first letter.',
         p.GenderValue,
-        py.GenderValue
+        mismatch.GenderValue
     FROM #ProfBase p
-    INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
-    WHERE LEFT(p.GenderValue, 1) <> LEFT(py.GenderValue, 1)
+    OUTER APPLY
+    (
+        SELECT TOP 1 py.GenderValue
+        FROM #PayrollBase py
+        WHERE py.PersonnelKey = p.PersonnelKey
+          AND LEFT(p.GenderValue, 1) <> LEFT(py.GenderValue, 1)
+    ) mismatch
+    WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+      AND NOT EXISTS
+      (
+          SELECT 1
+          FROM #PayrollBase py
+          WHERE py.PersonnelKey = p.PersonnelKey
+            AND LEFT(p.GenderValue, 1) = LEFT(py.GenderValue, 1)
+      )
 
     UNION ALL
 
@@ -680,10 +698,58 @@ FROM
         p.PersonnelNumber,
         'dbo_PROF race/group code first letter does not match Payroll_Sample GROUP_NAME first letter.',
         p.GroupValue,
-        py.GroupValue
+        mismatch.GroupValue
     FROM #ProfBase p
-    INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
-    WHERE LEFT(p.GroupValue, 1) <> LEFT(py.GroupValue, 1)
+    OUTER APPLY
+    (
+        SELECT TOP 1 py.GroupValue
+        FROM #PayrollBase py
+        WHERE py.PersonnelKey = p.PersonnelKey
+          AND NOT
+          (
+              LEFT(p.GroupValue, 1) IN ({blankPayrollGroupPassCodeSqlList})
+              AND NULLIF(LTRIM(RTRIM(py.GroupValue)), '') IS NULL
+          )
+          AND LEFT(p.GroupValue, 1) <> LEFT(py.GroupValue, 1)
+    ) mismatch
+    WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+      AND NOT EXISTS
+      (
+          SELECT 1
+          FROM #PayrollBase py
+          WHERE py.PersonnelKey = p.PersonnelKey
+            AND
+            (
+                LEFT(p.GroupValue, 1) = LEFT(py.GroupValue, 1)
+                OR
+                (
+                    LEFT(p.GroupValue, 1) IN ({blankPayrollGroupPassCodeSqlList})
+                    AND NULLIF(LTRIM(RTRIM(py.GroupValue)), '') IS NULL
+                )
+            )
+      )
+
+    UNION ALL
+
+    SELECT
+        'dbo_PROF -> Payroll_Sample',
+        5,
+        'Birth Date Integrity',
+        p.PersonnelNumber,
+        'dbo_PROF birth date is not a valid YYYYMMDD value and cannot be matched to Payroll_Sample birth date.',
+        p.BirthRawValue,
+        COALESCE(CONVERT(nvarchar(30), sample.BirthDateValue, 23), sample.BirthRawValue, '')
+    FROM #ProfBase p
+    OUTER APPLY
+    (
+        SELECT TOP 1 py.BirthRawValue, py.BirthDateValue
+        FROM #PayrollBase py
+        WHERE py.PersonnelKey = p.PersonnelKey
+        ORDER BY CASE WHEN py.BirthDateValue IS NULL THEN 1 ELSE 0 END, py.BirthRawValue
+    ) sample
+    WHERE p.BirthRawValue <> ''
+      AND p.BirthDateValue IS NULL
+      AND EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
 
     UNION ALL
 
@@ -694,11 +760,24 @@ FROM
         p.PersonnelNumber,
         'dbo_PROF birth date does not match Payroll_Sample birth date.',
         CONVERT(nvarchar(30), p.BirthDateValue, 23),
-        CONVERT(nvarchar(30), py.BirthDateValue, 23)
+        CONVERT(nvarchar(30), mismatch.BirthDateValue, 23)
     FROM #ProfBase p
-    INNER JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
+    OUTER APPLY
+    (
+        SELECT TOP 1 py.BirthDateValue
+        FROM #PayrollBase py
+        WHERE py.PersonnelKey = p.PersonnelKey
+          AND (py.BirthDateValue IS NULL OR p.BirthDateValue <> py.BirthDateValue)
+    ) mismatch
     WHERE p.BirthDateValue IS NOT NULL
-      AND (py.BirthDateValue IS NULL OR p.BirthDateValue <> py.BirthDateValue)
+      AND EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+      AND NOT EXISTS
+      (
+          SELECT 1
+          FROM #PayrollBase py
+          WHERE py.PersonnelKey = p.PersonnelKey
+            AND py.BirthDateValue = p.BirthDateValue
+      )
 ) Exceptions
 ORDER BY ControlNumber, PersonnelNumber;
 
@@ -751,6 +830,7 @@ DROP TABLE #PayrollBase;";
                 ProfGenderColumn = request.ProfGenderColumn,
                 ProfGroupColumn = request.ProfGroupColumn,
                 ProfBirthDateColumn = request.ProfBirthDateColumn,
+                BlankPayrollGroupPassCodes = request.BlankPayrollGroupPassCodes,
                 PayrollPersonnelColumn = request.PayrollPersonnelColumn,
                 PayrollEmploymentTypeColumn = request.PayrollEmploymentTypeColumn,
                 PayrollGenderColumn = request.PayrollGenderColumn,
@@ -844,6 +924,7 @@ FROM [{payrollTable}];";
             Dictionary<string, List<PayrollRecord>> payrollByPersonnel,
             Rule26ValidationRequest request)
         {
+            var blankPayrollGroupPassCodes = ParseRule26BlankPayrollGroupPassCodes(request.BlankPayrollGroupPassCodes);
             var direction = new Rule26DirectionResultViewModel
             {
                 DirectionKey = "prof_to_payroll",
@@ -854,53 +935,45 @@ FROM [{payrollTable}];";
             };
 
             var controls = CreateControlShell();
-            var linkedPairs = new List<(ProfRecord Prof, PayrollRecord Payroll)>();
+            var linkedGroups = new List<Rule26LinkedPayrollGroup>();
 
             foreach (var prof in profRecords)
             {
-                if (string.IsNullOrWhiteSpace(prof.PersonnelKey) || !payrollByPersonnel.TryGetValue(prof.PersonnelKey, out var payrollMatches) || payrollMatches.Count == 0)
+                if (!string.IsNullOrWhiteSpace(prof.PersonnelKey) &&
+                    payrollByPersonnel.TryGetValue(prof.PersonnelKey, out var payrollMatches) &&
+                    payrollMatches.Count > 0)
                 {
-                    direction.Exceptions.Add(CreateException(
-                        direction,
-                        controls[0],
-                        prof.PersonnelNumber,
-                        null,
-                        "Personnel number exists in dbo_PROF but not in Payroll_Sample.",
-                        prof.PersonnelNumber,
-                        ""));
-                }
-                else
-                {
-                    foreach (var payroll in payrollMatches)
-                        linkedPairs.Add((prof, payroll));
+                    linkedGroups.Add(new Rule26LinkedPayrollGroup
+                    {
+                        Prof = prof,
+                        PayrollMatches = payrollMatches
+                    });
                 }
             }
 
-            controls[0].TotalTested = profRecords.Count;
-            controls[0].ExceptionCount = direction.Exceptions.Count(e => e.ControlNumber == 1);
-            controls[0].Passed = controls[0].ExceptionCount == 0;
+            direction.LinkedRecordCount = linkedGroups.Count;
 
-            direction.LinkedRecordCount = linkedPairs.Count;
-
-            EvaluateLinkedControlsForProfDirection(direction, controls, linkedPairs);
+            EvaluateLinkedControlsForProfDirection(direction, controls, linkedGroups, blankPayrollGroupPassCodes);
             direction.Controls = controls;
             direction.TotalExceptions = direction.Exceptions.Count;
 
             var exceptionPersonnelProf = direction.Exceptions
                 .Select(e => e.PersonnelNumber)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            direction.PassRows = linkedPairs
-                .Where(pair => !exceptionPersonnelProf.Contains(pair.Prof.PersonnelNumber))
-                .GroupBy(pair => pair.Prof.PersonnelNumber, StringComparer.OrdinalIgnoreCase)
+            direction.PassRows = linkedGroups
+                .Where(group => !exceptionPersonnelProf.Contains(group.Prof.PersonnelNumber))
+                .GroupBy(group => group.Prof.PersonnelNumber, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
-                .Select(pair => new Rule26PassRowViewModel
+                .Select(group => new Rule26PassRowViewModel
                 {
                     DirectionKey = direction.DirectionKey,
                     DirectionLabel = direction.DirectionLabel,
-                    PersonnelNumber = pair.Prof.PersonnelNumber,
-                    PersonnelName = pair.Payroll.PersonnelName,
-                    EmploymentType = pair.Prof.EmploymentType,
-                    Gender = pair.Prof.Gender
+                    PersonnelNumber = group.Prof.PersonnelNumber,
+                    PersonnelName = group.PayrollMatches
+                        .Select(payroll => payroll.PersonnelName)
+                        .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)),
+                    EmploymentType = group.Prof.EmploymentType,
+                    Gender = group.Prof.Gender
                 })
                 .ToList();
 
@@ -909,12 +982,6 @@ FROM [{payrollTable}];";
 
         private static List<Rule26ControlSummaryViewModel> CreateControlShell() =>
         [
-            new()
-            {
-                ControlNumber = 1,
-                ControlName = "Personnel Number Existence",
-                Explanation = "Checks whether every base-table personnel number exists in the reference table."
-            },
             new()
             {
                 ControlNumber = 2,
@@ -931,7 +998,7 @@ FROM [{payrollTable}];";
             {
                 ControlNumber = 4,
                 ControlName = "Race/Group Code Accuracy",
-                Explanation = "Compares the first letter of Payroll GROUP_NAME to the first letter of dbo_PROF _013 for linked personnel."
+                Explanation = "Compares the first letter of Payroll GROUP_NAME to the first letter of dbo_PROF _013 for linked personnel. Blank Payroll GROUP_NAME is accepted when dbo_PROF _013 is in the configured blank-group pass list."
             },
             new()
             {
@@ -944,51 +1011,154 @@ FROM [{payrollTable}];";
         private void EvaluateLinkedControlsForProfDirection(
             Rule26DirectionResultViewModel direction,
             List<Rule26ControlSummaryViewModel> controls,
-            List<(ProfRecord Prof, PayrollRecord Payroll)> linkedPairs)
+            List<Rule26LinkedPayrollGroup> linkedGroups,
+            HashSet<string> blankPayrollGroupPassCodes)
         {
-            foreach (var pair in linkedPairs)
+            foreach (var group in linkedGroups)
             {
-                if (AreSqlComparableValuesDifferent(GetFirstCharacterValue(pair.Prof.EmploymentType), GetFirstCharacterValue(pair.Payroll.EmploymentType)))
+                var employmentMismatch = GetRule26FailingPayrollMatch(
+                    group.PayrollMatches,
+                    payroll => AreSqlComparableValuesDifferent(
+                        GetFirstCharacterValue(group.Prof.EmploymentType),
+                        GetFirstCharacterValue(payroll.EmploymentType)));
+                if (employmentMismatch != null)
                 {
                     direction.Exceptions.Add(CreateException(
-                        direction, controls[1], pair.Prof.PersonnelNumber, pair.Payroll.PersonnelName,
+                        direction, controls[0], group.Prof.PersonnelNumber, employmentMismatch.PersonnelName,
                         "dbo_PROF employment type first letter does not match Payroll_Sample PERMANENT_OR_TEMP first letter.",
-                        pair.Prof.EmploymentType, pair.Payroll.EmploymentType));
+                        group.Prof.EmploymentType, employmentMismatch.EmploymentType));
                 }
 
-                if (AreSqlComparableValuesDifferent(GetFirstCharacterValue(pair.Prof.Gender), GetFirstCharacterValue(pair.Payroll.Gender)))
+                var genderMismatch = GetRule26FailingPayrollMatch(
+                    group.PayrollMatches,
+                    payroll => AreSqlComparableValuesDifferent(
+                        GetFirstCharacterValue(group.Prof.Gender),
+                        GetFirstCharacterValue(payroll.Gender)));
+                if (genderMismatch != null)
                 {
                     direction.Exceptions.Add(CreateException(
-                        direction, controls[2], pair.Prof.PersonnelNumber, pair.Payroll.PersonnelName,
+                        direction, controls[1], group.Prof.PersonnelNumber, genderMismatch.PersonnelName,
                         "dbo_PROF gender first letter does not match Payroll_Sample GENDER first letter.",
-                        pair.Prof.Gender, pair.Payroll.Gender));
+                        group.Prof.Gender, genderMismatch.Gender));
                 }
 
-                if (AreSqlComparableValuesDifferent(GetFirstCharacterValue(pair.Prof.GroupCode), GetFirstCharacterValue(pair.Payroll.GroupName)))
+                var groupMismatch = GetRule26FailingPayrollMatch(
+                    group.PayrollMatches,
+                    payroll => IsRule26GroupMismatch(group.Prof.GroupCode, payroll.GroupName, blankPayrollGroupPassCodes));
+                if (groupMismatch != null)
                 {
                     direction.Exceptions.Add(CreateException(
-                        direction, controls[3], pair.Prof.PersonnelNumber, pair.Payroll.PersonnelName,
+                        direction, controls[2], group.Prof.PersonnelNumber, groupMismatch.PersonnelName,
                         "dbo_PROF race/group code first letter does not match Payroll_Sample GROUP_NAME first letter.",
-                        pair.Prof.GroupCode, pair.Payroll.GroupName));
+                        group.Prof.GroupCode, groupMismatch.GroupName));
                 }
 
-                if (pair.Prof.BirthDate.HasValue &&
-                    (!pair.Payroll.BirthDate.HasValue || pair.Prof.BirthDate.Value != pair.Payroll.BirthDate.Value))
+                if (!string.IsNullOrWhiteSpace(group.Prof.BirthRaw) && !group.Prof.BirthDate.HasValue)
                 {
+                    var payrollBirthSample = GetPreferredRule26PayrollBirthSample(group.PayrollMatches);
                     direction.Exceptions.Add(CreateException(
-                        direction, controls[4], pair.Prof.PersonnelNumber, pair.Payroll.PersonnelName,
-                        "dbo_PROF birth date does not match Payroll_Sample birth date.",
-                        pair.Prof.BirthDate.Value.ToString("yyyy-MM-dd"), pair.Payroll.BirthDate?.ToString("yyyy-MM-dd") ?? ""));
+                        direction, controls[3], group.Prof.PersonnelNumber, payrollBirthSample?.PersonnelName,
+                        "dbo_PROF birth date is not a valid YYYYMMDD value and cannot be matched to Payroll_Sample birth date.",
+                        group.Prof.BirthRaw,
+                        FormatRule26BirthDisplay(payrollBirthSample)));
+                }
+                else if (group.Prof.BirthDate.HasValue)
+                {
+                    var birthMismatch = GetRule26FailingPayrollMatch(
+                        group.PayrollMatches,
+                        payroll => !payroll.BirthDate.HasValue || group.Prof.BirthDate.Value != payroll.BirthDate.Value);
+                    if (birthMismatch != null)
+                    {
+                        direction.Exceptions.Add(CreateException(
+                            direction, controls[3], group.Prof.PersonnelNumber, birthMismatch.PersonnelName,
+                            "dbo_PROF birth date does not match Payroll_Sample birth date.",
+                            group.Prof.BirthDate.Value.ToString("yyyy-MM-dd"), birthMismatch.BirthDate?.ToString("yyyy-MM-dd") ?? ""));
+                    }
                 }
             }
 
-            for (var i = 1; i < controls.Count; i++)
+            direction.Exceptions = direction.Exceptions
+                .GroupBy(e => $"{e.DirectionKey}|{e.ControlNumber}|{e.PersonnelNumber}", StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+
+            for (var i = 0; i < controls.Count; i++)
             {
                 controls[i].TotalTested = direction.LinkedRecordCount;
                 controls[i].ExceptionCount = direction.Exceptions.Count(e => e.ControlNumber == controls[i].ControlNumber);
                 controls[i].Passed = controls[i].ExceptionCount == 0;
             }
         }
+
+        private static PayrollRecord? GetRule26FailingPayrollMatch(
+            IEnumerable<PayrollRecord> payrollMatches,
+            Func<PayrollRecord, bool> isMismatch)
+        {
+            PayrollRecord? firstMismatch = null;
+            foreach (var payroll in payrollMatches)
+            {
+                if (!isMismatch(payroll))
+                    return null;
+
+                firstMismatch ??= payroll;
+            }
+
+            return firstMismatch;
+        }
+
+        private static PayrollRecord? GetPreferredRule26PayrollBirthSample(IEnumerable<PayrollRecord> payrollMatches) =>
+            payrollMatches
+                .OrderBy(payroll => payroll.BirthDate.HasValue ? 0 : 1)
+                .ThenBy(payroll => payroll.BirthRaw)
+                .FirstOrDefault();
+
+        private static bool IsRule26GroupMismatch(
+            string? profGroupCode,
+            string? payrollGroupName,
+            HashSet<string> blankPayrollGroupPassCodes)
+        {
+            var profGroupFirst = GetFirstCharacterValue(profGroupCode);
+            var payrollGroupFirst = GetFirstCharacterValue(payrollGroupName);
+            var payrollGroupBlank = string.IsNullOrEmpty(NormalizeText(payrollGroupName));
+
+            if (!string.IsNullOrEmpty(profGroupFirst) &&
+                blankPayrollGroupPassCodes.Contains(profGroupFirst) &&
+                payrollGroupBlank)
+                return false;
+
+            return AreSqlComparableValuesDifferent(profGroupFirst, payrollGroupFirst);
+        }
+
+        private static string NormalizeRule26BlankPayrollGroupPassCodes(string? value)
+        {
+            var codes = ParseRule26BlankPayrollGroupPassCodes(value);
+            return codes.Count == 0 ? "Z" : string.Join(",", codes.OrderBy(code => code, StringComparer.OrdinalIgnoreCase));
+        }
+
+        private static HashSet<string> ParseRule26BlankPayrollGroupPassCodes(string? value)
+        {
+            var tokens = (value ?? "Z")
+                .Split([',', ';', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(GetFirstCharacterValue)
+                .Where(token => !string.IsNullOrEmpty(token))
+                .Select(token => token!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (tokens.Count == 0)
+                tokens.Add("Z");
+
+            return tokens;
+        }
+
+        private static string BuildRule26SqlCharacterList(string? value) =>
+            string.Join(", ", ParseRule26BlankPayrollGroupPassCodes(value)
+                .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                .Select(code => $"'{EscapeSqlString(code)}'"));
+
+        private static string FormatRule26BirthDisplay(PayrollRecord? payroll) =>
+            payroll?.BirthDate?.ToString("yyyy-MM-dd")
+            ?? payroll?.BirthRaw
+            ?? "";
 
         private static Rule26ExceptionRowViewModel CreateException(
             Rule26DirectionResultViewModel direction,
@@ -1095,6 +1265,7 @@ WHERE RunID = @RunID;";
             summary.ProfGenderColumn = request.ProfGenderColumn;
             summary.ProfGroupColumn = request.ProfGroupColumn;
             summary.ProfBirthDateColumn = request.ProfBirthDateColumn;
+            summary.BlankPayrollGroupPassCodes = request.BlankPayrollGroupPassCodes;
             summary.PayrollPersonnelColumn = request.PayrollPersonnelColumn;
             summary.PayrollEmploymentTypeColumn = request.PayrollEmploymentTypeColumn;
             summary.PayrollGenderColumn = request.PayrollGenderColumn;
@@ -1125,6 +1296,8 @@ WHERE RunID = @RunID;";
                 throw new InvalidOperationException("Server is required.");
             if (string.IsNullOrWhiteSpace(request.Database))
                 throw new InvalidOperationException("Database is required.");
+
+            request.BlankPayrollGroupPassCodes = NormalizeRule26BlankPayrollGroupPassCodes(request.BlankPayrollGroupPassCodes);
 
             var values = new[]
             {
@@ -1608,6 +1781,12 @@ END";
             public string? GroupName { get; set; }
             public string? BirthRaw { get; set; }
             public DateTime? BirthDate { get; set; }
+        }
+
+        private sealed class Rule26LinkedPayrollGroup
+        {
+            public ProfRecord Prof { get; set; } = new();
+            public List<PayrollRecord> PayrollMatches { get; set; } = new();
         }
     }
 }

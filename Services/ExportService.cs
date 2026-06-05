@@ -500,12 +500,13 @@ namespace HemisAudit.Services
             using var wb = new XLWorkbook();
 
             var wsSummary = wb.Worksheets.Add("Summary");
-            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 26: DBO_PROF TO PAYROLL_SAMPLE 5-CONTROL VALIDATION", 2);
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 26: DBO_PROF TO PAYROLL_SAMPLE 4-CONTROL VALIDATION", 2);
             var summaryData = new[]
             {
                 ("Database", summary.Database),
                 ("PROF Table", summary.ProfTable),
                 ("Payroll Table", summary.PayrollTable),
+                ("Blank Payroll GROUP_NAME Pass Codes", summary.BlankPayrollGroupPassCodes),
                 ("Validation Date", summary.Timestamp),
                 ("", ""),
                 ("POPULATION SUMMARY", ""),
@@ -571,67 +572,125 @@ namespace HemisAudit.Services
             }
             for (var c = 1; c <= controlHeaders.Length; c++) wsControlSummary.Column(c).AdjustToContents();
 
-            var exceptionHeaders = new[] { "Direction", "Control #", "Control Name", "Personnel Number", "Personnel Name", "Exception Reason", "Base Value", "Reference Value" };
-            var wsExceptions = wb.Worksheets.Add("Combined Exceptions");
-            StyleHeaderRow(wsExceptions, 1, "RULE 26 EXCEPTIONS", exceptionHeaders.Length);
-            for (var i = 0; i < exceptionHeaders.Length; i++)
+            var wsEmployeeSummary = wb.Worksheets.Add("Employee Summary");
+            WriteRule26EmployeeSummarySheet(wsEmployeeSummary, summary.Exceptions);
+
+            var exceptionHeaders = new[] { "Direction", "Control", "Control Name", "Personnel Number", "Personnel Name", "Exception Reason", "Base Value", "Reference Value" };
+            if (summary.Directions.Count <= 1)
             {
-                var cell = wsExceptions.Cell(2, i + 1);
-                cell.Value = exceptionHeaders[i];
-                cell.Style.Font.Bold = true;
-                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
-                cell.Style.Font.FontColor = XLColor.White;
+                var direction = summary.Directions.FirstOrDefault();
+                var sheetName = direction?.DirectionKey == "prof_to_payroll" ? "PROF to Payroll" : direction?.DirectionLabel ?? "Exceptions";
+                var title = direction == null ? "RULE 26 EXCEPTIONS" : $"{direction.DirectionLabel} EXCEPTIONS";
+                WriteRule26ExceptionSheet(wb.Worksheets.Add(sheetName), title, exceptionHeaders, direction?.Exceptions ?? summary.Exceptions);
             }
-
-            var exceptionRow = 3;
-            foreach (var exception in summary.Exceptions)
+            else
             {
-                wsExceptions.Cell(exceptionRow, 1).Value = exception.DirectionLabel;
-                wsExceptions.Cell(exceptionRow, 2).Value = exception.ControlNumber;
-                wsExceptions.Cell(exceptionRow, 3).Value = exception.ControlName;
-                wsExceptions.Cell(exceptionRow, 4).Value = exception.PersonnelNumber;
-                wsExceptions.Cell(exceptionRow, 5).Value = exception.PersonnelName;
-                wsExceptions.Cell(exceptionRow, 6).Value = exception.ExceptionReason;
-                wsExceptions.Cell(exceptionRow, 7).Value = exception.BaseValue;
-                wsExceptions.Cell(exceptionRow, 8).Value = exception.ReferenceValue;
-                wsExceptions.Range(exceptionRow, 1, exceptionRow, exceptionHeaders.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
-                exceptionRow++;
-            }
-            for (var c = 1; c <= exceptionHeaders.Length; c++) wsExceptions.Column(c).AdjustToContents();
+                WriteRule26ExceptionSheet(wb.Worksheets.Add("Combined Exceptions"), "RULE 26 EXCEPTIONS", exceptionHeaders, summary.Exceptions);
 
-            foreach (var direction in summary.Directions)
-            {
-                var sheetName = direction.DirectionKey == "prof_to_payroll" ? "PROF to Payroll" : direction.DirectionLabel;
-                var wsDirection = wb.Worksheets.Add(sheetName);
-                StyleHeaderRow(wsDirection, 1, $"{direction.DirectionLabel} EXCEPTIONS", exceptionHeaders.Length);
-                for (var i = 0; i < exceptionHeaders.Length; i++)
+                foreach (var direction in summary.Directions)
                 {
-                    var cell = wsDirection.Cell(2, i + 1);
-                    cell.Value = exceptionHeaders[i];
-                    cell.Style.Font.Bold = true;
-                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
-                    cell.Style.Font.FontColor = XLColor.White;
+                    var sheetName = direction.DirectionKey == "prof_to_payroll" ? "PROF to Payroll" : direction.DirectionLabel;
+                    WriteRule26ExceptionSheet(wb.Worksheets.Add(sheetName), $"{direction.DirectionLabel} EXCEPTIONS", exceptionHeaders, direction.Exceptions);
                 }
-
-                var row = 3;
-                foreach (var exception in direction.Exceptions)
-                {
-                    wsDirection.Cell(row, 1).Value = exception.DirectionLabel;
-                    wsDirection.Cell(row, 2).Value = exception.ControlNumber;
-                    wsDirection.Cell(row, 3).Value = exception.ControlName;
-                    wsDirection.Cell(row, 4).Value = exception.PersonnelNumber;
-                    wsDirection.Cell(row, 5).Value = exception.PersonnelName;
-                    wsDirection.Cell(row, 6).Value = exception.ExceptionReason;
-                    wsDirection.Cell(row, 7).Value = exception.BaseValue;
-                    wsDirection.Cell(row, 8).Value = exception.ReferenceValue;
-                    row++;
-                }
-                for (var c = 1; c <= exceptionHeaders.Length; c++) wsDirection.Column(c).AdjustToContents();
             }
 
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
             return ms.ToArray();
+        }
+
+        private static void WriteRule26ExceptionSheet(
+            IXLWorksheet worksheet,
+            string title,
+            IReadOnlyList<string> headers,
+            IEnumerable<Rule26ExceptionRowViewModel> exceptions)
+        {
+            StyleHeaderRow(worksheet, 1, title, headers.Count);
+            for (var i = 0; i < headers.Count; i++)
+            {
+                var cell = worksheet.Cell(2, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var sortedExceptions = exceptions
+                .OrderBy(exception => exception.ControlNumber)
+                .ThenBy(exception => exception.PersonnelNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(exception => exception.PersonnelName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(exception => exception.ExceptionReason, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var row = 3;
+            foreach (var exception in sortedExceptions)
+            {
+                worksheet.Cell(row, 1).Value = exception.DirectionLabel;
+                worksheet.Cell(row, 2).Value = exception.ControlNumber;
+                worksheet.Cell(row, 3).Value = exception.ControlName;
+                worksheet.Cell(row, 4).Value = exception.PersonnelNumber;
+                worksheet.Cell(row, 5).Value = exception.PersonnelName;
+                worksheet.Cell(row, 6).Value = exception.ExceptionReason;
+                worksheet.Cell(row, 7).Value = exception.BaseValue;
+                worksheet.Cell(row, 8).Value = exception.ReferenceValue;
+                worksheet.Range(row, 1, row, headers.Count).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
+                row++;
+            }
+
+            worksheet.SheetView.FreezeRows(2);
+            worksheet.Range(2, 1, Math.Max(2, row - 1), headers.Count).SetAutoFilter();
+            for (var c = 1; c <= headers.Count; c++) worksheet.Column(c).AdjustToContents();
+        }
+
+        private static void WriteRule26EmployeeSummarySheet(
+            IXLWorksheet worksheet,
+            IEnumerable<Rule26ExceptionRowViewModel> exceptions)
+        {
+            var headers = new[] { "Direction", "Personnel Number", "Personnel Name", "Exception Count", "Controls", "Exception Reasons" };
+            StyleHeaderRow(worksheet, 1, "RULE 26 EMPLOYEE EXCEPTION SUMMARY", headers.Length);
+
+            for (var i = 0; i < headers.Length; i++)
+            {
+                var cell = worksheet.Cell(2, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+
+            var groupedExceptions = exceptions
+                .GroupBy(
+                    row => $"{row.DirectionLabel}|{row.PersonnelNumber}",
+                    StringComparer.OrdinalIgnoreCase)
+                .OrderBy(group => group.First().DirectionLabel)
+                .ThenBy(group => group.First().PersonnelNumber);
+
+            var rowIndex = 3;
+            foreach (var group in groupedExceptions)
+            {
+                var firstRow = group.First();
+                var personnelName = group
+                    .Select(row => row.PersonnelName)
+                    .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))
+                    ?? "";
+
+                worksheet.Cell(rowIndex, 1).Value = firstRow.DirectionLabel;
+                worksheet.Cell(rowIndex, 2).Value = firstRow.PersonnelNumber;
+                worksheet.Cell(rowIndex, 3).Value = personnelName;
+                worksheet.Cell(rowIndex, 4).Value = group.Count();
+                worksheet.Cell(rowIndex, 5).Value = string.Join("; ",
+                    group
+                        .Select(row => $"C{row.ControlNumber} - {row.ControlName}")
+                        .Distinct(StringComparer.OrdinalIgnoreCase));
+                worksheet.Cell(rowIndex, 6).Value = string.Join(" | ",
+                    group.Select(row => row.ExceptionReason).Distinct(StringComparer.OrdinalIgnoreCase));
+                worksheet.Range(rowIndex, 1, rowIndex, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF8F1");
+                rowIndex++;
+            }
+
+            worksheet.SheetView.FreezeRows(2);
+            worksheet.Range(2, 1, Math.Max(2, rowIndex - 1), headers.Length).SetAutoFilter();
+            for (var c = 1; c <= headers.Length; c++) worksheet.Column(c).AdjustToContents();
         }
 
         public byte[] ExportExcel(Rule29ValidationSummary summary)

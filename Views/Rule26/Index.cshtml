@@ -1,7 +1,7 @@
 @using HemisAudit.Models
 @using HemisAudit.ViewModels
 @{
-    ViewData["Title"] = "Rule 26 - dbo_PROF to Payroll_Sample 5-Control Validation";
+    ViewData["Title"] = "Rule 26 - dbo_PROF to Payroll_Sample 4-Control Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new();
     var selectedClientId = ViewBag.ClientId is int currentClientId ? currentClientId : 0;
@@ -46,8 +46,8 @@
     <div class="rule-header">
         <div class="rule-header__icon">R26</div>
         <div>
-            <h1 class="rule-header__title">HEMIS RULE 26: dbo_PROF to Payroll_Sample 5-Control Validation</h1>
-            <p class="rule-header__sub">Tests the dbo_PROF population against Payroll_Sample across personnel existence, employment type, gender, race/group, and birth date controls.</p>
+            <h1 class="rule-header__title">HEMIS RULE 26: dbo_PROF to Payroll_Sample 4-Control Validation</h1>
+            <p class="rule-header__sub">Tests linked dbo_PROF personnel against Payroll_Sample across employment type, gender, race/group, and birth date controls.</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
@@ -98,7 +98,9 @@
                     The system tests one direction in one run:
                     <br />1. dbo_PROF -> Payroll_Sample
                     <br /><br />
-                    Rule 26 follows the same one-direction population-testing pattern as Rules 51 and 52, but across 5 mapped controls from dbo_PROF into Payroll_Sample.
+                    Rule 26 follows the same one-direction population-testing pattern as Rules 51 and 52, but across 4 mapped controls from dbo_PROF into Payroll_Sample.
+                    <br /><br />
+                    Personnel number existence is not retested here because it is covered in Rule 59.
                 </div>
 
                 <div class="form-grid">
@@ -159,6 +161,17 @@
                             <label for="payrollBirth">Birth Date</label>
                             <select id="payrollBirth"></select>
                         </div>
+                    </div>
+                </div>
+                <div class="card" style="padding:16px;margin-top:16px">
+                    <h3 class="section-title" style="margin-top:0">Classification Configuration</h3>
+                    <div class="field-group">
+                        <label for="blankPayrollGroupPassCodes">Blank Payroll GROUP_NAME Pass Codes</label>
+                        <input id="blankPayrollGroupPassCodes" type="text" value="Z" placeholder="e.g. Z or Z,G,P" />
+                        <small>Comma-separated dbo_PROF `_013` codes that should pass when Payroll `GROUP_NAME` is blank.</small>
+                    </div>
+                    <div class="alert alert--info" style="margin:12px 0 0">
+                        <strong>Classification reference:</strong> A = African, C = Coloured, I = Indian, W = White, Z = No information.
                     </div>
                 </div>
                 <div id="mappingOutput" class="status-output"></div>
@@ -245,7 +258,7 @@
         </div>
         <div class="tab-pane" data-tab-panel="downloads">
             <div class="alert alert--info" style="margin-bottom:16px">
-                Excel includes the population summary, control summary, and full PASS/FAIL results for dbo_PROF vs Payroll_Sample. CSV includes all exception rows.
+                Excel includes the population summary, control summary, employee exception summary, and full PASS/FAIL results for dbo_PROF vs Payroll_Sample. CSV includes all exception rows.
             </div>
             <div class="action-bar" style="justify-content:flex-start;margin:0">
                 <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
@@ -303,6 +316,7 @@
         profGender: document.getElementById('profGender'),
         profGroup: document.getElementById('profGroup'),
         profBirth: document.getElementById('profBirth'),
+        blankPayrollGroupPassCodes: document.getElementById('blankPayrollGroupPassCodes'),
         payrollPersonnel: document.getElementById('payrollPersonnel'),
         payrollEmployment: document.getElementById('payrollEmployment'),
         payrollGender: document.getElementById('payrollGender'),
@@ -440,6 +454,7 @@
             profGenderColumn: els.profGender.value,
             profGroupColumn: els.profGroup.value,
             profBirthDateColumn: els.profBirth.value,
+            blankPayrollGroupPassCodes: els.blankPayrollGroupPassCodes.value.trim(),
             payrollPersonnelColumn: els.payrollPersonnel.value,
             payrollEmploymentTypeColumn: els.payrollEmployment.value,
             payrollGenderColumn: els.payrollGender.value,
@@ -501,7 +516,12 @@
                     <div class="stat-card__label">Exceptions</div>
                     <div class="stat-card__value">${formatNumber(summary.failCount)}</div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-card__label">Employees With Exceptions</div>
+                    <div class="stat-card__value">${formatNumber(getRule26EmployeeExceptionGroups(summary).length)}</div>
+                </div>
             </div>
+            ${renderRule26ClassificationNote(summary)}
             <div class="card" style="padding:20px">
                 <h3 class="section-title" style="margin-top:0">Control Summary</h3>
                 <div style="overflow:auto">
@@ -530,7 +550,8 @@
                         </tbody>
                     </table>
                 </div>
-            </div>`;
+            </div>
+            ${renderRule26EmployeeExceptionSummary(summary)}`;
 
         renderExceptionDetails(summary);
 
@@ -554,7 +575,7 @@
                                 <canvas id="rule26ExceptionChart_${index}" height="220"></canvas>
                             </div>
                             <div class="chart-card">
-                                <h4>Overall: ${formatNumber(direction.controls.filter(control => control.passed).length)}/5 Passed</h4>
+                                <h4>Overall: ${formatNumber(direction.controls.filter(control => control.passed).length)}/${formatNumber(direction.controls.length)} Passed</h4>
                                 <canvas id="rule26PieChart_${index}" height="220"></canvas>
                             </div>
                             <div class="chart-card">
@@ -807,6 +828,96 @@
             </div>`;
     }
 
+    function renderRule26ClassificationNote(summary) {
+        const configuredCodes = escapeHtml(summary?.blankPayrollGroupPassCodes || els.blankPayrollGroupPassCodes?.value || 'Z');
+        return `
+            <div class="card" style="padding:20px;margin-bottom:16px">
+                <div class="alert alert--info" style="margin:0">
+                    <strong>Information Note</strong><br />
+                    Classification reference: A = African, C = Coloured, I = Indian, W = White, Z = No information.<br />
+                    Blank Payroll <code>GROUP_NAME</code> pass codes for this run: <strong>${configuredCodes}</strong>.
+                </div>
+            </div>`;
+    }
+
+    function getRule26EmployeeExceptionGroups(summary) {
+        const groups = new Map();
+        (summary?.exceptions || []).forEach(row => {
+            const key = `${row.directionKey || ''}|${row.personnelNumber || ''}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    directionLabel: row.directionLabel || '',
+                    personnelNumber: row.personnelNumber || '',
+                    personnelName: row.personnelName || '-',
+                    rows: []
+                });
+            }
+
+            const group = groups.get(key);
+            if ((!group.personnelName || group.personnelName === '-') && row.personnelName) {
+                group.personnelName = row.personnelName;
+            }
+            group.rows.push(row);
+        });
+
+        return Array.from(groups.values()).sort((left, right) => {
+            const exceptionCountCompare = right.rows.length - left.rows.length;
+            if (exceptionCountCompare !== 0) return exceptionCountCompare;
+            return (left.personnelNumber || '').localeCompare(right.personnelNumber || '');
+        });
+    }
+
+    function renderRule26EmployeeExceptionSummary(summary) {
+        const employeeGroups = getRule26EmployeeExceptionGroups(summary);
+        if (!employeeGroups.length) {
+            return `
+                <div class="card" style="padding:20px;margin-top:16px">
+                    <h3 class="section-title" style="margin-top:0">Employee Exception Summary</h3>
+                    <div class="alert alert--success" style="margin:0">No employee-level exceptions were recorded in this run.</div>
+                </div>`;
+        }
+
+        const multiExceptionCount = employeeGroups.filter(group => group.rows.length > 1).length;
+        return `
+            <div class="card" style="padding:20px;margin-top:16px">
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+                    <div>
+                        <h3 class="section-title" style="margin:0">Employee Exception Summary</h3>
+                        <div style="color:#64748b;margin-top:4px">
+                            Employees with exceptions: ${formatNumber(employeeGroups.length)} |
+                            Employees with multiple exceptions: ${formatNumber(multiExceptionCount)}
+                        </div>
+                    </div>
+                </div>
+                <div style="overflow:auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Direction</th>
+                                <th>Personnel Number</th>
+                                <th>Personnel Name</th>
+                                <th>Exception Count</th>
+                                <th>Controls</th>
+                                <th>Exception Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${employeeGroups.map(group => `
+                                <tr>
+                                    <td>${escapeHtml(group.directionLabel)}</td>
+                                    <td>${escapeHtml(group.personnelNumber)}</td>
+                                    <td>${escapeHtml(group.personnelName || '-')}</td>
+                                    <td>${formatNumber(group.rows.length)}</td>
+                                    <td>${group.rows.map(row => escapeHtml(`C${row.controlNumber} - ${row.controlName || ''}`)).join('<br />')}</td>
+                                    <td>${group.rows.map(row => escapeHtml(row.exceptionReason || '')).join('<br />')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
     function renderExceptionDetails(summary) {
         const passRows = summary?.passRows || [];
         const hasExceptions = summary?.exceptions && summary.exceptions.length;
@@ -918,6 +1029,7 @@
             setSelectValue(els.profGender, workspace.profGenderColumn);
             setSelectValue(els.profGroup, workspace.profGroupColumn);
             setSelectValue(els.profBirth, workspace.profBirthDateColumn);
+            els.blankPayrollGroupPassCodes.value = workspace.blankPayrollGroupPassCodes || workspace.summary?.blankPayrollGroupPassCodes || 'Z';
             setSelectValue(els.payrollPersonnel, workspace.payrollPersonnelColumn);
             setSelectValue(els.payrollEmployment, workspace.payrollEmploymentTypeColumn);
             setSelectValue(els.payrollGender, workspace.payrollGenderColumn);
@@ -1270,6 +1382,7 @@
     [
         els.server, els.driver, els.database, els.profTable, els.payrollTable,
         els.profPersonnel, els.profEmployment, els.profGender, els.profGroup, els.profBirth,
+        els.blankPayrollGroupPassCodes,
         els.payrollPersonnel, els.payrollEmployment, els.payrollGender, els.payrollGroup, els.payrollBirth,
         els.workspaceSignoffComment
     ].forEach(element => {
