@@ -14,6 +14,7 @@ namespace HemisAudit.Filters
             "/account/logout",
             "/account/forgotpassword",
             "/account/resetpassword",
+            "/account/renewpassword",
             "/account/passwordexpired",
             "/account/changepassword",
             "/account/accessdenied"
@@ -56,10 +57,10 @@ namespace HemisAudit.Filters
             {
                 if (context.Controller is Controller controller)
                 {
-                    controller.TempData["PasswordExpired"] = "Your password has expired. A reset link has been sent.";
+                    controller.TempData["PasswordExpired"] = "Your password has expired. Enter your current password and choose a new one to continue.";
                 }
 
-                context.Result = new RedirectToActionResult("PasswordExpired", "Account", new { email = user.Email });
+                context.Result = new RedirectToActionResult("RenewPassword", "Account", new { email = user.Email, expired = true });
                 return;
             }
 

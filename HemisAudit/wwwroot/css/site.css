@@ -3062,6 +3062,7 @@ textarea::placeholder,
 
 .login-page {
     min-height: 100vh;
+    min-height: 100dvh;
     overflow: auto;
     background: linear-gradient(135deg, #25173d 0%, #341f52 52%, #24153b 100%);
     color: #e5e7eb;
@@ -3074,16 +3075,20 @@ html.light .login-page {
 
 .login-wrap {
     min-height: 100vh;
+    min-height: 100dvh;
     display: grid;
     place-items: center;
-    padding: 28px 16px;
+    padding: 18px 16px;
 }
 
 .login-card {
-    width: min(100%, 440px);
+    width: min(100%, 460px);
+    max-height: calc(100vh - 36px);
+    max-height: calc(100dvh - 36px);
     padding: 30px 28px;
     position: relative;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     backdrop-filter: blur(26px) saturate(160%);
     -webkit-backdrop-filter: blur(26px) saturate(160%);
     background: linear-gradient(180deg, rgba(113,83,159,.26), rgba(27,16,48,.62));
@@ -3204,6 +3209,68 @@ html.light .login-card input[type="text"]::placeholder {
 
 .login-card a {
     color: #8c6ab8;
+}
+
+.login-card--compact {
+    width: min(100%, 500px);
+}
+
+.renew-stepper {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.renew-stepper__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 18px;
+    border: 1px solid rgba(191,219,254,.18);
+    background: rgba(15,23,42,.22);
+    color: rgba(229,231,235,.76);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.renew-stepper__item.is-active,
+.renew-stepper__item.is-complete {
+    border-color: rgba(94,234,212,.34);
+    background: rgba(45,212,191,.14);
+    color: var(--text);
+}
+
+.renew-stepper__count {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(255,255,255,.12);
+    font-size: 11px;
+    font-weight: 700;
+    flex: 0 0 auto;
+}
+
+html.light .renew-stepper__item {
+    border-color: rgba(90,49,136,.16);
+    background: rgba(255,255,255,.72);
+    color: #5b5670;
+}
+
+html.light .renew-stepper__item.is-active,
+html.light .renew-stepper__item.is-complete {
+    border-color: rgba(12,166,120,.24);
+    background: rgba(220,252,231,.88);
+    color: var(--text);
+}
+
+html.light .renew-stepper__count {
+    background: rgba(90,49,136,.12);
 }
 
 .checkbox-label input {
@@ -5253,6 +5320,10 @@ body.messages-modal-open {
 
     .login-card {
         padding: 24px 20px;
+    }
+
+    .renew-stepper {
+        grid-template-columns: 1fr;
     }
 
     .dashboard-actions {

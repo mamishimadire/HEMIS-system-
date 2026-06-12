@@ -33,6 +33,64 @@ namespace HemisAudit.ViewModels
         public PasswordStatusViewModel PasswordStatus { get; set; } = new();
     }
 
+    public class RenewPasswordViewModel : IValidatableObject
+    {
+        [EmailAddress]
+        public string Email { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        public string CurrentPassword { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        public string NewPassword { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        public string ConfirmPassword { get; set; } = "";
+
+        public bool IsPasswordExpiredFlow { get; set; }
+        public int Step { get; set; } = 1;
+        public bool IsVerificationConfirmed { get; set; }
+
+        public bool ShowVerificationStep => Step <= 1 || !IsVerificationConfirmed;
+        public bool ShowNewPasswordStep => Step >= 2 && IsVerificationConfirmed;
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (string.IsNullOrWhiteSpace(Email))
+            {
+                yield return new ValidationResult("Email address is required.", new[] { nameof(Email) });
+            }
+
+            if (Step <= 1)
+            {
+                if (string.IsNullOrWhiteSpace(CurrentPassword))
+                {
+                    yield return new ValidationResult("Old password is required.", new[] { nameof(CurrentPassword) });
+                }
+
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(NewPassword))
+            {
+                yield return new ValidationResult("New password is required.", new[] { nameof(NewPassword) });
+            }
+            else if (NewPassword.Length < 8)
+            {
+                yield return new ValidationResult("New password must be at least 8 characters.", new[] { nameof(NewPassword) });
+            }
+
+            if (string.IsNullOrWhiteSpace(ConfirmPassword))
+            {
+                yield return new ValidationResult("Confirm new password is required.", new[] { nameof(ConfirmPassword) });
+            }
+            else if (!string.Equals(NewPassword, ConfirmPassword, StringComparison.Ordinal))
+            {
+                yield return new ValidationResult("The new password and confirmation password do not match.", new[] { nameof(ConfirmPassword) });
+            }
+        }
+    }
+
     public class ForgotPasswordViewModel
     {
         [Required, EmailAddress]
@@ -823,5 +881,3 @@ namespace HemisAudit.ViewModels
         public string? Error { get; set; }
     }
 }
-
-

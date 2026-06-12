@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using System.Text;
+using System.Text.Json;
 using HemisAudit.Models;
 using HemisAudit.Services;
 using HemisAudit.ViewModels;
@@ -12,16 +13,21 @@ namespace HemisAudit.Controllers
 {
     public class AccountController : Controller
     {
+        private const string RenewPasswordVerificationSessionKey = "account.renew-password.verification";
+        private static readonly TimeSpan RenewPasswordVerificationLifetime = TimeSpan.FromMinutes(10);
+
         private readonly SignInManager<ApplicationUser> _signIn;
         private readonly UserManager<ApplicationUser>  _users;
         private readonly IAuditLogService              _audit;
         private readonly IPasswordPolicyService        _passwordPolicy;
         private readonly IEmailService                 _email;
+        private readonly ISystemDatabaseService        _systemDb;
         private readonly IAntiforgery                  _antiforgery;
 
         public AccountController(SignInManager<ApplicationUser> signIn,
             UserManager<ApplicationUser> users, IAuditLogService audit,
             IPasswordPolicyService passwordPolicy, IEmailService email,
+            ISystemDatabaseService systemDb,
             IAntiforgery antiforgery)
         {
             _signIn        = signIn;
@@ -29,6 +35,7 @@ namespace HemisAudit.Controllers
             _audit         = audit;
             _passwordPolicy = passwordPolicy;
             _email         = email;
+            _systemDb      = systemDb;
             _antiforgery   = antiforgery;
         }
 
@@ -127,9 +134,9 @@ namespace HemisAudit.Controllers
                 if (_passwordPolicy.IsPasswordExpired(user, now))
                 {
                     await _signIn.SignOutAsync();
-                    await SendPasswordResetLinkAsync(user);
                     await _audit.LogAsync("password_expired", $"Password expired at {ageDays} day(s)", user.Id, user.Email);
-                    return RedirectToAction(nameof(PasswordExpired), new { email = user.Email });
+                    TempData["PasswordExpired"] = "Your password has expired. Enter your current password and choose a new one to continue.";
+                    return RedirectToAction(nameof(RenewPassword), new { email = user.Email, expired = true });
                 }
 
                 var warningDays = _passwordPolicy.GetPasswordWarningDays(user, now);
@@ -207,6 +214,7 @@ namespace HemisAudit.Controllers
                 var currentHash = user.PasswordHash ?? string.Empty;
                 user.PasswordHistory = _passwordPolicy.BuildPasswordHistory(user.PasswordHistory, currentHash);
                 await _users.UpdateAsync(user);
+                await SyncUserMirrorAsync(user);
                 await _signIn.RefreshSignInAsync(user);
                 await _audit.LogAsync("change_password", null, user.Id, user.Email);
                 TempData["Success"] = "Password changed successfully.";
@@ -217,6 +225,27 @@ namespace HemisAudit.Controllers
                 ModelState.AddModelError("", e.Description);
             model.PasswordStatus = BuildPasswordStatus(user);
             return View(model);
+        }
+
+        [HttpGet, AllowAnonymous]
+        public IActionResult RenewPassword(string? email = null, bool expired = false)
+        {
+            ClearRenewPasswordVerification();
+            return View(new RenewPasswordViewModel
+            {
+                Email = email ?? string.Empty,
+                IsPasswordExpiredFlow = expired,
+                Step = 1
+            });
+        }
+
+        [HttpPost, AllowAnonymous, ValidateAntiForgeryToken]
+        public async Task<IActionResult> RenewPassword(RenewPasswordViewModel model)
+        {
+            model.Step = model.Step >= 2 ? 2 : 1;
+            return model.Step == 1
+                ? await VerifyRenewPasswordAsync(model)
+                : await CompleteRenewPasswordAsync(model);
         }
 
         // â"€â"€ Forgot Password â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -242,23 +271,13 @@ namespace HemisAudit.Controllers
 
         // ── Password Expired ───────────────────────────────────────────────────
         [HttpGet, AllowAnonymous]
-        public async Task<IActionResult> PasswordExpired(string? email = null)
+        public IActionResult PasswordExpired(string? email = null)
         {
-            if (!string.IsNullOrWhiteSpace(email))
-            {
-                var user = await _users.FindByEmailAsync(email);
-                if (user != null)
-                {
-                    var token = await _users.GeneratePasswordResetTokenAsync(user);
-                    var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
-                    return RedirectToAction(nameof(ResetPassword), new { email = user.Email, token = encodedToken });
-                }
-            }
-
             return View(new PasswordExpiredViewModel
             {
                 Email = email ?? "",
-                Message = "Your password has expired. Please use the form below to reset it."
+                Message = TempData["PasswordExpired"] as string
+                    ?? "Your password has expired. Change it with your current password, or request a reset link if you forgot it."
             });
         }
 
@@ -320,6 +339,7 @@ namespace HemisAudit.Controllers
                 var currentHash = refreshed.PasswordHash ?? string.Empty;
                 refreshed.PasswordHistory = _passwordPolicy.BuildPasswordHistory(refreshed.PasswordHistory, currentHash);
                 await _users.UpdateAsync(refreshed);
+                await SyncUserMirrorAsync(refreshed);
             }
 
             await _audit.LogAsync("password_reset", "Password reset via token", user.Id, user.Email);
@@ -404,6 +424,169 @@ namespace HemisAudit.Controllers
                 IsExpired = isExpired,
                 IsExpiringSoon = !isExpired && daysRemaining > 0 && daysRemaining <= _passwordPolicy.WarningWindowDays
             };
+        }
+
+        private async Task SyncUserMirrorAsync(ApplicationUser user)
+        {
+            var roles = await _users.GetRolesAsync(user);
+            await _systemDb.EnsureUserMirrorAsync(user, roles.FirstOrDefault() ?? string.Empty);
+        }
+
+        private async Task<IActionResult> VerifyRenewPasswordAsync(RenewPasswordViewModel model)
+        {
+            model.Step = 1;
+            model.IsVerificationConfirmed = false;
+            ClearRenewPasswordVerification();
+
+            if (!ModelState.IsValid)
+                return View(model);
+
+            var user = await _users.FindByEmailAsync(model.Email);
+            if (user == null || !user.IsActive || !await _users.CheckPasswordAsync(user, model.CurrentPassword))
+            {
+                ModelState.AddModelError("", "Email address or old password is incorrect.");
+                return View(model);
+            }
+
+            StoreRenewPasswordVerification(user);
+
+            return View(new RenewPasswordViewModel
+            {
+                Email = user.Email ?? model.Email,
+                IsPasswordExpiredFlow = model.IsPasswordExpiredFlow,
+                Step = 2,
+                IsVerificationConfirmed = true
+            });
+        }
+
+        private async Task<IActionResult> CompleteRenewPasswordAsync(RenewPasswordViewModel model)
+        {
+            model.Step = 2;
+
+            if (!TryGetRenewPasswordVerification(model.Email, out var verification))
+                return ReturnRenewPasswordToStepOne(model, "Old password confirmation expired. Confirm it again to continue.");
+
+            model.IsVerificationConfirmed = true;
+
+            if (!ModelState.IsValid)
+                return View(model);
+
+            var user = await _users.FindByEmailAsync(model.Email);
+            if (user == null || !user.IsActive ||
+                !string.Equals(user.PasswordHash ?? string.Empty, verification.PasswordHash, StringComparison.Ordinal))
+            {
+                ClearRenewPasswordVerification();
+                return ReturnRenewPasswordToStepOne(model, "Old password confirmation is no longer valid. Confirm it again to continue.");
+            }
+
+            var policyErrors = _passwordPolicy.ValidatePassword(user, model.NewPassword);
+            foreach (var error in policyErrors)
+                ModelState.AddModelError("", error);
+
+            if (!ModelState.IsValid)
+                return View(model);
+
+            var resetToken = await _users.GeneratePasswordResetTokenAsync(user);
+            var result = await _users.ResetPasswordAsync(user, resetToken, model.NewPassword);
+            if (!result.Succeeded)
+            {
+                foreach (var error in result.Errors)
+                    ModelState.AddModelError("", error.Description);
+                return View(model);
+            }
+
+            var refreshed = await _users.FindByEmailAsync(model.Email);
+            if (refreshed != null)
+            {
+                refreshed.PasswordChangedAt = DateTime.UtcNow;
+                refreshed.PasswordSetDate = DateTime.UtcNow;
+                var currentHash = refreshed.PasswordHash ?? string.Empty;
+                refreshed.PasswordHistory = _passwordPolicy.BuildPasswordHistory(refreshed.PasswordHistory, currentHash);
+                await _users.UpdateAsync(refreshed);
+                await SyncUserMirrorAsync(refreshed);
+            }
+
+            ClearRenewPasswordVerification();
+            await _signIn.SignOutAsync();
+            await _audit.LogAsync("renew_password", "Password changed from login screen", user.Id, user.Email);
+
+            TempData["Success"] = "Password updated successfully. Sign in with your new password.";
+            return RedirectToAction(nameof(Login), new { force = true });
+        }
+
+        private IActionResult ReturnRenewPasswordToStepOne(RenewPasswordViewModel model, string message)
+        {
+            ModelState.Clear();
+            ModelState.AddModelError("", message);
+
+            return View(new RenewPasswordViewModel
+            {
+                Email = model.Email,
+                IsPasswordExpiredFlow = model.IsPasswordExpiredFlow,
+                Step = 1
+            });
+        }
+
+        private void StoreRenewPasswordVerification(ApplicationUser user)
+        {
+            var state = new RenewPasswordVerificationState
+            {
+                Email = user.Email ?? string.Empty,
+                PasswordHash = user.PasswordHash ?? string.Empty,
+                VerifiedAtUtcTicks = DateTime.UtcNow.Ticks
+            };
+
+            HttpContext.Session.SetString(RenewPasswordVerificationSessionKey, JsonSerializer.Serialize(state));
+        }
+
+        private bool TryGetRenewPasswordVerification(string email, out RenewPasswordVerificationState state)
+        {
+            state = new RenewPasswordVerificationState();
+            var payload = HttpContext.Session.GetString(RenewPasswordVerificationSessionKey);
+            if (string.IsNullOrWhiteSpace(payload))
+                return false;
+
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<RenewPasswordVerificationState>(payload);
+                if (parsed == null ||
+                    string.IsNullOrWhiteSpace(parsed.Email) ||
+                    string.IsNullOrWhiteSpace(parsed.PasswordHash))
+                {
+                    ClearRenewPasswordVerification();
+                    return false;
+                }
+
+                var verifiedAtUtc = new DateTime(parsed.VerifiedAtUtcTicks, DateTimeKind.Utc);
+                if (DateTime.UtcNow - verifiedAtUtc > RenewPasswordVerificationLifetime)
+                {
+                    ClearRenewPasswordVerification();
+                    return false;
+                }
+
+                if (!string.Equals(parsed.Email, email?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                state = parsed;
+                return true;
+            }
+            catch
+            {
+                ClearRenewPasswordVerification();
+                return false;
+            }
+        }
+
+        private void ClearRenewPasswordVerification()
+        {
+            HttpContext.Session.Remove(RenewPasswordVerificationSessionKey);
+        }
+
+        private sealed class RenewPasswordVerificationState
+        {
+            public string Email { get; set; } = string.Empty;
+            public string PasswordHash { get; set; } = string.Empty;
+            public long VerifiedAtUtcTicks { get; set; }
         }
     }
 }
