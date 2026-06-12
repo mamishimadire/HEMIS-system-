@@ -217,7 +217,7 @@
             <textarea id="sqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
         </div>
         <div class="tab-pane" data-tab-panel="downloads">
-            <div class="alert alert--info" style="margin-bottom:12px">Download the full validated result set. Excel and CSV include all rows. SQL includes the audit query.</div>
+            <div class="alert alert--info" style="margin-bottom:12px">Download the full validated result set. Excel and CSV include both FLAGGED and CLEAR rows, even when the exception count is zero. SQL includes the audit query.</div>
             <div class="action-bar" style="justify-content:flex-start;margin:0">
                 <button type="button" class="btn btn-info" id="downloadExcelBtn">Excel</button>
                 <button type="button" class="btn btn-info" id="downloadCsvBtn">CSV</button>
@@ -623,20 +623,29 @@ window.toggleAccordion = function (section) {
     }
 
     async function downloadBlob(url, payload, fileName) {
-        const response = await fetch(url, {
+        await window.downloadFileWithProgress({
+            url,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            defaultFileName: fileName,
+            label: 'Downloading result'
         });
-        if (!response.ok) throw new Error('Download failed.');
-        const blob = await response.blob();
-        const anchor = document.createElement('a');
-        anchor.href = URL.createObjectURL(blob);
-        anchor.download = fileName;
-        document.body.appendChild(anchor);
-        anchor.click();
-        document.body.removeChild(anchor);
-        URL.revokeObjectURL(anchor.href);
+    }
+
+    function getSummaryDownloadPayload() {
+        if (state.currentRunId) {
+            return { savedRunId: state.currentRunId };
+        }
+
+        if (state.summary) {
+            return {
+                ...state.summary,
+                savedRunId: state.summary.savedRunId || state.currentRunId || null
+            };
+        }
+
+        return null;
     }
 
     function showSpinner(message) {
@@ -847,10 +856,26 @@ window.toggleAccordion = function (section) {
         setWorkspaceState(error.message, 'error');
     }));
 
-    document.getElementById('downloadExcelBtn')?.addEventListener('click', () =>
-        state.summary && downloadBlob(`${apiBase}/DownloadExcel`, state.summary, 'Rule63_Qualification_Code_Reference.xlsx').catch(error => setWorkspaceState(error.message, 'error')));
-    document.getElementById('downloadCsvBtn')?.addEventListener('click', () =>
-        state.summary && downloadBlob(`${apiBase}/DownloadCsv`, state.summary, 'Rule63_Qualification_Code_Reference.csv').catch(error => setWorkspaceState(error.message, 'error')));
+    document.getElementById('downloadExcelBtn')?.addEventListener('click', () => {
+        const payload = getSummaryDownloadPayload();
+        if (!payload) {
+            setWorkspaceState('Run Rule 63 first before downloading Excel results.', 'warning');
+            return;
+        }
+
+        downloadBlob(`${apiBase}/DownloadExcel`, payload, 'Rule63_Qualification_Code_Reference.xlsx')
+            .catch(error => setWorkspaceState(error.message, 'error'));
+    });
+    document.getElementById('downloadCsvBtn')?.addEventListener('click', () => {
+        const payload = getSummaryDownloadPayload();
+        if (!payload) {
+            setWorkspaceState('Run Rule 63 first before downloading CSV results.', 'warning');
+            return;
+        }
+
+        downloadBlob(`${apiBase}/DownloadCsv`, payload, 'Rule63_Qualification_Code_Reference.csv')
+            .catch(error => setWorkspaceState(error.message, 'error'));
+    });
     document.getElementById('downloadSqlBtn')?.addEventListener('click', () =>
         downloadBlob(`${apiBase}/DownloadSql`, getRequest(), 'Rule63_Qualification_Code_Reference.sql').catch(error => setWorkspaceState(error.message, 'error')));
 

@@ -655,20 +655,22 @@ window.toggleAccordion = function(s) {
     }
 
     async function downloadBlob(url, payload, fileName) {
-        const r = await fetch(url, {
+        await window.downloadFileWithProgress({
+            url,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            defaultFileName: fileName,
+            label: 'Downloading result'
         });
-        if (!r.ok) throw new Error('Download failed.');
-        const blob = await r.blob();
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
+    }
+
+    function getSummaryDownloadPayload() {
+        if (!state.summary) return null;
+        return {
+            ...state.summary,
+            savedRunId: state.currentRunId || state.summary.savedRunId || null
+        };
     }
 
     function showSpinner(msg) { if (els.spinnerMsg) els.spinnerMsg.textContent = msg; if (els.spinner) els.spinner.style.display = 'flex'; }
@@ -832,8 +834,22 @@ window.toggleAccordion = function(s) {
     document.getElementById('signoffBtn')?.addEventListener('click',       () => signoffWorkspace().catch(err => { hideSpinner(); setWorkspaceState(err.message, 'error'); }));
     document.getElementById('removeSignoffBtn')?.addEventListener('click', () => removeSignoff().catch(err    => { hideSpinner(); setWorkspaceState(err.message, 'error'); }));
 
-    document.getElementById('downloadExcelBtn')?.addEventListener('click', () => state.summary && downloadBlob(`${apiBase}/DownloadExcel`, state.summary, 'Rule61_Research_Time.xlsx').catch(err => setWorkspaceState(err.message, 'error')));
-    document.getElementById('downloadCsvBtn')?.addEventListener('click',   () => state.summary && downloadBlob(`${apiBase}/DownloadCsv`,  state.summary, 'Rule61_Research_Time.csv').catch(err  => setWorkspaceState(err.message, 'error')));
+    document.getElementById('downloadExcelBtn')?.addEventListener('click', () => {
+        const payload = getSummaryDownloadPayload();
+        if (!payload) {
+            setWorkspaceState('Run Rule 61 first to download the result set.', 'warning');
+            return;
+        }
+        downloadBlob(`${apiBase}/DownloadExcel`, payload, 'Rule61_Research_Time.xlsx').catch(err => setWorkspaceState(err.message, 'error'));
+    });
+    document.getElementById('downloadCsvBtn')?.addEventListener('click', () => {
+        const payload = getSummaryDownloadPayload();
+        if (!payload) {
+            setWorkspaceState('Run Rule 61 first to download the result set.', 'warning');
+            return;
+        }
+        downloadBlob(`${apiBase}/DownloadCsv`, payload, 'Rule61_Research_Time.csv').catch(err => setWorkspaceState(err.message, 'error'));
+    });
     document.getElementById('downloadSqlBtn')?.addEventListener('click',   () => downloadBlob(`${apiBase}/DownloadSql`, getRequest(), 'Rule61_Research_Time.sql').catch(err => setWorkspaceState(err.message, 'error')));
 
     els.clientId?.addEventListener('change', () => loadWorkspace().catch(err => setWorkspaceState(err.message, 'error')));

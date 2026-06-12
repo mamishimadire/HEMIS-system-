@@ -56,6 +56,8 @@ namespace HemisAudit.ViewModels
     public class Rule57ValidationSummary
     {
         public bool Success { get; set; }
+        public int StudRecordCount { get; set; }
+        public int CregRecordCount { get; set; }
         public int TotalValidated { get; set; }
         public int PassCount { get; set; }
         public int FailCount { get; set; }

@@ -690,6 +690,180 @@
         }, 0);
     }
 
+    function getRequestUrl(input) {
+        if (typeof input === 'string') {
+            return input;
+        }
+
+        if (input && typeof input.url === 'string') {
+            return input.url;
+        }
+
+        return '';
+    }
+
+    function getRequestMethod(input, init) {
+        if (init && init.method) {
+            return String(init.method).toUpperCase();
+        }
+
+        if (input && input.method) {
+            return String(input.method).toUpperCase();
+        }
+
+        return 'GET';
+    }
+
+    function getRequestHeaderValue(input, init, name) {
+        var headerName = String(name || '').toLowerCase();
+        var sources = [];
+
+        if (init && init.headers) {
+            sources.push(init.headers);
+        }
+
+        if (input && input.headers) {
+            sources.push(input.headers);
+        }
+
+        for (var i = 0; i < sources.length; i++) {
+            try {
+                var headers = new Headers(sources[i]);
+                var value = headers.get(headerName);
+                if (value) {
+                    return value;
+                }
+            } catch (_) { }
+        }
+
+        return '';
+    }
+
+    function inferDownloadLabel(url) {
+        var normalizedUrl = String(url || '').toLowerCase();
+        if (normalizedUrl.indexOf('/downloadexcel') >= 0 || normalizedUrl.indexOf('/downloadsavedexcel') >= 0) {
+            return 'Downloading Excel result';
+        }
+        if (normalizedUrl.indexOf('/downloadcsv') >= 0 || normalizedUrl.indexOf('/downloadsavedcsv') >= 0) {
+            return 'Downloading CSV result';
+        }
+        if (normalizedUrl.indexOf('/downloadexceptionscsv') >= 0 || normalizedUrl.indexOf('/downloadsavedexceptionscsv') >= 0) {
+            return 'Downloading exceptions CSV';
+        }
+        if (normalizedUrl.indexOf('/downloadsql') >= 0 || normalizedUrl.indexOf('/downloadsavedsql') >= 0) {
+            return 'Downloading SQL result';
+        }
+
+        return 'Downloading result';
+    }
+
+    function beginImplicitDownloadTracking(url) {
+        if (downloadState.active) {
+            var activeMessage = 'A download is already in progress. Wait for it to finish before starting another one.';
+            window.showAppToast(activeMessage, 'warning');
+            throw new Error(activeMessage);
+        }
+
+        downloadState.active = true;
+        downloadState.sequence += 1;
+
+        var requestedName = 'Preparing file...';
+        var card = createDownloadCard(downloadState.sequence, inferDownloadLabel(url), requestedName);
+        var displayPercent = 3;
+        var prepareStartedAt = Date.now();
+        var prepareTimer = null;
+        var transferTimer = null;
+        var completed = false;
+
+        updateDownloadCard(card, displayPercent, 'Preparing file on server...', requestedName);
+
+        prepareTimer = window.setInterval(function () {
+            var elapsed = Date.now() - prepareStartedAt;
+            var target = 8;
+            if (elapsed < 1500) {
+                target = 8 + (elapsed / 1500) * 10;
+            } else if (elapsed < 5000) {
+                target = 18 + ((elapsed - 1500) / 3500) * 8;
+            } else if (elapsed < 15000) {
+                target = 26 + ((elapsed - 5000) / 10000) * 10;
+            } else {
+                target = 36;
+            }
+
+            displayPercent = Math.max(displayPercent, Math.min(36, Math.round(target)));
+            updateDownloadCard(card, displayPercent, 'Preparing file on server...', requestedName);
+        }, 180);
+
+        function stopPrepareTimer() {
+            if (prepareTimer) {
+                window.clearInterval(prepareTimer);
+                prepareTimer = null;
+            }
+        }
+
+        function stopTransferTimer() {
+            if (transferTimer) {
+                window.clearInterval(transferTimer);
+                transferTimer = null;
+            }
+        }
+
+        function release() {
+            if (completed) {
+                return;
+            }
+
+            completed = true;
+            stopPrepareTimer();
+            stopTransferTimer();
+            downloadState.active = false;
+        }
+
+        return {
+            card: card,
+            requestedName: requestedName,
+            getDisplayPercent: function () { return displayPercent; },
+            setDisplayPercent: function (value) { displayPercent = Math.max(displayPercent, Math.round(Number(value) || 0)); },
+            setPrepareReady: function (fileName, totalBytes) {
+                stopPrepareTimer();
+                updateDownloadCard(
+                    card,
+                    displayPercent,
+                    totalBytes > 0
+                        ? 'Starting download... 0% of ' + formatBytes(totalBytes)
+                        : 'Starting download...',
+                    fileName
+                );
+            },
+            startTransferFallback: function (fileName, getReceivedBytes) {
+                stopTransferTimer();
+                transferTimer = window.setInterval(function () {
+                    displayPercent = Math.max(displayPercent, Math.min(95, displayPercent + 1));
+                    updateDownloadCard(card, displayPercent, formatBytes(getReceivedBytes()) + ' downloaded', fileName);
+                }, 220);
+            },
+            stopTransferFallback: stopTransferTimer,
+            updateTransfer: function (fileName, percent, meta) {
+                displayPercent = Math.max(displayPercent, percent);
+                updateDownloadCard(card, displayPercent, meta, fileName);
+            },
+            complete: function (fileName) {
+                release();
+                updateDownloadCard(card, 100, 'Download complete.', fileName, 'is-complete');
+                window.showAppToast('Download complete: ' + fileName, 'success');
+                removeDownloadCard(card, 1400);
+            },
+            fail: function (message, fileName) {
+                release();
+                var errorMessage = message || 'Download failed.';
+                updateDownloadCard(card, 100, errorMessage, fileName || requestedName, 'is-error');
+                window.showAppToast(errorMessage, 'error');
+                removeDownloadCard(card, 2500);
+            },
+            releaseOnly: release
+        };
+    }
+
     function activateResultsTab(tabValue) {
         if (!tabValue) return;
 
@@ -1128,9 +1302,11 @@
         }, 180);
 
         try {
+            var downloadHeaders = new Headers(options.headers || {});
+            downloadHeaders.set('X-App-Managed-Download', '1');
             var response = await fetch(options.url, {
                 method: options.method || 'GET',
-                headers: options.headers || {},
+                headers: downloadHeaders,
                 body: options.body,
                 cache: options.cache || 'no-store',
                 credentials: options.credentials || 'same-origin'
@@ -1235,6 +1411,143 @@
             downloadState.active = false;
         }
     };
+
+    (function installImplicitDownloadTracking() {
+        if (window.__hemisImplicitDownloadTrackingInstalled) {
+            return;
+        }
+
+        window.__hemisImplicitDownloadTrackingInstalled = true;
+        var originalFetch = window.fetch.bind(window);
+
+        function shouldTrackImplicitDownload(input, init) {
+            var url = getRequestUrl(input);
+            var method = getRequestMethod(input, init);
+            if (method !== 'GET' && method !== 'POST') {
+                return false;
+            }
+
+            if (String(getRequestHeaderValue(input, init, 'X-App-Managed-Download')).toLowerCase() === '1') {
+                return false;
+            }
+
+            try {
+                var absoluteUrl = new URL(url, window.location.href);
+                return absoluteUrl.origin === window.location.origin &&
+                    absoluteUrl.pathname.toLowerCase().indexOf('/download') >= 0;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function wrapDownloadResponse(response, tracker) {
+            if (!response.body || typeof response.body.getReader !== 'function') {
+                tracker.complete(extractFileName(response.headers.get('content-disposition'), tracker.requestedName));
+                return response;
+            }
+
+            var fileName = extractFileName(response.headers.get('content-disposition'), tracker.requestedName);
+            var totalBytes = parseInt(response.headers.get('content-length') || '0', 10);
+            if (!isFinite(totalBytes) || totalBytes < 0) {
+                totalBytes = 0;
+            }
+
+            tracker.setPrepareReady(fileName, totalBytes);
+
+            var reader = response.body.getReader();
+            var receivedBytes = 0;
+            if (totalBytes <= 0) {
+                tracker.startTransferFallback(fileName, function () { return receivedBytes; });
+            }
+
+            var settled = false;
+
+            function settleComplete() {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+                tracker.stopTransferFallback();
+                tracker.complete(fileName);
+            }
+
+            function settleError(message) {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+                tracker.stopTransferFallback();
+                tracker.fail(message, fileName);
+            }
+
+            var stream = new ReadableStream({
+                pull: async function (controller) {
+                    try {
+                        var readResult = await reader.read();
+                        if (readResult.done) {
+                            settleComplete();
+                            controller.close();
+                            return;
+                        }
+
+                        var chunk = readResult.value || new Uint8Array();
+                        receivedBytes += chunk.length;
+
+                        var percent = totalBytes > 0
+                            ? Math.min(99, 36 + Math.round((receivedBytes / totalBytes) * 64))
+                            : tracker.getDisplayPercent();
+                        var meta = totalBytes > 0
+                            ? Math.max(0, Math.round((receivedBytes / totalBytes) * 100)) + '% of ' + formatBytes(totalBytes) + ' (' + formatBytes(receivedBytes) + ' downloaded)'
+                            : formatBytes(receivedBytes) + ' downloaded';
+
+                        tracker.updateTransfer(fileName, percent, meta);
+                        controller.enqueue(chunk);
+                    } catch (error) {
+                        settleError(error && error.message ? error.message : 'Download failed.');
+                        controller.error(error);
+                    }
+                },
+                cancel: function (reason) {
+                    tracker.stopTransferFallback();
+                    tracker.releaseOnly();
+                    try {
+                        return reader.cancel(reason);
+                    } catch (_) {
+                        return undefined;
+                    }
+                }
+            });
+
+            return new Response(stream, {
+                headers: new Headers(response.headers),
+                status: response.status,
+                statusText: response.statusText
+            });
+        }
+
+        window.fetch = async function (input, init) {
+            if (!shouldTrackImplicitDownload(input, init)) {
+                return originalFetch(input, init);
+            }
+
+            var tracker = beginImplicitDownloadTracking(getRequestUrl(input));
+
+            try {
+                var response = await originalFetch(input, init);
+                if (!response.ok) {
+                    tracker.fail('Download failed.');
+                    return response;
+                }
+
+                return wrapDownloadResponse(response, tracker);
+            } catch (error) {
+                tracker.fail(error && error.message ? error.message : 'Download failed.');
+                throw error;
+            }
+        };
+    })();
 
     document.addEventListener('click', function (event) {
         var link = event.target && event.target.closest

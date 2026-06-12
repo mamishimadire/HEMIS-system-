@@ -283,14 +283,8 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> DownloadExcel([FromBody] Rule61ValidationSummary summary)
         {
-            if (summary?.SavedRunId is int runId)
-            {
-                var stored = await _rule61.GetStoredSummaryAsync(runId);
-                if (stored != null)
-                    summary = stored;
-            }
-
-            var bytes = BuildExcelExport(summary);
+            var exportSummary = await ResolveDownloadSummaryAsync(summary);
+            var bytes = BuildExcelExport(exportSummary);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 $"Rule61_Research_Time_{Ts()}.xlsx");
         }
@@ -298,14 +292,8 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> DownloadCsv([FromBody] Rule61ValidationSummary summary)
         {
-            if (summary?.SavedRunId is int runId)
-            {
-                var stored = await _rule61.GetStoredSummaryAsync(runId);
-                if (stored != null)
-                    summary = stored;
-            }
-
-            var bytes = BuildCsvExport(summary);
+            var exportSummary = await ResolveDownloadSummaryAsync(summary);
+            var bytes = BuildCsvExport(exportSummary);
             return File(bytes, "text/csv", $"Rule61_Research_Time_{Ts()}.csv");
         }
 
@@ -324,6 +312,8 @@ namespace HemisAudit.Controllers
         private static byte[] BuildExcelExport(Rule61ValidationSummary summary)
         {
             using var workbook = new XLWorkbook();
+            var passRows = summary.PassRows ?? new List<Rule61ReviewRow>();
+            var failRows = summary.FailRows ?? new List<Rule61ReviewRow>();
 
             var summarySheet = workbook.Worksheets.Add("Summary");
             summarySheet.Cell(1, 1).Value = "HEMIS RULE 61 - Masters/Doctoral Research Time Validation";
@@ -342,8 +332,8 @@ namespace HemisAudit.Controllers
                 ("STUD Status Column", summary.ColumnMapping.StudStatusCol),
                 ("STUD Status Filter", summary.StudStatusValue),
                 ("Total Count", summary.TotalCount.ToString()),
-                ("Pass Count", summary.PassCount.ToString()),
-                ("Fail Count", summary.FailCount.ToString()),
+                ("Clear Rows", summary.PassCount.ToString()),
+                ("Flagged Rows", summary.FailCount.ToString()),
                 ("Missing PQM Count", summary.MissingPqmCount.ToString()),
                 ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
                 ("Status", summary.Status)
@@ -363,8 +353,8 @@ namespace HemisAudit.Controllers
             }
             summarySheet.Columns(1, 2).AdjustToContents();
 
-            WriteWorksheet(workbook, "Pass Rows", summary.PassRows);
-            WriteWorksheet(workbook, "Fail Rows", summary.FailRows);
+            WriteWorksheet(workbook, "Clear Rows", passRows);
+            WriteWorksheet(workbook, "Flagged Rows", failRows);
 
             using var ms = new System.IO.MemoryStream();
             workbook.SaveAs(ms);
@@ -375,23 +365,29 @@ namespace HemisAudit.Controllers
         {
             using var ms = new System.IO.MemoryStream();
             using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
+            var passRows = summary.PassRows ?? new List<Rule61ReviewRow>();
+            var failRows = summary.FailRows ?? new List<Rule61ReviewRow>();
             sw.WriteLine("\"HEMIS RULE 61 - Research Time Validation\"");
             sw.WriteLine($"\"Database\",\"{summary.Database}\"");
             sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
             sw.WriteLine($"\"Status\",\"{summary.Status}\"");
             sw.WriteLine($"\"STUD Status Column\",\"{summary.ColumnMapping.StudStatusCol}\"");
             sw.WriteLine($"\"STUD Status Filter\",\"{summary.StudStatusValue}\"");
-            sw.WriteLine($"\"Total\",{summary.TotalCount},\"Pass\",{summary.PassCount},\"Fail\",{summary.FailCount}");
+            sw.WriteLine($"\"Total\",{summary.TotalCount},\"Clear Rows\",{summary.PassCount},\"Flagged Rows\",{summary.FailCount}");
             sw.WriteLine();
-            WriteReviewCsv(sw, summary, false);
+            WriteReviewCsv(sw, passRows, failRows, false);
             sw.Flush();
             return ms.ToArray();
         }
 
-        private static void WriteReviewCsv(System.IO.StreamWriter sw, Rule61ValidationSummary summary, bool exceptionsOnly)
+        private static void WriteReviewCsv(
+            System.IO.StreamWriter sw,
+            IReadOnlyList<Rule61ReviewRow> passRows,
+            IReadOnlyList<Rule61ReviewRow> failRows,
+            bool exceptionsOnly)
         {
             sw.WriteLine("\"STUD._007\",\"STUD._001\",\"STUD._008\",\"STUD._073\",\"STUD._010\",\"QUAL._001\",\"QUAL._005\",\"QUAL._003\",\"PQM.Authorised_Qualification_Name\",\"PQM.Research_1\",\"Result\",\"Explanation\"");
-            var rows = exceptionsOnly ? summary.FailRows : summary.PassRows.Concat(summary.FailRows);
+            var rows = exceptionsOnly ? failRows : passRows.Concat(failRows);
             foreach (var r in rows)
             {
                 sw.WriteLine(string.Join(",", new[]
@@ -460,6 +456,34 @@ namespace HemisAudit.Controllers
             }
 
             worksheet.Columns().AdjustToContents();
+        }
+
+        private async Task<Rule61ValidationSummary> ResolveDownloadSummaryAsync(Rule61ValidationSummary? summary)
+        {
+            if (summary?.SavedRunId is int runId && runId > 0)
+            {
+                var stored = await _rule61.GetStoredSummaryAsync(runId);
+                if (stored != null)
+                    summary = stored;
+            }
+
+            summary ??= new Rule61ValidationSummary();
+            summary.ColumnMapping ??= new Rule61ColumnMapping();
+            summary.PassRows ??= new List<Rule61ReviewRow>();
+            summary.FailRows ??= new List<Rule61ReviewRow>();
+
+            if (summary.PassCount <= 0 && summary.PassRows.Count > 0)
+                summary.PassCount = summary.PassRows.Count;
+            if (summary.FailCount <= 0 && summary.FailRows.Count > 0)
+                summary.FailCount = summary.FailRows.Count;
+
+            summary.TotalCount = Math.Max(summary.TotalCount, summary.PassCount + summary.FailCount);
+            summary.ExceptionRate = summary.TotalCount > 0
+                ? Math.Round((decimal)summary.FailCount * 100m / summary.TotalCount, 2)
+                : 0m;
+            summary.Status = summary.FailCount > 0 ? "FAIL" : "PASS";
+
+            return summary;
         }
 
         private async Task<string> GetCurrentSystemRoleAsync(ApplicationUser? user)

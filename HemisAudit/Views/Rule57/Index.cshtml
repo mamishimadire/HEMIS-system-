@@ -223,6 +223,11 @@
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
+    <!-- Summary Stat Cards -->
+    <div id="r57SummaryGrid" style="display:none;margin-bottom:20px">
+        <div class="stats-grid" id="r57StatCards" style="display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+    </div>
+
     <!-- Results Panel -->
     <div class="results-panel">
         <div class="results-tabs">
@@ -845,12 +850,40 @@ async function runValidation() {
 function applyValidationResult(result, opts = {}) {
     state.validationResult = result;
     updateHeaderBadge(result.status);
+    renderSummaryGrid(result);
     renderValidationTable(result);
     renderExceptionsTable(result);
     if (opts.switchToValidation) switchTab('validation');
     document.getElementById('downloadAllBtn').disabled = false;
     const dlPanel = document.getElementById('downloadLinksPanel');
     if (dlPanel) dlPanel.style.display = state.currentRunId ? '' : 'none';
+}
+
+function renderSummaryGrid(result) {
+    const wrap = document.getElementById('r57SummaryGrid');
+    const grid = document.getElementById('r57StatCards');
+    if (!wrap || !grid) return;
+    if (!result || !result.totalValidated) { wrap.style.display = 'none'; return; }
+    const studRecs   = result.studRecordCount  || 0;
+    const cregRecs   = result.cregRecordCount  || 0;
+    const total      = result.totalValidated   || 0;
+    const pass       = result.passCount        || 0;
+    const fail       = result.failCount        || 0;
+    const rate       = typeof result.exceptionRate === 'number' ? result.exceptionRate.toFixed(2) : (total > 0 ? (fail / total * 100).toFixed(2) : '0.00');
+    const studLabel  = escapeHtml(result.studTable  || 'STUD');
+    const cregLabel  = escapeHtml(result.cregTable  || 'CREG');
+    const statusPass = String(result.status || '').toUpperCase() === 'PASS';
+    grid.innerHTML = `
+        <div class="stat-card"><div class="stat-card__label">${studLabel} Records</div><div class="stat-card__value">${studRecs.toLocaleString()}</div></div>
+        <div class="stat-card"><div class="stat-card__label">${cregLabel} Records</div><div class="stat-card__value">${cregRecs.toLocaleString()}</div></div>
+        <div class="stat-card"><div class="stat-card__label">Total Tested</div><div class="stat-card__value">${total.toLocaleString()}</div></div>
+        <div class="stat-card stat-card--pass"><div class="stat-card__label">Found (PASS)</div><div class="stat-card__value">${pass.toLocaleString()}</div></div>
+        <div class="stat-card stat-card--fail"><div class="stat-card__label">Missing (FAIL)</div><div class="stat-card__value">${fail.toLocaleString()}</div></div>
+        <div class="stat-card" style="border-left:4px solid ${statusPass?'#2e7d32':'#c62828'}">
+            <div class="stat-card__label">Exception Rate</div>
+            <div class="stat-card__value" style="color:${statusPass?'#2e7d32':'#c62828'}">${rate}%</div>
+        </div>`;
+    wrap.style.display = '';
 }
 
 function renderValidationTable(result) {
@@ -863,16 +896,9 @@ function renderValidationTable(result) {
         return;
     }
     el.className = '';
-    const pass = rows.filter(r => r.validationResult === 'PASS').length;
-    const fail = rows.filter(r => r.validationResult === 'FAIL').length;
-    el.innerHTML = `
-    <div class="summary-bar">
-        <span class="badge badge--pass">PASS: ${pass.toLocaleString()}</span>
-        <span class="badge badge--fail">FAIL: ${fail.toLocaleString()}</span>
-        <span class="badge badge--neutral">Total: ${rows.length.toLocaleString()}</span>
-        <span style="color:#888;font-size:12px">(Preview — first ${uiPreviewRowLimit} rows)</span>
-    </div>
-    <table class="data-table">
+    el.innerHTML = `\n    <div class="summary-bar" style="margin-bottom:10px">
+        <span style="color:#888;font-size:12px">Showing preview (first ${uiPreviewRowLimit} rows) — see stat cards above for full counts. Download for full results.</span>
+    </div><table class="data-table">
         <thead><tr>
             <th>#</th><th>Student ID</th><th>CREG Code</th><th>CREG Reg Type</th>
             <th>STUD Code</th><th>STUD Reg Type</th><th>Result</th>

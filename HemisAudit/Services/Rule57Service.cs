@@ -181,6 +181,13 @@ SELECT
                 var crt  = Sanitise(request.CregRegTypeCol);
                 var fVal = NormalizeFilterValue(request.CregRegTypeFilterValue);
 
+                // Record counts for stat cards
+                int studRecordCount = 0, cregRecordCount = 0;
+                var countSql = $"SELECT (SELECT COUNT(*) FROM [{st}]) AS S, (SELECT COUNT(*) FROM [{ct}]) AS C";
+                using (var countCmd = new SqlCommand(countSql, conn).WithLargeDataTimeout())
+                using (var cr = await countCmd.ExecuteReaderAsync())
+                { if (await cr.ReadAsync()) { studRecordCount = cr.IsDBNull(0) ? 0 : Convert.ToInt32(cr.GetValue(0)); cregRecordCount = cr.IsDBNull(1) ? 0 : Convert.ToInt32(cr.GetValue(1)); } }
+
                 // Filter on CREG._064 = filter value, join with STUD on student ID,
                 // validate that STUD._024 = CREG._064 and STUD._001 = CREG._001
                 var sql = $@"
@@ -270,6 +277,8 @@ WHERE UPPER(LTRIM(RTRIM(CAST(c.[{crt}] AS NVARCHAR(255))))) = '{fVal}'";
                 var summary = new Rule57ValidationSummary
                 {
                     Success                 = true,
+                    StudRecordCount         = studRecordCount,
+                    CregRecordCount         = cregRecordCount,
                     TotalValidated          = total,
                     PassCount               = passCount,
                     FailCount               = failCount,

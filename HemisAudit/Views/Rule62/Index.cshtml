@@ -669,20 +669,22 @@ window.toggleAccordion = function (section) {
     }
 
     async function downloadBlob(url, payload, fileName) {
-        const response = await fetch(url, {
+        await window.downloadFileWithProgress({
+            url,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            defaultFileName: fileName,
+            label: 'Downloading result'
         });
-        if (!response.ok) throw new Error('Download failed.');
-        const blob = await response.blob();
-        const anchor = document.createElement('a');
-        anchor.href = URL.createObjectURL(blob);
-        anchor.download = fileName;
-        document.body.appendChild(anchor);
-        anchor.click();
-        document.body.removeChild(anchor);
-        URL.revokeObjectURL(anchor.href);
+    }
+
+    function getSummaryDownloadPayload() {
+        if (!state.summary) return null;
+        return {
+            ...state.summary,
+            savedRunId: state.currentRunId || state.summary.savedRunId || null
+        };
     }
 
     function showSpinner(message) {
@@ -896,9 +898,23 @@ window.toggleAccordion = function (section) {
     }));
 
     document.getElementById('downloadExcelBtn')?.addEventListener('click', () =>
-        state.summary && downloadBlob(`${apiBase}/DownloadExcel`, state.summary, 'Rule62_SQLVALPAC_Results.xlsx').catch(error => setWorkspaceState(error.message, 'error')));
+    {
+        const payload = getSummaryDownloadPayload();
+        if (!payload) {
+            setWorkspaceState('Run Rule 62 first to download the result set.', 'warning');
+            return;
+        }
+        downloadBlob(`${apiBase}/DownloadExcel`, payload, 'Rule62_SQLVALPAC_Results.xlsx').catch(error => setWorkspaceState(error.message, 'error'));
+    });
     document.getElementById('downloadCsvBtn')?.addEventListener('click', () =>
-        state.summary && downloadBlob(`${apiBase}/DownloadCsv`, state.summary, 'Rule62_SQLVALPAC_Results.csv').catch(error => setWorkspaceState(error.message, 'error')));
+    {
+        const payload = getSummaryDownloadPayload();
+        if (!payload) {
+            setWorkspaceState('Run Rule 62 first to download the result set.', 'warning');
+            return;
+        }
+        downloadBlob(`${apiBase}/DownloadCsv`, payload, 'Rule62_SQLVALPAC_Results.csv').catch(error => setWorkspaceState(error.message, 'error'));
+    });
     document.getElementById('downloadSqlBtn')?.addEventListener('click', () =>
         downloadBlob(`${apiBase}/DownloadSql`, getRequest(), 'Rule62_SQLVALPAC_Results.sql').catch(error => setWorkspaceState(error.message, 'error')));
 
