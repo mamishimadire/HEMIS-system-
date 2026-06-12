@@ -123,7 +123,10 @@ namespace HemisAudit.Controllers
                 ValpacCol007 = review.Summary.ValpacCol007, ValpacCol008 = review.Summary.ValpacCol008,
                 ValpacCol001 = review.Summary.ValpacCol001, ValpacColYear = review.Summary.ValpacColYear,
                 ProdColStNo = review.Summary.ProdColStNo, ProdColIdNo = review.Summary.ProdColIdNo,
-                ProdColQual = review.Summary.ProdColQual, ProdColYear = review.Summary.ProdColYear
+                ProdColQual = review.Summary.ProdColQual, ProdColYear = review.Summary.ProdColYear,
+                ColumnMappings = (review.Summary.ColumnMappings ?? new List<Rule51ColumnMapping>())
+                    .Select(m => new Rule51ColumnMapping { ValpacColumn = m.ValpacColumn, ProdColumn = m.ProdColumn, Label = m.Label })
+                    .ToList()
             });
 
             return View(review);
@@ -270,6 +273,21 @@ namespace HemisAudit.Controllers
                 return Json(new Rule51SqlResult { Success = false, Error = "You cannot access this engagement." });
             return Json(await RequireDataAnalystAsync(async () => new Rule51SqlResult { Success = true, Sql = await _rule51.GenerateSqlAsync(request) }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule51ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule51SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule51SqlResult
+            {
+                Success = true,
+                Sql = Rule51RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule51")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule51RunSignoffInputModel model)
@@ -342,7 +360,10 @@ namespace HemisAudit.Controllers
                 ValpacCol007 = review.Summary.ValpacCol007, ValpacCol008 = review.Summary.ValpacCol008,
                 ValpacCol001 = review.Summary.ValpacCol001, ValpacColYear = review.Summary.ValpacColYear,
                 ProdColStNo = review.Summary.ProdColStNo, ProdColIdNo = review.Summary.ProdColIdNo,
-                ProdColQual = review.Summary.ProdColQual, ProdColYear = review.Summary.ProdColYear
+                ProdColQual = review.Summary.ProdColQual, ProdColYear = review.Summary.ProdColYear,
+                ColumnMappings = (review.Summary.ColumnMappings ?? new List<Rule51ColumnMapping>())
+                    .Select(m => new Rule51ColumnMapping { ValpacColumn = m.ValpacColumn, ProdColumn = m.ProdColumn, Label = m.Label })
+                    .ToList()
             });
             return File(_export.ExportSql(sql), "application/sql", $"Rule51_VALPAC_Production_{runId}.sql");
         }
@@ -370,7 +391,7 @@ namespace HemisAudit.Controllers
             return File(_export.ExportSql(await _rule51.GenerateSqlAsync(request)), "application/sql", $"Rule51_VALPAC_Production_{Ts()}.sql");
         }
 
-        // â”€â”€â”€ Private helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Private helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
         private async Task<Rule51RunReviewViewModel?> LoadAuthorizedSavedRunAsync(int runId, bool requireDownloadAccess)
         {

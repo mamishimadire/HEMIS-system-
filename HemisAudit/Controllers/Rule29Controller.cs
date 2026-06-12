@@ -442,6 +442,21 @@ namespace HemisAudit.Controllers
                     Sql = await _rule29.GenerateSqlAsync(request)
                 }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule29ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule29SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule29SqlResult
+            {
+                Success = true,
+                Sql = Rule29RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule29")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule29RunSignoffInputModel model)

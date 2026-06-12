@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 40 – PROF ASCII Staff Agreement";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -54,8 +54,8 @@
             <h1 class="rule-header__title">HEMIS RULE 40: PROF ASCII Staff Agreement</h1>
             <p class="rule-header__sub">
                 Procedure 4.5.2 &nbsp;&middot;&nbsp;
-                <strong>&#9398;</strong> <code>dbo_PROF</code> vs <code>2025H16PROF</code> (VALPAC) — field comparison scoped by SFTE &nbsp;&middot;&nbsp;
-                <strong>&#9399;</strong> <code>dbo_PROF</code> vs <code>2025H16SFTE</code> — population check. Join key: <code>_037</code>
+                <strong>&#9398;</strong> <code>dbo_PROF</code> vs <code>2025H16PROF</code> (VALPAC) — field comparison scoped by SFTE &nbsp;&middot;&nbsp;
+                <strong>&#9399;</strong> <code>dbo_PROF</code> vs <code>2025H16SFTE</code> — population check. Join key: <code>_037</code>
             </p>
         </div>
         <div class="rule-header__badge" id="r40StatusBadge" style="display:none"></div>
@@ -141,13 +141,13 @@
                     Column dropdowns auto-populate from the live database after connecting and selecting a database.
                 </div>
                 <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#5B2D8E;margin-bottom:8px">
-                    &#9398; Reconciliation A — PROF vs VALPAC (field comparison)
+                    &#9398; Reconciliation A — PROF vs VALPAC (field comparison)
                 </div>
                 <div id="r40ValpacPairs"></div>
                 <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:.82rem" onclick="r40AddPair('valpac')">&#65291; Add pair</button>
                 <hr style="margin:14px 0">
                 <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#1E8449;margin-bottom:8px">
-                    &#9399; Reconciliation B — PROF vs SFTE (population check)
+                    &#9399; Reconciliation B — PROF vs SFTE (population check)
                 </div>
                 <div id="r40SftePairs"></div>
                 <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:.82rem" onclick="r40AddPair('sfte')">&#65291; Add pair</button>
@@ -221,16 +221,16 @@
             <div id="r40AnalysisPane"><div class="empty-state"><p>Run Rule 40 validation to see results here.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r40-aFlagged">
-            <div id="r40AFlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
+            <div id="r40AFlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r40-aClear">
-            <div id="r40AClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
+            <div id="r40AClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r40-bFlagged">
-            <div id="r40BFlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
+            <div id="r40BFlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r40-bClear">
-            <div id="r40BClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
+            <div id="r40BClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r40-sql">
             <textarea id="r40SqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
@@ -385,7 +385,7 @@ window.r40Tab = function(tab) {
             unspin();
             if (!d.success) { setStatus('r40ConnOut', d.error || 'Connection failed.', 'error'); return; }
             fillSel('r40Db', d.databases || []);
-            setStatus('r40ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
+            setStatus('r40ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
             if ((d.databases || []).length) r40LoadTables();
         }).catch(function(e) { unspin(); setStatus('r40ConnOut', e.message, 'error'); });
     };
@@ -402,7 +402,7 @@ window.r40Tab = function(tab) {
             fillSel('r40ValTable',   tables, d.autoValpacTable);
             fillSel('r40SfteTable',  tables, d.autoSfteTable);
             show('body-r40-tables', true); show('body-r40-colmap', true);
-            setStatus('r40TableOut', 'Loaded ' + tables.length + ' tables — PROF, VALPAC, SFTE auto-detected.', 'success');
+            setStatus('r40TableOut', 'Loaded ' + tables.length + ' tables — PROF, VALPAC, SFTE auto-detected.', 'success');
             return Promise.all([
                 r40LoadColsInner('prof',  gv('r40ProfTable')),
                 r40LoadColsInner('val',   gv('r40ValTable')),
@@ -664,12 +664,12 @@ window.r40Tab = function(tab) {
         function cardHtml(rows, type) {
             return '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid ' + (type === 'flagged' ? '#C0392B' : '#1E8449') + '">' +
                 (type === 'flagged'
-                    ? '<strong>FLAGGED (' + which + ') — ' + otherLabel + '</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING'
-                    : '<strong>CLEAR (' + which + ') — ' + otherLabel + '</strong>: ' + fmt(reconc.agreeCount || 0) + ' agree' + (agrRows.length < (reconc.agreeCount || 0) ? ' (sample of ' + fmt(agrRows.length) + ' shown)' : '')) +
+                    ? '<strong>FLAGGED (' + which + ') — ' + otherLabel + '</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING'
+                    : '<strong>CLEAR (' + which + ') — ' + otherLabel + '</strong>: ' + fmt(reconc.agreeCount || 0) + ' agree' + (agrRows.length < (reconc.agreeCount || 0) ? ' (sample of ' + fmt(agrRows.length) + ' shown)' : '')) +
                 '</div>';
         }
 
-        setHtml(flaggedId, cardHtml(excRows, 'flagged') + buildTable(excRows, lbls, otherLabel, thColor, 'No exceptions — all staff agree.'));
+        setHtml(flaggedId, cardHtml(excRows, 'flagged') + buildTable(excRows, lbls, otherLabel, thColor, 'No exceptions — all staff agree.'));
         setHtml(clearId,   cardHtml(agrRows, 'clear')   + buildTable(agrRows, lbls, otherLabel, thColor, 'No clear rows in this run.'));
     }
 
@@ -684,7 +684,7 @@ window.r40Tab = function(tab) {
             var cells = lbls.map(function(l) {
                 var f = (r.fields || {})[l] || {};
                 var mi = (f.match || 'MISSING') === 'AGREE' ? '<span style="color:#1E8449">&#10003;</span>' : (f.match || '') === 'DISAGREE' ? '<span style="color:#C0392B">&#x2717;</span>' : '<span style="color:#E67E22">?</span>';
-                return '<td>' + esc(f.profValue || '—') + '</td><td class="oc">' + esc(f.otherValue || '—') + '</td><td>' + mi + '</td>';
+                return '<td>' + esc(f.profValue || '—') + '</td><td class="oc">' + esc(f.otherValue || '—') + '</td><td>' + mi + '</td>';
             }).join('');
             return '<tr class="' + cls + '"><td style="font-size:.73rem;color:#777">' + r.rowNumber + '</td><td style="font-weight:600;font-family:monospace">' + esc(r.staffRef) + '</td>' + cells + '<td>' + badge + '</td><td style="font-size:.71rem;text-align:left;max-width:230px">' + esc(r.disagreeDetail || '') + '</td></tr>';
         }).join('');
@@ -699,5 +699,23 @@ window.r40Tab = function(tab) {
     applySummary(null, false);
     updateButtons();
     if (st.clientId) loadWorkspace();
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>

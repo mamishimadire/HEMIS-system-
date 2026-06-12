@@ -1,6 +1,6 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
-    ViewData["Title"] = "Rule 38 - Enhanced QUAL -> CESM -> PQM Validation";
+    ViewData["Title"] = "Rule 38 - QUAL -> PQM Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
     var clients = ViewBag.Clients as List<Client> ?? new List<Client>();
     var selectedClientId = (int)(ViewBag.ClientId ?? 0);
@@ -21,6 +21,53 @@
         }
     </style>
 }
+
+<style>
+    .rule38-results-shell .table-wrapper {
+        max-height: 520px;
+        overflow: auto;
+    }
+
+    .rule38-results-table {
+        min-width: 2200px;
+        table-layout: auto !important;
+    }
+
+    .rule38-results-table th,
+    .rule38-results-table td {
+        white-space: nowrap;
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+        vertical-align: top;
+    }
+
+    .rule38-results-table .rule38-name,
+    .rule38-results-table .rule38-accred,
+    .rule38-results-table .rule38-reason {
+        white-space: normal;
+    }
+
+    .rule38-results-table .rule38-name {
+        min-width: 240px;
+    }
+
+    .rule38-results-table .rule38-accred {
+        min-width: 220px;
+    }
+
+    .rule38-results-table .rule38-reason {
+        min-width: 340px;
+    }
+
+    .rule38-results-table .rule38-code {
+        min-width: 92px;
+    }
+
+    .rule38-results-table .rule38-result {
+        min-width: 84px;
+        text-align: center;
+    }
+</style>
 
 <div id="app" class="rule-page-shell">
     @if (moduleNavigation != null)
@@ -44,8 +91,8 @@
     <div class="rule-header">
         <div class="rule-header__icon">R38</div>
         <div>
-            <h1 class="rule-header__title">HEMIS RULE 38: Enhanced QUAL -> CESM -> PQM Validation</h1>
-            <p class="rule-header__sub">QUAL._001 = CESM._001, CESM._006 -> PQM.CESM_CODE1 or PQM.CESM_CODE | 5.1.1-5.1.6 | 100% population test</p>
+            <h1 class="rule-header__title">HEMIS RULE 38: QUAL -> PQM Validation</h1>
+            <p class="rule-header__sub">Approved QUAL sample checked against PQM procedures 5.1.1-5.1.6 with readable validation results and control outcomes</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
@@ -104,21 +151,15 @@
             </button>
             <div class="accordion-body" id="body-tables" style="display:none">
                 <div class="info-box info-box--red">
-                    <strong>Rule 38 Requirement:</strong> Rule 38 follows the Rule 11 path:
-                    <code>QUAL._001 = CESM._001</code>, then <code>CESM._006</code> must match <code>PQM.CESM_CODE1</code> or <code>PQM.CESM_CODE</code>.
-                    Qualification name and qualification type must still align to the same PQM row before controls 5.1.2-5.1.6 are evaluated.
+                    <strong>Rule 38 Requirement:</strong> Select a sample of approved qualifications from the Qualification file (<code>QUAL</code>) and perform procedures 5.1.1 to 5.1.6.
+                    Confirm <code>QUAL._004 = 'A'</code>, agree <code>QUAL._005</code> to the PQM qualification type, agree <code>QUAL._053</code> and <code>QUAL._054</code> to the PQM time fields,
+                    agree <code>QUAL._084</code> to the applicable approval policy, and agree <code>QUAL._090</code> to the PQM total subsidy units.
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
                         <label>QUAL Table <span class="auto-tag" id="qualAutoTag" style="display:none">auto-detected</span></label>
                         <select id="qualTableSelect" onchange="onTableChange('qual')">
                             <option value="">Select table (e.g. dbo_QUAL)</option>
-                        </select>
-                    </div>
-                    <div class="field-group">
-                        <label>CESM Table <span class="auto-tag" id="cesmAutoTag" style="display:none">auto-detected</span></label>
-                        <select id="cesmTableSelect" onchange="onTableChange('cesm')">
-                            <option value="">Select table (e.g. dbo_CESM)</option>
                         </select>
                     </div>
                     <div class="field-group">
@@ -184,31 +225,6 @@
             </div>
         </div>
 
-        <!-- 4. CESM Column Mapping -->
-        <div class="accordion-item" id="acc-cesmcols">
-            <button class="accordion-toggle" onclick="toggleAccordion('cesmcols')">
-                <span class="acc-icon">CC</span>
-                <span>CESM Column Mapping</span>
-                <span class="acc-chevron">v</span>
-            </button>
-            <div class="accordion-body" id="body-cesmcols" style="display:none">
-                <div class="info-box info-box--dark" style="display:none">
-                    Map the CESM bridge columns used to join QUAL to PQM. The standard bridge is
-                    <code>QUAL._001 = CESM._001</code>, with <code>CESM._006</code> compared to <code>PQM.CESM_CODE1</code> or <code>PQM.CESM_CODE</code>.
-                </div>
-                <div class="form-grid">
-                    <div class="field-group">
-                        <label>CESM Qualification Code <small>(default: _001)</small> <span class="auto-tag" id="cesmIdAutoTag" style="display:none">auto-selected</span></label>
-                        <select id="cesmIdColSelect"><option value="">Select column</option></select>
-                    </div>
-                    <div class="field-group">
-                        <label>CESM Code Column <small>(default: _006)</small> <span class="auto-tag" id="cesmCodeAutoTag" style="display:none">auto-selected</span></label>
-                        <select id="cesmCodeColSelect"><option value="">Select column</option></select>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- 5. PQM Column Mapping -->
         <div class="accordion-item" id="acc-pqmcols">
             <button class="accordion-toggle" onclick="toggleAccordion('pqmcols')">
@@ -218,8 +234,14 @@
             </button>
             <div class="accordion-body" id="body-pqmcols" style="display:none">
                 <div class="info-box info-box--dark">
-                    Map the PQM register columns used in validation. Rule 38 accepts <code>PQM.CESM_CODE1</code> or
-                    <code>PQM.CESM_CODE</code> as the CESM match and keeps both values in the saved results.
+                    Map the PQM register columns used in validation. Rule 38 now matches on qualification name and qualification type only.
+                </div>
+                <div class="info-box info-box--dark">
+                    Default Rule 38 field pairs: <code>QUAL._003 = PQM.Authorised_Qualification_Name</code>,
+                    <code>QUAL._005 = PQM.HEQF_Qual_Type</code>,
+                    <code>QUAL._053 = PQM.Total2</code>,
+                    <code>QUAL._054 = PQM.WIL_EL2</code>,
+                    <code>QUAL._090 = PQM.Total2</code>.
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
@@ -229,14 +251,6 @@
                     <div class="field-group">
                         <label>HEQF Qual Type Column <small>(compared to QUAL _005)</small> <span class="auto-tag" id="pqmQualTypeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="pqmQualTypeColSelect"><option value="">Select column</option></select>
-                    </div>
-                    <div class="field-group">
-                        <label>CESM Code Column <small>(reference: CESM_CODE)</small> <span class="auto-tag" id="pqmCesmCodeAutoTag" style="display:none">auto-selected</span></label>
-                        <select id="pqmCesmCodeColSelect"><option value="">Select column</option></select>
-                    </div>
-                    <div class="field-group">
-                        <label>CESM Code 1 Column <small>(matched to CESM._006)</small> <span class="auto-tag" id="pqmCesmCode1AutoTag" style="display:none">auto-selected</span></label>
-                        <select id="pqmCesmCode1ColSelect"><option value="">Select column</option></select>
                     </div>
                     <div class="field-group">
                         <label>Min Time Total Column <small>(compared to QUAL _053, e.g. Total2)</small> <span class="auto-tag" id="pqmMinTimeTotalAutoTag" style="display:none">auto-selected</span></label>
@@ -330,6 +344,7 @@
                     <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV (Full results)</label>
                     <label class="checkbox-label"><input type="checkbox" id="chkExceptionsCsv" checked /> CSV (Exceptions only)</label>
                     <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL Script</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkRScript" checked /> R Script</label>
                 </div>
             </div>
         </div>
@@ -365,6 +380,7 @@
         <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
         <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
         <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+        <button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -376,6 +392,7 @@
             <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+            <button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
@@ -393,6 +410,9 @@
         </div>
         <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
             <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-rscript" data-tab-panel="rscript">
+            <div id="rContent" class="empty-state"><p>Click "Generate R Script" or run validation to generate the R script.</p></div>
         </div>
         <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or individual download buttons.</p></div>
@@ -414,13 +434,11 @@ const currentSystemRole = '@(ViewBag.CurrentSystemRole ?? "")';
 const uiPreviewRowLimit = 10;
 const state = {
     server: '', database: '', driver: 'ODBC Driver 17 for SQL Server',
-    qualTable: '', cesmTable: '', pqmTable: '',
+    qualTable: '', pqmTable: '',
     qualIdCol: '_001', qualNameCol: '_003', qualApprovalCol: '_004', qualApprovalValue: 'A',
     qualTypeCol: '_005', qualMinTimeTotalCol: '_053', qualMinTimeWilCol: '_054',
     qualHeqfCol: '_084', qualTotalSubsidyCol: '_090',
-    cesmIdCol: '_001', cesmCodeCol: '_006',
     pqmNameCol: 'Authorised_Qualification_Name', pqmQualTypeCol: 'HEQF_Qual_Type',
-    pqmCesmCodeCol: 'CESM_CODE', pqmCesmCode1Col: 'CESM_CODE1',
     pqmMinTimeTotalCol: 'Total2', pqmWilCol: 'WIL_EL2',
     pqmAccreditationCol: 'CHE_HEQC_Accreditation_Approval_Ref_Nr', pqmTotalSubsidyCol: 'Total2',
     heqfIndicatorCodesCsv: 'H/,HEQF,HEQSF',
@@ -580,14 +598,12 @@ async function markWorkspaceDirty() {
 
 function resetWorkspaceState(clearClient = false) {
     state.server = ''; state.database = ''; state.driver = 'ODBC Driver 17 for SQL Server';
-    state.qualTable = ''; state.cesmTable = ''; state.pqmTable = '';
+    state.qualTable = ''; state.pqmTable = '';
     state.qualIdCol = '_001'; state.qualNameCol = '_003'; state.qualApprovalCol = '_004';
     state.qualApprovalValue = 'A'; state.qualTypeCol = '_005';
     state.qualMinTimeTotalCol = '_053'; state.qualMinTimeWilCol = '_054';
     state.qualHeqfCol = '_084'; state.qualTotalSubsidyCol = '_090';
-    state.cesmIdCol = '_001'; state.cesmCodeCol = '_006';
     state.pqmNameCol = 'Authorised_Qualification_Name'; state.pqmQualTypeCol = 'HEQF_Qual_Type';
-    state.pqmCesmCodeCol = 'CESM_CODE'; state.pqmCesmCode1Col = 'CESM_CODE1';
     state.pqmMinTimeTotalCol = 'Total2'; state.pqmWilCol = 'WIL_EL2';
     state.pqmAccreditationCol = 'CHE_HEQC_Accreditation_Approval_Ref_Nr';
     state.pqmTotalSubsidyCol = 'Total2';
@@ -606,16 +622,15 @@ function resetWorkspaceState(clearClient = false) {
     document.getElementById('driverSelect').value = 'ODBC Driver 17 for SQL Server';
     document.getElementById('databaseSelect').innerHTML = '<option value="">Select database</option>';
     document.getElementById('dbFieldGroup').style.display = 'none';
-    ['qualTableSelect','cesmTableSelect','pqmTableSelect'].forEach(id => {
+    ['qualTableSelect','pqmTableSelect'].forEach(id => {
         document.getElementById(id).innerHTML = '<option value="">Select table</option>';
     });
     const qualCols = ['qualIdColSelect','qualNameColSelect','qualApprovalColSelect',
         'qualTypeColSelect','qualMinTimeTotalColSelect','qualMinTimeWilColSelect',
         'qualHeqfColSelect','qualTotalSubsidyColSelect'];
-    const cesmCols = ['cesmIdColSelect','cesmCodeColSelect'];
-    const pqmCols = ['pqmNameColSelect','pqmQualTypeColSelect','pqmCesmCodeColSelect','pqmCesmCode1ColSelect','pqmMinTimeTotalColSelect',
+    const pqmCols = ['pqmNameColSelect','pqmQualTypeColSelect','pqmMinTimeTotalColSelect',
         'pqmWilColSelect','pqmAccreditationColSelect','pqmTotalSubsidyColSelect'];
-    [...qualCols, ...cesmCols, ...pqmCols].forEach(id => {
+    [...qualCols, ...pqmCols].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '<option value="">Select column</option>';
     });
@@ -628,9 +643,9 @@ function resetWorkspaceState(clearClient = false) {
     document.getElementById('signoffComment').value = '';
     document.getElementById('downloadAllBtn').disabled = true;
 
-    ['qualAutoTag','cesmAutoTag','pqmAutoTag','qualIdAutoTag','qualNameAutoTag','qualApprovalAutoTag',
+    ['qualAutoTag','pqmAutoTag','qualIdAutoTag','qualNameAutoTag','qualApprovalAutoTag',
      'qualTypeAutoTag','qualMinTimeTotalAutoTag','qualMinTimeWilAutoTag','qualHeqfAutoTag','qualTotalSubsidyAutoTag',
-     'cesmIdAutoTag','cesmCodeAutoTag','pqmNameAutoTag','pqmQualTypeAutoTag','pqmCesmCodeAutoTag','pqmCesmCode1AutoTag','pqmMinTimeTotalAutoTag','pqmWilAutoTag',
+     'pqmNameAutoTag','pqmQualTypeAutoTag','pqmMinTimeTotalAutoTag','pqmWilAutoTag',
      'pqmAccreditationAutoTag','pqmTotalSubsidyAutoTag'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
@@ -643,6 +658,7 @@ function resetWorkspaceState(clearClient = false) {
      ['exceptionsContent','No exceptions data yet. Run validation first.'],
      ['chartsContent','Charts will appear after running validation.'],
      ['sqlContent','Click "Generate SQL" or run validation to generate the SQL script.'],
+     ['rContent','Click "Generate R Script" or run validation to generate the R script.'],
      ['downloadsContent','Run validation first, then use "Download All" or individual download buttons.']
     ].forEach(([id, msg]) => {
         const el = document.getElementById(id);
@@ -667,6 +683,7 @@ function renderWorkspaceState() {
     const showDisabledArchivedSignoff = archived && !!state.currentRunId;
     const runValidationBtn = document.getElementById('runValidationBtn');
     const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const generateRScriptBtn = document.getElementById('generateRScriptBtn');
     const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
     const signOffBtn = document.getElementById('signOffBtn');
     const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
@@ -682,6 +699,7 @@ function renderWorkspaceState() {
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateRScriptBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
         { target: signoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
@@ -757,7 +775,7 @@ function renderWorkspaceState() {
 }
 
 function applyWorkspaceAccessMode(canEditWorkspace) {
-    ['body-connection','body-tables','body-qualcols','body-cesmcols','body-pqmcols','body-pgcodes','body-heqf'].forEach(id => {
+    ['body-connection','body-tables','body-qualcols','body-pqmcols','body-pgcodes','body-heqf'].forEach(id => {
         const body = document.getElementById(id);
         if (!body) return;
         body.style.opacity = canEditWorkspace ? '' : '0.45';
@@ -841,7 +859,6 @@ async function hydrateWorkspace(workspace) {
             if (workspace.database) {
                 await loadTables({
                     preferredQualTable: workspace.qualTable || '',
-                    preferredCesmTable: workspace.cesmTable || '',
                     preferredPqmTable: workspace.pqmTable || '',
                     preferredQualIdCol: workspace.qualIdCol || '',
                     preferredQualNameCol: workspace.qualNameCol || '',
@@ -851,12 +868,8 @@ async function hydrateWorkspace(workspace) {
                     preferredQualMinTimeWilCol: workspace.qualMinTimeWilCol || '',
                     preferredQualHeqfCol: workspace.qualHeqfCol || '',
                     preferredQualTotalSubsidyCol: workspace.qualTotalSubsidyCol || '',
-                    preferredCesmIdCol: workspace.cesmIdCol || '',
-                    preferredCesmCodeCol: workspace.cesmCodeCol || '',
                     preferredPqmNameCol: workspace.pqmNameCol || '',
                     preferredPqmQualTypeCol: workspace.pqmQualTypeCol || '',
-                    preferredPqmCesmCodeCol: workspace.pqmCesmCodeCol || '',
-                    preferredPqmCesmCode1Col: workspace.pqmCesmCode1Col || '',
                     preferredPqmMinTimeTotalCol: workspace.pqmMinTimeTotalCol || '',
                     preferredPqmWilCol: workspace.pqmWilCol || '',
                     preferredPqmAccreditationCol: workspace.pqmAccreditationCol || '',
@@ -916,27 +929,21 @@ async function loadTables(options = {}) {
 
     setStatus('connectionStatus', `Connected to <strong>${state.database}</strong>. Found ${result.tables.length} tables.`, 'success');
 
-    ['qualTableSelect','cesmTableSelect','pqmTableSelect'].forEach(id => {
+    ['qualTableSelect','pqmTableSelect'].forEach(id => {
         const sel = document.getElementById(id);
         sel.innerHTML = '<option value="">Select table</option>';
         result.tables.forEach(t => sel.appendChild(new Option(t, t)));
     });
 
     const selQual = options.preferredQualTable || result.autoQualTable || '';
-    const selCesm = options.preferredCesmTable || result.autoCesmTable || '';
     const selPqm  = options.preferredPqmTable  || result.autoPqmTable  || '';
 
     setAutoTag('qualAutoTag', selQual, result.autoQualTable);
-    setAutoTag('cesmAutoTag', selCesm, result.autoCesmTable);
     setAutoTag('pqmAutoTag',  selPqm,  result.autoPqmTable);
 
     if (selQual && result.tables.includes(selQual)) {
         document.getElementById('qualTableSelect').value = selQual;
         state.qualTable = selQual;
-    }
-    if (selCesm && result.tables.includes(selCesm)) {
-        document.getElementById('cesmTableSelect').value = selCesm;
-        state.cesmTable = selCesm;
     }
     if (selPqm && result.tables.includes(selPqm)) {
         document.getElementById('pqmTableSelect').value = selPqm;
@@ -959,19 +966,10 @@ async function loadTables(options = {}) {
             silent: true
         });
     }
-    if (selCesm) {
-        await loadColumnsForTable('cesm', {
-            preferredIdCol:           options.preferredCesmIdCol || '',
-            preferredCodeCol:         options.preferredCesmCodeCol || '',
-            silent: true
-        });
-    }
     if (selPqm) {
         await loadColumnsForTable('pqm', {
             preferredNameCol:         options.preferredPqmNameCol || '',
             preferredQualTypeCol:     options.preferredPqmQualTypeCol || '',
-            preferredCesmCodeCol:     options.preferredPqmCesmCodeCol || '',
-            preferredCesmCode1Col:    options.preferredPqmCesmCode1Col || '',
             preferredMinTimeTotalCol: options.preferredPqmMinTimeTotalCol || '',
             preferredWilCol:          options.preferredPqmWilCol || '',
             preferredAccreditationCol:options.preferredPqmAccreditationCol || '',
@@ -993,9 +991,6 @@ async function onTableChange(which) {
     if (which === 'qual') {
         state.qualTable = document.getElementById('qualTableSelect').value;
         if (state.qualTable) await loadColumnsForTable('qual', {});
-    } else if (which === 'cesm') {
-        state.cesmTable = document.getElementById('cesmTableSelect').value;
-        if (state.cesmTable) await loadColumnsForTable('cesm', {});
     } else if (which === 'pqm') {
         state.pqmTable = document.getElementById('pqmTableSelect').value;
         if (state.pqmTable) await loadColumnsForTable('pqm', {});
@@ -1003,9 +998,7 @@ async function onTableChange(which) {
 }
 
 async function loadColumnsForTable(which, options = {}) {
-    const tableName = which === 'qual' ? state.qualTable
-        : which === 'cesm' ? state.cesmTable
-        : state.pqmTable;
+    const tableName = which === 'qual' ? state.qualTable : state.pqmTable;
     if (!tableName) return;
 
     const qualRoles = [
@@ -1019,23 +1012,16 @@ async function loadColumnsForTable(which, options = {}) {
         { key: 'qual_090',  sel: 'qualTotalSubsidyColSelect', autoTag: 'qualTotalSubsidyAutoTag', preferred: options.preferredTotalSubsidyCol || '' }
     ];
 
-    const cesmRoles = [
-        { key: 'cesm_id',   sel: 'cesmIdColSelect',           autoTag: 'cesmIdAutoTag',           preferred: options.preferredIdCol || '' },
-        { key: 'cesm_code', sel: 'cesmCodeColSelect',         autoTag: 'cesmCodeAutoTag',         preferred: options.preferredCodeCol || '' }
-    ];
-
     const pqmRoles = [
         { key: 'pqm_name',  sel: 'pqmNameColSelect',          autoTag: 'pqmNameAutoTag',          preferred: options.preferredNameCol || '' },
         { key: 'pqm_type',  sel: 'pqmQualTypeColSelect',      autoTag: 'pqmQualTypeAutoTag',      preferred: options.preferredQualTypeCol || '' },
-        { key: 'pqm_cesm',  sel: 'pqmCesmCodeColSelect',      autoTag: 'pqmCesmCodeAutoTag',      preferred: options.preferredCesmCodeCol || '' },
-        { key: 'pqm_cesm1', sel: 'pqmCesmCode1ColSelect',     autoTag: 'pqmCesmCode1AutoTag',     preferred: options.preferredCesmCode1Col || '' },
         { key: 'pqm_total', sel: 'pqmMinTimeTotalColSelect',  autoTag: 'pqmMinTimeTotalAutoTag',  preferred: options.preferredMinTimeTotalCol || '' },
         { key: 'pqm_wil',   sel: 'pqmWilColSelect',           autoTag: 'pqmWilAutoTag',           preferred: options.preferredWilCol || '' },
         { key: 'pqm_accred',sel: 'pqmAccreditationColSelect', autoTag: 'pqmAccreditationAutoTag', preferred: options.preferredAccreditationCol || '' },
         { key: 'pqm_total', sel: 'pqmTotalSubsidyColSelect',  autoTag: 'pqmTotalSubsidyAutoTag',  preferred: options.preferredTotalSubsidyCol || '' }
     ];
 
-    const roles = which === 'qual' ? qualRoles : which === 'cesm' ? cesmRoles : pqmRoles;
+    const roles = which === 'qual' ? qualRoles : pqmRoles;
 
     for (const roleInfo of roles) {
         const result = await post('/Rule38/GetColumns', {
@@ -1063,9 +1049,6 @@ async function loadColumnsForTable(which, options = {}) {
     if (which === 'qual') {
         document.getElementById('body-qualcols').style.display = 'block';
         document.querySelector('#acc-qualcols .acc-chevron').textContent = '^';
-    } else if (which === 'cesm') {
-        document.getElementById('body-cesmcols').style.display = 'block';
-        document.querySelector('#acc-cesmcols .acc-chevron').textContent = '^';
     } else {
         document.getElementById('body-pqmcols').style.display = 'block';
         document.querySelector('#acc-pqmcols .acc-chevron').textContent = '^';
@@ -1077,9 +1060,7 @@ function updateStateFromSelect(key, value) {
         'qual_id': 'qualIdCol', 'qual_name': 'qualNameCol', 'qual_approval': 'qualApprovalCol',
         'qual_type': 'qualTypeCol', 'qual_053': 'qualMinTimeTotalCol', 'qual_054': 'qualMinTimeWilCol',
         'qual_084': 'qualHeqfCol', 'qual_090': 'qualTotalSubsidyCol',
-        'cesm_id': 'cesmIdCol', 'cesm_code': 'cesmCodeCol',
         'pqm_name': 'pqmNameCol', 'pqm_type': 'pqmQualTypeCol',
-        'pqm_cesm': 'pqmCesmCodeCol', 'pqm_cesm1': 'pqmCesmCode1Col',
         'pqm_wil': 'pqmWilCol', 'pqm_accred': 'pqmAccreditationCol'
     };
     if (map[key]) state[map[key]] = value;
@@ -1087,7 +1068,6 @@ function updateStateFromSelect(key, value) {
 
 function syncStateFromSelects() {
     state.qualTable   = document.getElementById('qualTableSelect').value;
-    state.cesmTable   = document.getElementById('cesmTableSelect').value;
     state.pqmTable    = document.getElementById('pqmTableSelect').value;
     state.qualIdCol           = document.getElementById('qualIdColSelect').value;
     state.qualNameCol         = document.getElementById('qualNameColSelect').value;
@@ -1098,12 +1078,8 @@ function syncStateFromSelects() {
     state.qualMinTimeWilCol   = document.getElementById('qualMinTimeWilColSelect').value;
     state.qualHeqfCol         = document.getElementById('qualHeqfColSelect').value;
     state.qualTotalSubsidyCol = document.getElementById('qualTotalSubsidyColSelect').value;
-    state.cesmIdCol           = document.getElementById('cesmIdColSelect').value;
-    state.cesmCodeCol         = document.getElementById('cesmCodeColSelect').value;
     state.pqmNameCol          = document.getElementById('pqmNameColSelect').value;
     state.pqmQualTypeCol      = document.getElementById('pqmQualTypeColSelect').value;
-    state.pqmCesmCodeCol      = document.getElementById('pqmCesmCodeColSelect').value;
-    state.pqmCesmCode1Col     = document.getElementById('pqmCesmCode1ColSelect').value;
     state.pqmMinTimeTotalCol  = document.getElementById('pqmMinTimeTotalColSelect').value;
     state.pqmWilCol           = document.getElementById('pqmWilColSelect').value;
     state.pqmAccreditationCol = document.getElementById('pqmAccreditationColSelect').value;
@@ -1121,16 +1097,15 @@ async function verifyTables() {
         setWorkspaceInfo('Archived engagements are read-only. Verification is disabled.', 'error'); return;
     }
     syncStateFromSelects();
-    if (!state.server || !state.database || !state.qualTable || !state.cesmTable || !state.pqmTable || !state.qualIdCol || !state.cesmIdCol) {
-        setStatus('tableStatus', 'Select the server, database, all three tables, and the QUAL/CESM ID columns first.', 'warning'); return;
+    if (!state.server || !state.database || !state.qualTable || !state.pqmTable || !state.qualIdCol) {
+        setStatus('tableStatus', 'Select the server, database, both tables, and the QUAL ID column first.', 'warning'); return;
     }
     showSpinner('Verifying data...');
     try {
         const result = await post('/Rule38/VerifyTables', {
             server: state.server, database: state.database, driver: state.driver,
-            qualTable: state.qualTable, cesmTable: state.cesmTable, pqmTable: state.pqmTable,
+            qualTable: state.qualTable, pqmTable: state.pqmTable,
             qualIdCol: state.qualIdCol || '_001',
-            cesmIdCol: state.cesmIdCol || '_001',
             qualApprovalCol: state.qualApprovalCol || '_004',
             qualApprovalValue: state.qualApprovalValue || 'A',
             useMPrefixPopulationSplit: state.useMPrefixPopulationSplit,
@@ -1141,9 +1116,7 @@ async function verifyTables() {
         setStatus('tableStatus', `
             <strong>Verification Complete</strong><br>
             ${escapeHtml(state.qualTable)}: <strong>${result.qualTotal.toLocaleString()}</strong> total records<br>
-            ${escapeHtml(state.cesmTable)}: <strong>${result.cesmTotal.toLocaleString()}</strong> total records<br>
             ${escapeHtml(state.qualTable)} (approved): <strong>${result.approvedCount.toLocaleString()}</strong> approved records<br>
-            QUAL -> CESM bridge: <strong>${result.mergedTotal.toLocaleString()}</strong> records<br>
             ${escapeHtml(state.pqmTable)}: <strong>${result.pqmTotal.toLocaleString()}</strong> PQM rows<br>
             <em>Ready to run full validation.</em>
         `, 'success');
@@ -1269,7 +1242,7 @@ function renderValidationResults(r) {
                             <th>Population</th>
                             <th>QUAL Code</th>
                             <th>QUAL Name</th>
-                            <th>CESM Code</th>
+                            <th>Match Note</th>
                             <th>PQM?</th>
                             <th>Review</th>
                             <th title="5.1.2 Type Match">C2</th>
@@ -1282,13 +1255,13 @@ function renderValidationResults(r) {
                     </thead>
                     <tbody>
                         ${pageRows.map((row, i) => `
-                        <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}" title="Population: ${escapeHtml(row.populationType||'Undergraduate')} | Population Rule: ${escapeHtml(row.populationClassificationNote||'')} | QUAL Type: ${escapeHtml(row.qualType||'')} | CESM: ${escapeHtml(row.cesmCode||'')} | PQM CESM1: ${escapeHtml(row.pqmCesmCode1||'')} | Match: ${escapeHtml(row.matchNote||'')}">
+                        <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}" title="Population: ${escapeHtml(row.populationType||'Undergraduate')} | Population Rule: ${escapeHtml(row.populationClassificationNote||'')} | QUAL Type: ${escapeHtml(row.qualType||'')} | Match: ${escapeHtml(row.matchNote||'')}">
                             <td>${row.validationNumber}</td>
                             <td><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
                             <td><span class="badge badge--${(row.populationType || 'Undergraduate') === 'Postgraduate' ? 'warning' : 'neutral'}">${escapeHtml(row.populationType || 'Undergraduate')}</span></td>
                             <td><strong>${escapeHtml(row.qualCode)}</strong></td>
                             <td style="max-width:220px;white-space:normal">${escapeHtml(row.qualName)}</td>
-                            <td>${escapeHtml(row.cesmCode || '')}</td>
+                            <td style="max-width:220px;white-space:normal">${escapeHtml(row.matchNote || '')}</td>
                             <td>${row.hasPqmMatch ? '<span class="badge badge--pass">YES</span>' : '<span class="badge badge--fail">NO</span>'}</td>
                             <td>${row.needsReview ? '<span class="badge badge--warning">YES</span>' : '<span class="badge badge--neutral">NO</span>'}</td>
                             <td>${ctrlBadge(row.c2_TypeMatch)}</td>
@@ -1308,8 +1281,8 @@ function renderValidationResults(r) {
     el.classList.remove('empty-state');
     el.innerHTML = `
         ${renderSectionHeader(
-            'Rule 38: Enhanced QUAL -> CESM -> PQM Validation',
-            `Database ${escapeHtml(r.database)} | QUAL: ${escapeHtml(r.qualTable||'')} | CESM: ${escapeHtml(r.cesmTable||'')} | PQM: ${escapeHtml(r.pqmTable||'')}`,
+            'Rule 38: Enhanced QUAL -> PQM Validation',
+            `Database ${escapeHtml(r.database)} | QUAL: ${escapeHtml(r.qualTable||'')} | PQM: ${escapeHtml(r.pqmTable||'')}`,
             `Scope: Approved QUAL records<br>Run: ${escapeHtml(r.timestamp)}`
         )}
         ${previewBanner}
@@ -1332,7 +1305,7 @@ function renderValidationResults(r) {
         </div>
         <div class="results-table-panel">
             <div class="panel-title-row">
-                <h4>Per-Qualification Results <small style="font-weight:normal;font-size:0.8rem">(hover row for QUAL/CESM/PQM match detail | C2=Type, C3=MinTime, C4=WIL, C5=HEQF, C6=Subsidy)</small></h4>
+                <h4>Per-Qualification Results <small style="font-weight:normal;font-size:0.8rem">(hover row for QUAL/PQM match detail | C2=Type, C3=MinTime, C4=WIL, C5=HEQF, C6=Subsidy)</small></h4>
                 <span class="panel-title-badge">${totalRows.toLocaleString()} filtered rows</span>
             </div>
             <div class="validation-toolbar">
@@ -1408,7 +1381,7 @@ function renderExceptions(r) {
     el.classList.remove('empty-state');
     const failRows = (r.validationRows || []).filter(row => row.validationResult === 'FAIL');
     if (failRows.length === 0) {
-        el.innerHTML = `${renderSectionHeader('Rule 38 Exceptions', 'QUAL -> CESM -> PQM mismatches', 'Exceptions: 0')}
+        el.innerHTML = `${renderSectionHeader('Rule 38 Exceptions', 'QUAL -> PQM mismatches', 'Exceptions: 0')}
             <div class="alert alert--success">No exceptions — all approved QUAL records passed controls 5.1.2–5.1.6.</div>`;
         return;
     }
@@ -1428,7 +1401,7 @@ function renderExceptions(r) {
         </tr>`).join('');
 
     el.innerHTML = `
-        ${renderSectionHeader('Rule 38 Exceptions', 'Records failing one or more controls after QUAL -> CESM -> PQM matching', `Exceptions: ${failRows.length.toLocaleString()}`)}
+        ${renderSectionHeader('Rule 38 Exceptions', 'Records failing one or more controls after QUAL -> PQM matching', `Exceptions: ${failRows.length.toLocaleString()}`)}
         <div class="results-table-shell">
             <div class="table-wrapper">
                 <table class="data-table" style="font-size:0.82rem">
@@ -1475,78 +1448,69 @@ function renderValidationResults(r) {
 
     const rowsHtml = pageRows.length === 0
         ? `<div class="alert alert--info">No rows match the selected filter.</div>`
-        : `<div class="results-table-shell">
+        : `<div class="results-table-shell rule38-results-shell">
             <div class="table-wrapper">
-                <table class="data-table rule11-table" style="font-size:0.82rem">
+                <table class="data-table rule38-results-table" style="font-size:0.82rem">
                     <thead>
                         <tr>
                             <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
                             <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.qualTable || 'dbo_QUAL')}</th>
-                            <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.cesmTable || 'dbo_CESM')}</th>
-                            <th colspan="8" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.pqmTable || 'PQM')}</th>
+                            <th colspan="6" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.pqmTable || 'PQM')}</th>
                             <th colspan="6" style="background:#374151;color:#fff;text-align:center;border-right:2px solid #fff">Rule 38 Controls</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Reason</th>
+                            <th rowspan="2" class="rule38-result" style="vertical-align:middle;text-align:center">Result</th>
+                            <th rowspan="2" class="rule38-reason" style="vertical-align:middle;text-align:center">Reason</th>
                         </tr>
                         <tr>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualIdCol || '_001')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualNameCol || '_003')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualApprovalCol || '_004')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualTypeCol || '_005')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeTotalCol || '_053')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeWilCol || '_054')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualHeqfCol || '_084')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualTotalSubsidyCol || '_090')}</th>
-                            <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
-                            <th style="background:#80DEEA;font-size:11px">${escapeHtml(r.cesmIdCol || '_001')}</th>
-                            <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">${escapeHtml(r.cesmCodeCol || '_006')}</th>
-                            <th style="background:#CE93D8;font-size:10px;max-width:180px">${escapeHtml(r.pqmNameCol || 'Authorised_Qualification_Name')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmQualTypeCol || 'HEQF_Qual_Type')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmCesmCodeCol || 'CESM_CODE')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmCesmCode1Col || 'CESM_CODE1')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmMinTimeTotalCol || 'Total2')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmWilCol || 'WIL_EL2')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmAccreditationCol || 'CHE_HEQC_Accreditation_Approval_Ref_Nr')}</th>
-                            <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">${escapeHtml(r.pqmTotalSubsidyCol || 'Total2')}</th>
-                            <th style="background:#D1D5DB;font-size:11px">Review</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.2 Qualification Type">C2</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.3 Minimum Time: Total">C3</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.4 Minimum Time: WIL">C4</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.5 HEQF Indicator">C5</th>
-                            <th style="background:#D1D5DB;font-size:11px;border-right:2px solid #374151" title="5.1.6 Total Subsidy">C6</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualIdCol || '_001')}</th>
+                            <th class="rule38-name" style="background:#AED581;font-size:11px">${escapeHtml(r.qualNameCol || '_003')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualApprovalCol || '_004')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualTypeCol || '_005')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeTotalCol || '_053')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeWilCol || '_054')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualHeqfCol || '_084')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualTotalSubsidyCol || '_090')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
+                            <th class="rule38-name" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmNameCol || 'Authorised_Qualification_Name')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmQualTypeCol || 'HEQF_Qual_Type')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmMinTimeTotalCol || 'Total2')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmWilCol || 'WIL_EL2')}</th>
+                            <th class="rule38-accred" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmAccreditationCol || 'CHE_HEQC_Accreditation_Approval_Ref_Nr')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">${escapeHtml(r.pqmTotalSubsidyCol || 'Total2')}</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px">Review</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.2 Qualification Type">C2</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.3 Minimum Time: Total">C3</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.4 Minimum Time: WIL">C4</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.5 HEQF Indicator">C5</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px;border-right:2px solid #374151" title="5.1.6 Total Subsidy">C6</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${pageRows.map(row => `
                         <tr style="${row.needsReview ? 'background:#fff8e1' : row.validationResult === 'PASS' ? 'background:#f3fff3' : 'background:#fff3f3'}" title="Population rule: ${escapeHtml(row.populationClassificationNote || '')} | Match: ${escapeHtml(row.matchNote || '')}">
                             <td style="text-align:center">${row.validationNumber}</td>
-                            <td><strong>${escapeHtml(row.qualCode || '')}</strong></td>
-                            <td>${escapeHtml(row.qualName || '')}</td>
-                            <td>${escapeHtml(row.approvalStatus || '')}</td>
-                            <td>${escapeHtml(row.qualType || '')}</td>
-                            <td>${escapeHtml(row.minTimeTotal || '')}</td>
-                            <td>${escapeHtml(row.minTimeWIL || '')}</td>
-                            <td>${escapeHtml(row.heqfIndicator || '')}</td>
-                            <td>${escapeHtml(row.totalSubsidy || '')}</td>
-                            <td style="font-weight:700;color:${(row.populationType || 'Undergraduate') === 'Postgraduate' ? '#1B5E20' : '#1565C0'}">${escapeHtml(row.populationType || 'Undergraduate')}</td>
-                            <td>${escapeHtml(row.qualCode || '')}</td>
-                            <td>${escapeHtml(row.cesmCode || '')}</td>
-                            <td style="${!row.pqmName ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmName ? escapeHtml(row.pqmName) : 'Not found in PQM'}</td>
-                            <td>${escapeHtml(row.pqmQualType || '')}</td>
-                            <td>${escapeHtml(row.pqmCesmCode || '')}</td>
-                            <td>${escapeHtml(row.pqmCesmCode1 || '')}</td>
-                            <td>${escapeHtml(row.pqmMinTimeTotal || '')}</td>
-                            <td>${escapeHtml(row.pqmWIL || '')}</td>
-                            <td style="${!row.pqmAccreditation ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmAccreditation ? escapeHtml(row.pqmAccreditation) : 'N/A'}</td>
-                            <td>${escapeHtml(row.pqmTotalSubsidy || '')}</td>
-                            <td style="text-align:center">${row.needsReview ? '<span class="badge badge--warning">YES</span>' : '<span class="badge badge--neutral">NO</span>'}</td>
-                            <td style="text-align:center">${ctrlBadge(row.c2_TypeMatch)}</td>
-                            <td style="text-align:center">${ctrlBadge(row.c3_MinTimeMatch)}</td>
-                            <td style="text-align:center">${ctrlBadge(row.c4_WILMatch)}</td>
-                            <td style="text-align:center" title="Expected: ${escapeHtml(row.c5_ExpectedHeqf || '')} | Actual: ${escapeHtml(row.heqfIndicator || '')}">${ctrlBadge(row.c5_HeqfMatch)}</td>
-                            <td style="text-align:center">${ctrlBadge(row.c6_SubsidyMatch)}</td>
-                            <td style="text-align:center"><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
-                            <td style="font-size:11px;color:${row.needsReview ? '#92400e' : row.validationResult === 'PASS' ? '#166534' : '#991b1b'}">${escapeHtml(getRule38ResultReason(row))}</td>
+                            <td class="rule38-code"><strong>${escapeHtml(row.qualCode || '')}</strong></td>
+                            <td class="rule38-name">${escapeHtml(row.qualName || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.approvalStatus || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.qualType || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.minTimeTotal || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.minTimeWIL || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.heqfIndicator || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.totalSubsidy || '')}</td>
+                            <td class="rule38-code" style="font-weight:700;color:${(row.populationType || 'Undergraduate') === 'Postgraduate' ? '#1B5E20' : '#1565C0'}">${escapeHtml(row.populationType || 'Undergraduate')}</td>
+                            <td class="rule38-name" style="${!row.pqmName ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmName ? escapeHtml(row.pqmName) : 'Not found in PQM'}</td>
+                            <td class="rule38-code">${escapeHtml(row.pqmQualType || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.pqmMinTimeTotal || '')}</td>
+                            <td class="rule38-code">${escapeHtml(row.pqmWIL || '')}</td>
+                            <td class="rule38-accred" style="${!row.pqmAccreditation ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmAccreditation ? escapeHtml(row.pqmAccreditation) : 'N/A'}</td>
+                            <td class="rule38-code">${escapeHtml(row.pqmTotalSubsidy || '')}</td>
+                            <td class="rule38-code" style="text-align:center">${row.needsReview ? '<span class="badge badge--warning">YES</span>' : '<span class="badge badge--neutral">NO</span>'}</td>
+                            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c2_TypeMatch)}</td>
+                            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c3_MinTimeMatch)}</td>
+                            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c4_WILMatch)}</td>
+                            <td class="rule38-code" style="text-align:center" title="Expected: ${escapeHtml(row.c5_ExpectedHeqf || '')} | Actual: ${escapeHtml(row.heqfIndicator || '')}">${ctrlBadge(row.c5_HeqfMatch)}</td>
+                            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c6_SubsidyMatch)}</td>
+                            <td class="rule38-result" style="text-align:center"><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
+                            <td class="rule38-reason" style="font-size:11px;color:${row.needsReview ? '#92400e' : row.validationResult === 'PASS' ? '#166534' : '#991b1b'}">${escapeHtml(getRule38ResultReason(row))}</td>
                         </tr>`).join('')}
                     </tbody>
                 </table>
@@ -1558,9 +1522,9 @@ function renderValidationResults(r) {
     el.classList.remove('empty-state');
     el.innerHTML = `
         ${renderSectionHeader(
-            'Rule 38: QUAL vs CESM vs PQM Validation',
-            `Database ${escapeHtml(r.database)} | QUAL: ${escapeHtml(r.qualTable || '')} | CESM: ${escapeHtml(r.cesmTable || '')} | PQM: ${escapeHtml(r.pqmTable || '')}`,
-            `Scope: ${escapeHtml(r.qualTable || 'dbo_QUAL')}.${escapeHtml(r.qualApprovalCol || '_004')} = ${escapeHtml(r.qualApprovalValue || 'A')}<br>Name check: QUAL.${escapeHtml(r.qualNameCol || '_003')} = PQM.${escapeHtml(r.pqmNameCol || 'Authorised_Qualification_Name')}<br>CESM check: CESM.${escapeHtml(r.cesmCodeCol || '_006')} = PQM.${escapeHtml(r.pqmCesmCode1Col || 'CESM_CODE1')} or PQM.${escapeHtml(r.pqmCesmCodeCol || 'CESM_CODE')}<br>Run: ${escapeHtml(r.timestamp)}`
+            'Rule 38: QUAL vs PQM Validation',
+            `Database ${escapeHtml(r.database)} | QUAL: ${escapeHtml(r.qualTable || '')} | PQM: ${escapeHtml(r.pqmTable || '')}`,
+            `Scope: ${escapeHtml(r.qualTable || 'dbo_QUAL')}.${escapeHtml(r.qualApprovalCol || '_004')} = ${escapeHtml(r.qualApprovalValue || 'A')}<br>Match logic: QUAL.${escapeHtml(r.qualNameCol || '_003')} and QUAL.${escapeHtml(r.qualTypeCol || '_005')} must align to the same PQM row before controls 5.1.2-5.1.6 are evaluated.<br>Run: ${escapeHtml(r.timestamp)}`
         )}
         ${previewBanner}
         <div class="stats-grid">
@@ -1620,7 +1584,7 @@ function renderExceptions(r) {
     el.classList.remove('empty-state');
     const failRows = (r.validationRows || []).filter(row => row.validationResult === 'FAIL');
     if (failRows.length === 0) {
-        el.innerHTML = `${renderSectionHeader('Rule 38 Exceptions', 'QUAL vs CESM vs PQM mismatches', 'Exceptions: 0')}
+        el.innerHTML = `${renderSectionHeader('Rule 38 Exceptions', 'QUAL vs PQM mismatches', 'Exceptions: 0')}
             <div class="alert alert--success">No exceptions - all approved QUAL records passed controls 5.1.2-5.1.6.</div>`;
         return;
     }
@@ -1628,76 +1592,67 @@ function renderExceptions(r) {
     const rows = failRows.slice(0, 10).map((row, i) => `
         <tr style="background:${i % 2 === 0 ? '#fff3f3' : '#fff7f7'}">
             <td style="text-align:center">${row.validationNumber}</td>
-            <td><strong>${escapeHtml(row.qualCode || '')}</strong></td>
-            <td>${escapeHtml(row.qualName || '')}</td>
-            <td>${escapeHtml(row.approvalStatus || '')}</td>
-            <td>${escapeHtml(row.qualType || '')}</td>
-            <td>${escapeHtml(row.minTimeTotal || '')}</td>
-            <td>${escapeHtml(row.minTimeWIL || '')}</td>
-            <td>${escapeHtml(row.heqfIndicator || '')}</td>
-            <td>${escapeHtml(row.totalSubsidy || '')}</td>
-            <td style="font-weight:700;color:${(row.populationType || 'Undergraduate') === 'Postgraduate' ? '#1B5E20' : '#1565C0'}">${escapeHtml(row.populationType || 'Undergraduate')}</td>
-            <td>${escapeHtml(row.qualCode || '')}</td>
-            <td>${escapeHtml(row.cesmCode || '')}</td>
-            <td style="${!row.pqmName ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmName ? escapeHtml(row.pqmName) : 'Not found in PQM'}</td>
-            <td>${escapeHtml(row.pqmQualType || '')}</td>
-            <td>${escapeHtml(row.pqmCesmCode || '')}</td>
-            <td>${escapeHtml(row.pqmCesmCode1 || '')}</td>
-            <td>${escapeHtml(row.pqmMinTimeTotal || '')}</td>
-            <td>${escapeHtml(row.pqmWIL || '')}</td>
-            <td style="${!row.pqmAccreditation ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmAccreditation ? escapeHtml(row.pqmAccreditation) : 'N/A'}</td>
-            <td>${escapeHtml(row.pqmTotalSubsidy || '')}</td>
-            <td style="text-align:center">${row.needsReview ? '<span class="badge badge--warning">YES</span>' : '<span class="badge badge--neutral">NO</span>'}</td>
-            <td style="text-align:center">${ctrlBadge(row.c2_TypeMatch)}</td>
-            <td style="text-align:center">${ctrlBadge(row.c3_MinTimeMatch)}</td>
-            <td style="text-align:center">${ctrlBadge(row.c4_WILMatch)}</td>
-            <td style="text-align:center" title="Expected: ${escapeHtml(row.c5_ExpectedHeqf || '')} | Actual: ${escapeHtml(row.heqfIndicator || '')}">${ctrlBadge(row.c5_HeqfMatch)}</td>
-            <td style="text-align:center">${ctrlBadge(row.c6_SubsidyMatch)}</td>
-            <td style="text-align:center"><span class="badge badge--fail">${escapeHtml(row.validationResult)}</span></td>
-            <td style="font-size:11px;color:#991b1b">${escapeHtml(getRule38ResultReason(row))}</td>
+            <td class="rule38-code"><strong>${escapeHtml(row.qualCode || '')}</strong></td>
+            <td class="rule38-name">${escapeHtml(row.qualName || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.approvalStatus || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.qualType || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.minTimeTotal || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.minTimeWIL || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.heqfIndicator || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.totalSubsidy || '')}</td>
+            <td class="rule38-code" style="font-weight:700;color:${(row.populationType || 'Undergraduate') === 'Postgraduate' ? '#1B5E20' : '#1565C0'}">${escapeHtml(row.populationType || 'Undergraduate')}</td>
+            <td class="rule38-name" style="${!row.pqmName ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmName ? escapeHtml(row.pqmName) : 'Not found in PQM'}</td>
+            <td class="rule38-code">${escapeHtml(row.pqmQualType || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.pqmMinTimeTotal || '')}</td>
+            <td class="rule38-code">${escapeHtml(row.pqmWIL || '')}</td>
+            <td class="rule38-accred" style="${!row.pqmAccreditation ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmAccreditation ? escapeHtml(row.pqmAccreditation) : 'N/A'}</td>
+            <td class="rule38-code">${escapeHtml(row.pqmTotalSubsidy || '')}</td>
+            <td class="rule38-code" style="text-align:center">${row.needsReview ? '<span class="badge badge--warning">YES</span>' : '<span class="badge badge--neutral">NO</span>'}</td>
+            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c2_TypeMatch)}</td>
+            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c3_MinTimeMatch)}</td>
+            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c4_WILMatch)}</td>
+            <td class="rule38-code" style="text-align:center" title="Expected: ${escapeHtml(row.c5_ExpectedHeqf || '')} | Actual: ${escapeHtml(row.heqfIndicator || '')}">${ctrlBadge(row.c5_HeqfMatch)}</td>
+            <td class="rule38-code" style="text-align:center">${ctrlBadge(row.c6_SubsidyMatch)}</td>
+            <td class="rule38-result" style="text-align:center"><span class="badge badge--fail">${escapeHtml(row.validationResult)}</span></td>
+            <td class="rule38-reason" style="font-size:11px;color:#991b1b">${escapeHtml(getRule38ResultReason(row))}</td>
         </tr>`).join('');
 
     el.innerHTML = `
-        ${renderSectionHeader('Rule 38 Exceptions', 'Records failing one or more controls after QUAL -> CESM -> PQM matching', `Exceptions: ${failRows.length.toLocaleString()}`)}
-        <div class="results-table-shell">
+        ${renderSectionHeader('Rule 38 Exceptions', 'Records failing one or more controls after QUAL -> PQM matching', `Exceptions: ${failRows.length.toLocaleString()}`)}
+        <div class="results-table-shell rule38-results-shell">
             <div class="table-wrapper">
-                <table class="data-table rule11-table" style="font-size:0.82rem">
+                <table class="data-table rule38-results-table" style="font-size:0.82rem">
                     <thead>
                         <tr>
                             <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
                             <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.qualTable || 'dbo_QUAL')}</th>
-                            <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.cesmTable || 'dbo_CESM')}</th>
-                            <th colspan="8" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.pqmTable || 'PQM')}</th>
+                            <th colspan="6" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">${escapeHtml(r.pqmTable || 'PQM')}</th>
                             <th colspan="6" style="background:#374151;color:#fff;text-align:center;border-right:2px solid #fff">Rule 38 Controls</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Exception Reason</th>
+                            <th rowspan="2" class="rule38-result" style="vertical-align:middle;text-align:center">Result</th>
+                            <th rowspan="2" class="rule38-reason" style="vertical-align:middle;text-align:center">Exception Reason</th>
                         </tr>
                         <tr>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualIdCol || '_001')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualNameCol || '_003')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualApprovalCol || '_004')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualTypeCol || '_005')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeTotalCol || '_053')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeWilCol || '_054')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualHeqfCol || '_084')}</th>
-                            <th style="background:#AED581;font-size:11px">${escapeHtml(r.qualTotalSubsidyCol || '_090')}</th>
-                            <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
-                            <th style="background:#80DEEA;font-size:11px">${escapeHtml(r.cesmIdCol || '_001')}</th>
-                            <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">${escapeHtml(r.cesmCodeCol || '_006')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmNameCol || 'Authorised_Qualification_Name')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmQualTypeCol || 'HEQF_Qual_Type')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmCesmCodeCol || 'CESM_CODE')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmCesmCode1Col || 'CESM_CODE1')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmMinTimeTotalCol || 'Total2')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmWilCol || 'WIL_EL2')}</th>
-                            <th style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmAccreditationCol || 'CHE_HEQC_Accreditation_Approval_Ref_Nr')}</th>
-                            <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">${escapeHtml(r.pqmTotalSubsidyCol || 'Total2')}</th>
-                            <th style="background:#D1D5DB;font-size:11px">Review</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.2">C2</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.3">C3</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.4">C4</th>
-                            <th style="background:#D1D5DB;font-size:11px" title="5.1.5">C5</th>
-                            <th style="background:#D1D5DB;font-size:11px;border-right:2px solid #374151" title="5.1.6">C6</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualIdCol || '_001')}</th>
+                            <th class="rule38-name" style="background:#AED581;font-size:11px">${escapeHtml(r.qualNameCol || '_003')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualApprovalCol || '_004')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualTypeCol || '_005')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeTotalCol || '_053')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualMinTimeWilCol || '_054')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualHeqfCol || '_084')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px">${escapeHtml(r.qualTotalSubsidyCol || '_090')}</th>
+                            <th class="rule38-code" style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
+                            <th class="rule38-name" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmNameCol || 'Authorised_Qualification_Name')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmQualTypeCol || 'HEQF_Qual_Type')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmMinTimeTotalCol || 'Total2')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmWilCol || 'WIL_EL2')}</th>
+                            <th class="rule38-accred" style="background:#CE93D8;font-size:10px">${escapeHtml(r.pqmAccreditationCol || 'CHE_HEQC_Accreditation_Approval_Ref_Nr')}</th>
+                            <th class="rule38-code" style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">${escapeHtml(r.pqmTotalSubsidyCol || 'Total2')}</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px">Review</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.2">C2</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.3">C3</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.4">C4</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px" title="5.1.5">C5</th>
+                            <th class="rule38-code" style="background:#D1D5DB;font-size:11px;border-right:2px solid #374151" title="5.1.6">C6</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
@@ -1716,7 +1671,7 @@ function renderCharts(r) {
     const cc = document.getElementById('chartsContent');
     cc.classList.remove('empty-state');
     cc.innerHTML = `
-        ${renderSectionHeader('Rule 38 Visualisation', 'QUAL -> CESM -> PQM validation charts', `Status: ${escapeHtml(r.status)}`)}
+        ${renderSectionHeader('Rule 38 Visualisation', 'QUAL -> PQM validation charts', `Status: ${escapeHtml(r.status)}`)}
         <div class="charts-grid">
             <div class="chart-card"><h4>Overall Pass/Fail</h4><canvas id="chartPassFail"></canvas></div>
             <div class="chart-card"><h4>Exception Rate: ${rate.toFixed(2)}%</h4><canvas id="chartRate"></canvas></div>
@@ -1783,6 +1738,7 @@ function renderDownloads(r) {
                 <button class="btn btn-info" onclick="downloadCsv()">Full CSV</button>
                 <button class="btn btn-info" onclick="downloadExceptionsCsv()">Exceptions CSV</button>
                 ${canUseSql ? '<button class="btn btn-primary" onclick="downloadSql()">SQL Script</button>' : ''}
+                ${canUseSql ? '<button class="btn btn-primary" onclick="downloadRScript()">R Script</button>' : ''}
                 ${r.savedRunId ? `<a href="/Rule38/Run/${r.savedRunId}" class="btn btn-secondary">${canUseSql ? 'Open Saved Run and Sign Off' : 'Open Saved Run'}</a>` : ''}
             </div>
             <div class="download-summary-grid">
@@ -1809,13 +1765,37 @@ async function generateSql() {
         const el = document.getElementById('sqlContent');
         el.classList.remove('empty-state');
         el.innerHTML = `
-            ${renderSectionHeader('Rule 38 SQL Code', 'Generated SQL matches the QUAL -> CESM -> PQM validation formula', `Database: ${escapeHtml(state.database || '')}`)}
+            ${renderSectionHeader('Rule 38 SQL Code', 'Generated SQL matches the QUAL -> PQM validation formula', `Database: ${escapeHtml(state.database || '')}`)}
             <div class="sql-toolbar">
                 <button class="btn btn-sm btn-primary" onclick="copyToClipboard('sqlCode')">Copy</button>
                 <button class="btn btn-sm btn-info" onclick="downloadSql()">Download SQL</button>
             </div>
             <div class="sql-panel"><pre id="sqlCode" class="sql-block">${escapeHtml(result.sql)}</pre></div>`;
         switchTab('sql');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule38/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            ${renderSectionHeader('Rule 38 R Code', 'Generated R script matches the QUAL -> PQM validation formula', `Database: ${escapeHtml(state.database || '')}`)}
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+                <button class="btn btn-sm btn-info" onclick="downloadRScript()">Download R</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">${escapeHtml(result.sql)}</pre></div>`;
+        switchTab('rscript');
     } finally {
         hideSpinner();
     }
@@ -1871,18 +1851,13 @@ function validateConfig() {
     if (!state.server)            missing.push('server');
     if (!state.database)          missing.push('database');
     if (!state.qualTable)         missing.push('QUAL table');
-    if (!state.cesmTable)         missing.push('CESM table');
     if (!state.pqmTable)          missing.push('PQM table');
     if (!state.qualIdCol)         missing.push('QUAL ID column');
     if (!state.qualNameCol)       missing.push('QUAL Name column');
     if (!state.qualApprovalCol)   missing.push('QUAL Approval column');
     if (!state.qualApprovalValue) missing.push('Approval value');
-    if (!state.cesmIdCol)         missing.push('CESM ID column');
-    if (!state.cesmCodeCol)       missing.push('CESM Code column');
     if (!state.pqmNameCol)        missing.push('PQM Name column');
     if (!state.pqmQualTypeCol)    missing.push('PQM Qual Type column');
-    if (!state.pqmCesmCodeCol)    missing.push('PQM CESM Code column');
-    if (!state.pqmCesmCode1Col)   missing.push('PQM CESM Code 1 column');
 
     if (missing.length) {
         if (!state.clientId) setWorkspaceInfo('Select the approved engagement assigned to you before running this rule.', 'warning');
@@ -1904,10 +1879,8 @@ function buildRequest() {
         qualTypeCol: state.qualTypeCol, qualMinTimeTotalCol: state.qualMinTimeTotalCol,
         qualMinTimeWilCol: state.qualMinTimeWilCol, qualHeqfCol: state.qualHeqfCol,
         qualTotalSubsidyCol: state.qualTotalSubsidyCol,
-        cesmTable: state.cesmTable, cesmIdCol: state.cesmIdCol, cesmCodeCol: state.cesmCodeCol,
         pqmTable: state.pqmTable,
         pqmNameCol: state.pqmNameCol, pqmQualTypeCol: state.pqmQualTypeCol,
-        pqmCesmCodeCol: state.pqmCesmCodeCol, pqmCesmCode1Col: state.pqmCesmCode1Col,
         pqmMinTimeTotalCol: state.pqmMinTimeTotalCol, pqmWilCol: state.pqmWilCol,
         pqmAccreditationCol: state.pqmAccreditationCol, pqmTotalSubsidyCol: state.pqmTotalSubsidyCol,
         heqfIndicatorCodesCsv: state.heqfIndicatorCodesCsv,
@@ -1923,7 +1896,7 @@ function fileStamp() {
 
 async function downloadExcel() {
     if (!state.validationResult) { alert('Run validation first.'); return; }
-    await downloadPost('/Rule38/DownloadExcel', state.validationResult, `Rule38_QUAL_CESM_PQM_Validation_${fileStamp()}.xlsx`);
+    await downloadPost('/Rule38/DownloadExcel', state.validationResult, `Rule38_QUAL_PQM_Validation_${fileStamp()}.xlsx`);
 }
 async function downloadCsv() {
     if (!state.validationResult) { alert('Run validation first.'); return; }
@@ -1931,13 +1904,26 @@ async function downloadCsv() {
 }
 async function downloadExceptionsCsv() {
     if (!state.validationResult) { alert('Run validation first.'); return; }
-    await downloadPost('/Rule38/DownloadExceptionsCsv', state.validationResult, `Rule38_QUAL_CESM_PQM_Exceptions_${fileStamp()}.csv`);
+    await downloadPost('/Rule38/DownloadExceptionsCsv', state.validationResult, `Rule38_QUAL_PQM_Exceptions_${fileStamp()}.csv`);
 }
 async function downloadSql() {
     if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can download the SQL script.', 'error'); return; }
     if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. SQL download is disabled.', 'error'); return; }
     if (!validateConfig()) return;
-    await downloadPost('/Rule38/DownloadSql', buildRequest(), `Rule38_QUAL_CESM_PQM_Validation_${fileStamp()}.sql`);
+    await downloadPost('/Rule38/DownloadSql', buildRequest(), `Rule38_QUAL_PQM_Validation_${fileStamp()}.sql`);
+}
+async function downloadRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can download the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script download is disabled.', 'error'); return; }
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule38/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        saveBlob(new Blob([result.sql || ''], { type: 'text/plain;charset=utf-8' }), `Rule38_QUAL_PQM_Validation_${fileStamp()}.R`);
+    } finally {
+        hideSpinner();
+    }
 }
 
 async function downloadAll() {
@@ -1947,6 +1933,7 @@ async function downloadAll() {
     if (document.getElementById('chkCsv')?.checked) tasks.push(() => downloadCsv());
     if (document.getElementById('chkExceptionsCsv')?.checked) tasks.push(() => downloadExceptionsCsv());
     if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql')?.checked) tasks.push(() => downloadSql());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkRScript')?.checked) tasks.push(() => downloadRScript());
     if (!tasks.length) { alert('Select at least one download format.'); return; }
     for (const task of tasks) await task();
 }
@@ -2061,12 +2048,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const colSelects = [
         'qualIdColSelect','qualNameColSelect','qualApprovalColSelect','qualTypeColSelect',
         'qualMinTimeTotalColSelect','qualMinTimeWilColSelect','qualHeqfColSelect','qualTotalSubsidyColSelect',
-        'cesmIdColSelect','cesmCodeColSelect',
-        'pqmNameColSelect','pqmQualTypeColSelect','pqmCesmCodeColSelect','pqmCesmCode1ColSelect','pqmMinTimeTotalColSelect','pqmWilColSelect',
+        'pqmNameColSelect','pqmQualTypeColSelect','pqmMinTimeTotalColSelect','pqmWilColSelect',
         'pqmAccreditationColSelect','pqmTotalSubsidyColSelect'
     ];
     colSelects.forEach(id => {
-        document.getElementById(id).addEventListener('change', async () => {
+        document.getElementById(id)?.addEventListener('change', async () => {
             syncStateFromSelects();
             await markWorkspaceDirty();
         });

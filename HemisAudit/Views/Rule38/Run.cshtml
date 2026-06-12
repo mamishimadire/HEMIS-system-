@@ -258,15 +258,15 @@
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Rule</div>
-                    <div>Rule 38 - Enhanced QUAL -> CESM -> PQM Validation (5.1.1-5.1.6)</div>
+                    <div>Rule 38 - QUAL -> PQM Validation (5.1.1-5.1.6)</div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">QUAL Table</div>
                     <div>@Model.Summary.QualTable (ID: @Model.Summary.QualIdCol, Name: @Model.Summary.QualNameCol)</div>
                 </div>
                 <div>
-                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">CESM Table</div>
-                    <div>@Model.Summary.CesmTable (ID: @Model.Summary.CesmIdCol, Code: @Model.Summary.CesmCodeCol)</div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">QUAL CESM Code Column</div>
+                    <div>@(string.IsNullOrWhiteSpace(Model.Summary.QualCesmCodeCol) ? "_006" : Model.Summary.QualCesmCodeCol)</div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Approval Filter</div>
@@ -379,8 +379,7 @@
                         <thead>
                             <tr>
                                 <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
-                                <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.QualTable</th>
-                                <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.CesmTable</th>
+                                <th colspan="10" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.QualTable</th>
                                 <th colspan="8" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.PqmTable</th>
                                 <th colspan="6" style="background:#374151;color:#fff;text-align:center;border-right:2px solid #fff">Rule 38 Controls</th>
                                 <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
@@ -395,9 +394,8 @@
                                 <th style="background:#AED581;font-size:11px">@Model.Summary.QualMinTimeWilCol</th>
                                 <th style="background:#AED581;font-size:11px">@Model.Summary.QualHeqfCol</th>
                                 <th style="background:#AED581;font-size:11px">@Model.Summary.QualTotalSubsidyCol</th>
+                                <th style="background:#AED581;font-size:11px">@(string.IsNullOrWhiteSpace(Model.Summary.QualCesmCodeCol) ? "_006" : Model.Summary.QualCesmCodeCol)</th>
                                 <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
-                                <th style="background:#80DEEA;font-size:11px">@Model.Summary.CesmIdCol</th>
-                                <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">@Model.Summary.CesmCodeCol</th>
                                 <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmNameCol</th>
                                 <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmQualTypeCol</th>
                                 <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmCesmCodeCol</th>
@@ -492,8 +490,7 @@
                         <thead>
                             <tr>
                                 <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
-                                <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.QualTable</th>
-                                <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.CesmTable</th>
+                                <th colspan="10" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.QualTable</th>
                                 <th colspan="8" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.PqmTable</th>
                                 <th colspan="6" style="background:#374151;color:#fff;text-align:center;border-right:2px solid #fff">Rule 38 Controls</th>
                                 <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
@@ -508,9 +505,8 @@
                                 <th style="background:#AED581;font-size:11px">@Model.Summary.QualMinTimeWilCol</th>
                                 <th style="background:#AED581;font-size:11px">@Model.Summary.QualHeqfCol</th>
                                 <th style="background:#AED581;font-size:11px">@Model.Summary.QualTotalSubsidyCol</th>
+                                <th style="background:#AED581;font-size:11px">@(string.IsNullOrWhiteSpace(Model.Summary.QualCesmCodeCol) ? "_006" : Model.Summary.QualCesmCodeCol)</th>
                                 <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
-                                <th style="background:#80DEEA;font-size:11px">@Model.Summary.CesmIdCol</th>
-                                <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">@Model.Summary.CesmCodeCol</th>
                                 <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmNameCol</th>
                                 <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmQualTypeCol</th>
                                 <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmCesmCodeCol</th>

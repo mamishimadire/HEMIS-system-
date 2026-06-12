@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 46 - Foundation Student Chain Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -949,6 +949,24 @@ window.r46Tab = function(tab) {
     if (st.clientId) {
         loadWorkspace().catch(function(error) {
             setWorkspaceMessage(error.message, 'error');
+        });
+    }
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
         });
     }
 })();

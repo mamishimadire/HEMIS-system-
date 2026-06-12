@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 47 – QUAL vs H16QUAL Agreement";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -53,7 +53,7 @@
         <div>
             <h1 class="rule-header__title">HEMIS RULE 47: QUAL vs H16QUAL Agreement</h1>
             <p class="rule-header__sub">
-                Full outer reconciliation — <code>QUAL</code> vs <code>H16QUAL</code>.
+                Full outer reconciliation — <code>QUAL</code> vs <code>H16QUAL</code>.
                 Join key: <code>_001</code> (QUAL) &harr; <code>_001</code> (H16QUAL).
             </p>
         </div>
@@ -202,10 +202,10 @@
             <div id="r47AnalysisPane"><div class="empty-state"><p>Run Rule 47 validation to see results here.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r47-flagged">
-            <div id="r47FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
+            <div id="r47FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r47-clear">
-            <div id="r47ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
+            <div id="r47ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r47-sql">
             <textarea id="r47SqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
@@ -373,7 +373,7 @@ window.r47Tab = function(tab) {
             unspin();
             if (!d.success) { setStatus('r47ConnOut', d.error || 'Connection failed.', 'error'); return; }
             fillSel('r47Db', d.databases || []);
-            setStatus('r47ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
+            setStatus('r47ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
             if ((d.databases || []).length) r47LoadTables();
         }).catch(function(e) { unspin(); setStatus('r47ConnOut', e.message, 'error'); });
     };
@@ -389,7 +389,7 @@ window.r47Tab = function(tab) {
             fillSel('r47StudTable',  tables, d.autoStudTable  || 'QUAL');
             fillSel('r47AuditTable', tables, d.autoAuditTable || 'H16QUAL');
             show('body-r47-tables', true); show('body-r47-colmap', true);
-            setStatus('r47TableOut', 'Loaded ' + tables.length + ' tables — QUAL and H16QUAL auto-detected.', 'success');
+            setStatus('r47TableOut', 'Loaded ' + tables.length + ' tables — QUAL and H16QUAL auto-detected.', 'success');
             st.pairs = DEF_PAIRS.slice();
             return Promise.all([
                 r47LoadColsInner('stud',  gv('r47StudTable')),
@@ -637,7 +637,7 @@ window.r47Tab = function(tab) {
         setHtml('r47FlaggedPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #C0392B">' +
             '<strong>FLAGGED</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING rows.' +
-            '</div>' + buildTable(excRows, pairs, 'No exceptions — all qualifications agree.'));
+            '</div>' + buildTable(excRows, pairs, 'No exceptions — all qualifications agree.'));
 
         setHtml('r47ClearPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #1E8449">' +
@@ -669,8 +669,8 @@ window.r47Tab = function(tab) {
                     }
                 }
                 f = f || {};
-                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
-                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
+                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
+                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
                 var matchVal = f.match || f.Match || 'MISSING';
                 var mi = matchVal === 'AGREE' ? '<span style="color:#1E8449">&#10003;</span>' : matchVal === 'DISAGREE' ? '<span style="color:#C0392B">&#x2717;</span>' : '<span style="color:#E67E22">?</span>';
                 return '<td>' + esc(sv) + '</td><td class="oc">' + esc(av) + '</td><td>' + mi + '</td>';
@@ -686,5 +686,23 @@ window.r47Tab = function(tab) {
     applySummary(null, false);
     updateButtons();
     if (st.clientId) loadWorkspace();
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>

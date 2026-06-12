@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 13 - CESM Qualification Population Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -181,6 +181,7 @@
             <button type="button" class="btn btn-info" id="verifyBtn">Verify Tables</button>
             <button type="button" class="btn btn-success" id="runBtn">Run Rule 13</button>
             <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+                <button type="button" class="btn btn-primary" id="rScriptBtn">Generate R Script</button>
             <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
         </div>
     }
@@ -191,6 +192,7 @@
             <button class="tab-btn" type="button" data-tab="results">Results</button>
             <button class="tab-btn" type="button" data-tab="charts">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+                <button class="tab-btn" type="button" data-tab="rscript">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
         </div>
         <div class="tab-pane active" data-tab-panel="analysis"></div>
@@ -198,6 +200,9 @@
         <div class="tab-pane" data-tab-panel="charts"></div>
         <div class="tab-pane" data-tab-panel="sql">
             <textarea id="sqlText" rows="18" readonly></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="rscript" id="rscriptPane">
+            <div class="empty-state" style="padding:24px;text-align:center"><p>Click "Generate R Script" to generate the R script.</p></div>
         </div>
         <div class="tab-pane" data-tab-panel="downloads">
             <div class="alert alert--info" style="margin-bottom:16px">
@@ -376,6 +381,7 @@ window.toggleAccordion = function (section) {
             { target: 'verifyBtn', disabled: !canEdit || signoffLocked },
             { target: 'runBtn', disabled: !canEdit || signoffLocked },
             { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
+            { target: 'rScriptBtn', disabled: !canEdit || signoffLocked },
             { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || state.hasPendingValidation },
             { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !hasUnsavedValidation },
             {
@@ -1103,6 +1109,7 @@ window.toggleAccordion = function (section) {
         setWorkspaceState(err.message, 'error');
     }));
     document.getElementById('sqlBtn')?.addEventListener('click', () => generateSql().catch(err => {
+    document.getElementById('rScriptBtn')?.addEventListener('click', () => generateRScript().catch(err => setWorkspaceState(err.message, 'error')));
         hideSpinner();
         els.sqlText.value = err.message;
     }));
@@ -1125,7 +1132,19 @@ window.toggleAccordion = function (section) {
     document.getElementById('downloadExcelBtn')?.addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule13_CESM_Qualification_Population.xlsx').catch(err => setWorkspaceState(err.message, 'error')));
     document.getElementById('downloadCsvBtn')?.addEventListener('click', () => state.summary && downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, 'Rule13_CESM_Qualification_Population.csv').catch(err => setWorkspaceState(err.message, 'error')));
     document.getElementById('downloadSqlBtn')?.addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), 'Rule13_CESM_Qualification_Population.sql').catch(err => setWorkspaceState(err.message, 'error')));
-    document.getElementById('downloadAllBtn')?.addEventListener('click', async () => {
+        async function generateRScript() {
+        showSpinner('Generating R script...');
+        try {
+            const data = await postJson(`${apiBasePath}/GenerateRScript`, getRequest());
+            if (!data.success) throw new Error(data.error || 'R script generation failed.');
+            const pane = document.getElementById('rscriptPane');
+            pane.innerHTML = `<div style="padding:8px 0 8px"><button class="btn btn-sm btn-primary" onclick="(function(){const e=document.getElementById('rCode');if(e)navigator.clipboard.writeText(e.textContent)})()">Copy</button></div><pre id="rCode" style="white-space:pre-wrap;font-family:monospace;font-size:12px;padding:12px;overflow:auto;max-height:600px">${escapeHtml(data.sql)}</pre>`;
+            setActiveTab('rscript');
+        } finally {
+            hideSpinner();
+        }
+    }
+document.getElementById('downloadAllBtn')?.addEventListener('click', async () => {
         try {
             if (!state.summary) throw new Error('Run Rule 13 first.');
             if (document.getElementById('chkExcel')?.checked) await downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, 'Rule13_CESM_Qualification_Population.xlsx');
@@ -1146,8 +1165,25 @@ window.toggleAccordion = function (section) {
     } else if (isResultsOnlyRole) {
         setWorkspaceState('Select an engagement to load the saved Rule 13 results.', 'info');
     }
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>
-
 
 

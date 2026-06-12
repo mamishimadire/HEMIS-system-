@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 57 - Registration Documentation Agreement";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -123,32 +123,32 @@
             <div class="accordion-body" id="body-columns" style="display:none">
                 <div class="info-box info-box--dark">
                     <strong>Matching Logic:</strong>
-                    Filter <code>dbo_CREG._064</code> = configured value → LEFT JOIN <code>dbo_STUD</code> on student ID (<code>_007</code>).
+                    Filter <code>dbo_CREG._064</code> = configured value Ã¢â€ â€™ LEFT JOIN <code>dbo_STUD</code> on student ID (<code>_007</code>).
                     PASS: <code>STUD._024</code> = <code>CREG._064</code>. FAIL: student not found in <code>dbo_STUD</code> or registration type mismatch.
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
-                        <label>STUD — Student ID Column <span class="auto-tag" id="studIdAutoTag" style="display:none">auto-selected</span></label>
+                        <label>STUD — Student ID Column <span class="auto-tag" id="studIdAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studIdColSelect"><option value="">Select column (_007)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>STUD — Code Column <span class="auto-tag" id="studCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>STUD — Code Column <span class="auto-tag" id="studCodeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studCodeColSelect"><option value="">Select column (_001)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>STUD — Registration Type Column <span class="auto-tag" id="studRegTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>STUD — Registration Type Column <span class="auto-tag" id="studRegTypeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studRegTypeColSelect"><option value="">Select column (_024)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>CREG — Student ID Column <span class="auto-tag" id="cregIdAutoTag" style="display:none">auto-selected</span></label>
+                        <label>CREG — Student ID Column <span class="auto-tag" id="cregIdAutoTag" style="display:none">auto-selected</span></label>
                         <select id="cregIdColSelect"><option value="">Select column (_007)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>CREG — Code Column <span class="auto-tag" id="cregCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>CREG — Code Column <span class="auto-tag" id="cregCodeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="cregCodeColSelect"><option value="">Select column (_001)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>CREG — Registration Type Column <span class="auto-tag" id="cregRegTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>CREG — Registration Type Column <span class="auto-tag" id="cregRegTypeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="cregRegTypeColSelect"><option value="">Select column (_064)</option></select>
                     </div>
                     <div class="field-group">
@@ -219,6 +219,7 @@
         <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
         <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
         <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+<button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -229,6 +230,7 @@
             <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+<button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
@@ -243,6 +245,9 @@
         </div>
         <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
             <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-rscript" data-tab-panel="rscript">
+            <div id="rContent" class="empty-state"><p>Click "Generate R Script" to generate the R script.</p></div>
         </div>
         <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state"><p>Run and save validation first, then use the download buttons below.</p></div>
@@ -503,6 +508,7 @@ function renderWorkspaceState() {
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn,   show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateRScriptBtn,   show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
         { target: signoffComment,   disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
@@ -864,7 +870,7 @@ function renderValidationTable(result) {
         <span class="badge badge--pass">PASS: ${pass.toLocaleString()}</span>
         <span class="badge badge--fail">FAIL: ${fail.toLocaleString()}</span>
         <span class="badge badge--neutral">Total: ${rows.length.toLocaleString()}</span>
-        <span style="color:#888;font-size:12px">(Preview — first ${uiPreviewRowLimit} rows)</span>
+        <span style="color:#888;font-size:12px">(Preview — first ${uiPreviewRowLimit} rows)</span>
     </div>
     <table class="data-table">
         <thead><tr>
@@ -878,7 +884,7 @@ function renderValidationTable(result) {
             <td>${escapeHtml(r.cregCode)}</td>
             <td>${escapeHtml(r.cregRegType)}</td>
             <td>${escapeHtml(r.studCode) || '<em style="color:#888">not found</em>'}</td>
-            <td>${escapeHtml(r.studRegType) || '<em style="color:#888">—</em>'}</td>
+            <td>${escapeHtml(r.studRegType) || '<em style="color:#888">—</em>'}</td>
             <td><span class="badge badge--${r.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(r.validationResult)}</span></td>
         </tr>`).join('')}
         </tbody>
@@ -891,14 +897,14 @@ function renderExceptionsTable(result) {
     const exs = result.exceptions || [];
     if (!exs.length) {
         el.className = 'empty-state';
-        el.innerHTML = '<p>No exceptions — all records passed.</p>';
+        el.innerHTML = '<p>No exceptions — all records passed.</p>';
         return;
     }
     el.className = '';
     el.innerHTML = `
     <div class="summary-bar">
         <span class="badge badge--fail">Exceptions: ${exs.length.toLocaleString()}</span>
-        <span style="color:#888;font-size:12px">(Preview — first ${uiPreviewRowLimit} exceptions)</span>
+        <span style="color:#888;font-size:12px">(Preview — first ${uiPreviewRowLimit} exceptions)</span>
     </div>
     <table class="data-table">
         <thead><tr>
@@ -912,7 +918,7 @@ function renderExceptionsTable(result) {
             <td>${escapeHtml(e.cregCode)}</td>
             <td>${escapeHtml(e.cregRegType)}</td>
             <td>${escapeHtml(e.studCode) || '<em style="color:#888">not found</em>'}</td>
-            <td>${escapeHtml(e.studRegType) || '<em style="color:#888">—</em>'}</td>
+            <td>${escapeHtml(e.studRegType) || '<em style="color:#888">—</em>'}</td>
             <td><span class="badge badge--fail">${escapeHtml(e.validationResult)}</span></td>
             <td>${escapeHtml(e.exceptionReason)}</td>
         </tr>`).join('')}
@@ -949,6 +955,28 @@ async function generateSql() {
         switchTab('sql');
     } finally { hideSpinner(); }
 }
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule57/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">`+escapeHtml(result.sql)+`</pre></div>`;
+        switchTab('rscript');
+    } finally {
+        hideSpinner();
+    }
+}
+
 
 function downloadAll() {
     if (!state.currentRunId) { setWorkspaceInfo('Save the workspace before downloading.', 'warning'); return; }
@@ -1026,4 +1054,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.clientId) handleClientChange(state.clientId);
     else renderWorkspaceState();
 });
+    const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 </script>

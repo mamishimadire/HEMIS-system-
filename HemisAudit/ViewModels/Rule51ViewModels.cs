@@ -2,6 +2,13 @@ using HemisAudit.Helpers;
 
 namespace HemisAudit.ViewModels
 {
+    public class Rule51ColumnMapping
+    {
+        public string ValpacColumn { get; set; } = "";
+        public string ProdColumn { get; set; } = "";
+        public string Label { get; set; } = "";
+    }
+
     public class Rule51TableDiscoveryResult
     {
         public bool Success { get; set; }
@@ -26,6 +33,10 @@ namespace HemisAudit.ViewModels
         public string ProdColIdNo    { get; set; } = "IADIDNO";
         public string ProdColQual    { get; set; } = "IAGQUAL";
         public string ProdColYear    { get; set; } = "IAGCYR";
+        public string ValpacCol049   { get; set; } = "_049";
+        public string SaNationalValues { get; set; } = "SA,PR";
+        public string ValpacCol008ZPlaceholders { get; set; } = "ZZZZZZZZZZZZZ";
+        public List<Rule51ColumnMapping> ColumnMappings { get; set; } = new();
     }
 
     public class Rule51VerifyResult
@@ -56,6 +67,10 @@ namespace HemisAudit.ViewModels
         public string ProdColIdNo    { get; set; } = "IADIDNO";
         public string ProdColQual    { get; set; } = "IAGQUAL";
         public string ProdColYear    { get; set; } = "IAGCYR";
+        public string ValpacCol049   { get; set; } = "_049";
+        public string SaNationalValues { get; set; } = "SA,PR";
+        public string ValpacCol008ZPlaceholders { get; set; } = "ZZZZZZZZZZZZZ";
+        public List<Rule51ColumnMapping> ColumnMappings { get; set; } = new();
     }
 
     public class Rule51ControlSummaryItemViewModel
@@ -67,6 +82,13 @@ namespace HemisAudit.ViewModels
         public int PassCount { get; set; }
         public int FailCount { get; set; }
         public string Status { get; set; } = "";
+    }
+
+    public class Rule51ExceptionCategoryViewModel
+    {
+        public string Category { get; set; } = "";
+        public string Description { get; set; } = "";
+        public int Count { get; set; }
     }
 
     public class Rule51ValidationRowRecord
@@ -91,6 +113,8 @@ namespace HemisAudit.ViewModels
         public int PreviewLimit { get; set; }
         public int PassCount { get; set; }
         public int FailCount { get; set; }
+        public int ForeignNationalExemptCount { get; set; }
+        public int PassWithReviewCount { get; set; }
         public decimal ExceptionRate { get; set; }
         public string Status { get; set; } = "";
         public string Timestamp { get; set; } = "";
@@ -105,12 +129,17 @@ namespace HemisAudit.ViewModels
         public string ProdColIdNo   { get; set; } = "IADIDNO";
         public string ProdColQual   { get; set; } = "IAGQUAL";
         public string ProdColYear   { get; set; } = "IAGCYR";
+        public string ValpacCol049  { get; set; } = "_049";
+        public string SaNationalValues { get; set; } = "SA,PR";
+        public string ValpacCol008ZPlaceholders { get; set; } = "ZZZZZZZZZZZZZ";
+        public List<Rule51ColumnMapping> ColumnMappings { get; set; } = new();
         public string TableLinkageText { get; set; } = "";
         public string RuleModeText { get; set; } = "";
         public List<string> ProcedureSteps { get; set; } = new();
         public int ClientId { get; set; }
         public int? SavedRunId { get; set; }
         public List<Rule51ControlSummaryItemViewModel> ControlSummaries { get; set; } = new();
+        public List<Rule51ExceptionCategoryViewModel> ExceptionCategories { get; set; } = new();
         public List<Rule51ValidationRowRecord> ReviewRows { get; set; } = new();
         public string? Warning { get; set; }
         public string? Error { get; set; }
@@ -134,6 +163,10 @@ namespace HemisAudit.ViewModels
         public string ProdColIdNo   { get; set; } = "IADIDNO";
         public string ProdColQual   { get; set; } = "IAGQUAL";
         public string ProdColYear   { get; set; } = "IAGCYR";
+        public string ValpacCol049  { get; set; } = "_049";
+        public string SaNationalValues { get; set; } = "SA,PR";
+        public string ValpacCol008ZPlaceholders { get; set; } = "ZZZZZZZZZZZZZ";
+        public List<Rule51ColumnMapping> ColumnMappings { get; set; } = new();
         public string CurrentUserEngagementRole { get; set; } = "";
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff { get; set; }

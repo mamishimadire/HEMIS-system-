@@ -1,4 +1,4 @@
-﻿using ClosedXML.Excel;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -218,6 +218,9 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> GenerateSql([FromBody] Rule61ValidationRequest request) =>
             Json(new Rule61SqlResult { Success = true, Sql = _rule61.GenerateSql(request) });
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule61ValidationRequest request) =>
+            Json(new Rule61SqlResult { Success = true, Sql = Rule61RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule61") });
 
         [HttpPost]
         public async Task<IActionResult> SignOffWorkspace([FromBody] Rule61WorkspaceSignoffInputModel model)
@@ -314,7 +317,7 @@ namespace HemisAudit.Controllers
             return File(bytes, "application/sql", $"Rule61_Research_Time_{Ts()}.sql");
         }
 
-        // ── Private helpers ───────────────────────────────────────────────────
+        // â”€â”€ Private helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
 

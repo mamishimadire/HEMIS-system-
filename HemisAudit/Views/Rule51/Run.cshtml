@@ -6,6 +6,25 @@
     var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool o && o;
     var isArchived = ViewBag.IsArchived is bool a && a;
     var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+    var mappings = Model.Summary.ColumnMappings?.Any() == true
+        ? Model.Summary.ColumnMappings
+        : new List<HemisAudit.ViewModels.Rule51ColumnMapping>
+        {
+            new() { ValpacColumn = Model.Summary.ValpacCol007, ProdColumn = Model.Summary.ProdColStNo, Label = "Student No" },
+            new() { ValpacColumn = Model.Summary.ValpacCol008, ProdColumn = Model.Summary.ProdColIdNo, Label = "ID No" },
+            new() { ValpacColumn = Model.Summary.ValpacCol001, ProdColumn = Model.Summary.ProdColQual, Label = "Qualification" },
+            new() { ValpacColumn = Model.Summary.ValpacColYear, ProdColumn = Model.Summary.ProdColYear, Label = "Year" }
+        };
+    var previewWidth = Math.Max(900, (mappings.Count * 180 * 2) + 220);
+    string ValpacAlias(int index) => $"VALPAC_COL_{index + 1}";
+    string ProdAlias(int index) => $"PROD_COL_{index + 1}";
+    string MappingLabel(HemisAudit.ViewModels.Rule51ColumnMapping mapping, bool useProdColumn = false)
+    {
+        var column = useProdColumn ? mapping.ProdColumn : mapping.ValpacColumn;
+        return string.IsNullOrWhiteSpace(mapping.Label) || string.Equals(mapping.Label, column, StringComparison.OrdinalIgnoreCase)
+            ? column
+            : $"{mapping.Label} [{column}]";
+    }
 }
 
 @if (TempData["Success"] != null)
@@ -109,19 +128,23 @@
         <div class="alert alert--warning" style="margin-bottom:12px">Showing a preview of @Model.Summary.PreviewLimit rows. Download Excel or CSV for the full result set.</div>
     }
     <div class="table-wrapper" style="overflow-x:auto">
-        <table class="data-table" style="min-width:900px;font-size:12px;font-family:Consolas,monospace">
+        <table class="data-table" style="min-width:@(previewWidth)px;font-size:12px;font-family:Consolas,monospace">
             <thead>
                 <tr>
-                    <th>#</th>
-                    <th>@Model.Summary.ValpacCol007 (VALPAC)</th>
-                    <th>@Model.Summary.ValpacCol008 (VALPAC)</th>
-                    <th>@Model.Summary.ValpacCol001 (VALPAC)</th>
-                    <th>@Model.Summary.ValpacColYear (VALPAC)</th>
-                    <th>@Model.Summary.ProdColStNo (PROD)</th>
-                    <th>@Model.Summary.ProdColIdNo (PROD)</th>
-                    <th>@Model.Summary.ProdColQual (PROD)</th>
-                    <th>@Model.Summary.ProdColYear (PROD)</th>
-                    <th>Result</th>
+                    <th rowspan="2">#</th>
+                    <th colspan="@mappings.Count">@Model.Summary.ValpacTable</th>
+                    <th colspan="@mappings.Count">@Model.Summary.ProdTable</th>
+                    <th rowspan="2">Result</th>
+                </tr>
+                <tr>
+                    @foreach (var mapping in mappings)
+                    {
+                        <th>@MappingLabel(mapping)</th>
+                    }
+                    @foreach (var mapping in mappings)
+                    {
+                        <th>@MappingLabel(mapping, useProdColumn: true)</th>
+                    }
                 </tr>
             </thead>
             <tbody>
@@ -131,15 +154,18 @@
                     string DV(string k) => dv.TryGetValue(k, out var val) ? (val ?? "") : "";
                     <tr style="background:@(row.ValidationResult == "FAIL" ? "#FFF3F3" : "#F3FFF3")">
                         <td>@row.ValidationNumber</td>
-                        <td>@DV("VALPAC__007")</td>
-                        <td>@DV("VALPAC__008")</td>
-                        <td>@DV("VALPAC__001")</td>
-                        <td>@DV("VALPAC_COLYEAR")</td>
-                        <td>@DV("PROD_IAGSTNO")</td>
-                        <td>@DV("PROD_IADIDNO")</td>
-                        <td>@DV("PROD_IAGQUAL")</td>
-                        <td>@DV("PROD_IAGCYR")</td>
-                        <td><span class="badge @(row.ValidationResult == "FAIL" ? "badge--fail" : "badge--pass")">@row.ValidationResult</span></td>
+                        @for (var i = 0; i < mappings.Count; i++)
+                        {
+                            <td>@DV(ValpacAlias(i))</td>
+                        }
+                        @for (var i = 0; i < mappings.Count; i++)
+                        {
+                            <td>@DV(ProdAlias(i))</td>
+                        }
+                        <td>
+                            <span class="badge @(row.ValidationResult == "FAIL" ? "badge--fail" : "badge--pass")">@row.ValidationResult</span>
+                            <div style="margin-top:4px">@DV("FINAL_RESULT_MESSAGE")</div>
+                        </td>
                     </tr>
                 }
             </tbody>

@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 60 – CRSE vs H16CRSE Agreement";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -53,7 +53,7 @@
         <div>
             <h1 class="rule-header__title">HEMIS RULE 60: CRSE vs H16CRSE Agreement</h1>
             <p class="rule-header__sub">
-                Full outer reconciliation — <code>dbo_CRSE</code> vs <code>H16CRSE</code>.
+                Full outer reconciliation — <code>dbo_CRSE</code> vs <code>H16CRSE</code>.
                 Join key: <code>_030</code> (CRSE) &harr; <code>_030</code> (H16CRSE).
             </p>
         </div>
@@ -173,9 +173,10 @@
         <div class="workspace-signoff-actions">
             @if (!isResultsOnlyRole)
             {
+                <button class="btn btn-secondary" id="r60BeginEditBtn" onclick="r60BeginEdit()">Begin Edit</button>
                 <button class="btn btn-success" id="r60SaveBtn" onclick="r60SaveWorkspace()">Save Workspace</button>
             }
-            <button class="btn btn-primary" id="r60SignoffBtn" onclick="r60SignOff()">Sign Off</button>
+            <button class="btn btn-primary" id="r60SignoffBtn" onclick="r60SignOff()">Save Signoff</button>
             <button class="btn btn-warning" id="r60RemoveSignoffBtn" onclick="r60RemoveSignoff()" style="display:none">Remove Signoff</button>
         </div>
     </div>
@@ -183,9 +184,9 @@
     <div class="action-bar">
         @if (!isResultsOnlyRole)
         {
-            <button class="btn btn-info"    onclick="r60Verify()">Verify Tables</button>
-            <button class="btn btn-success" onclick="r60Run()">&#9654; Run Rule 60</button>
-            <button class="btn btn-primary" onclick="r60Sql()">Generate SQL</button>
+            <button class="btn btn-info"    id="r60VerifyBtn" onclick="r60Verify()">Verify Tables</button>
+            <button class="btn btn-success" id="r60RunBtn" onclick="r60Run()">&#9654; Run Rule 60</button>
+            <button class="btn btn-primary" id="r60SqlBtn" onclick="r60Sql()">Generate SQL</button>
         }
         <button class="btn btn-warning" id="r60DlAllBtn" onclick="r60DlAll()" disabled>Download All</button>
     </div>
@@ -202,10 +203,10 @@
             <div id="r60AnalysisPane"><div class="empty-state"><p>Run Rule 60 validation to see results here.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r60-details">
-            <div id="r60FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
+            <div id="r60FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r60-charts">
-            <div id="r60ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
+            <div id="r60ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r60-sql">
             <textarea id="r60SqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
@@ -270,7 +271,7 @@ window.r60Tab = function(tab) {
         studCols: [], auditCols: [],
         pairs: [],
         isWorkspaceSaved: false, currentUserHasSignedOff: false, resultsVisible: false,
-        currentUserEngagementRole: ''
+        currentUserEngagementRole: '', hasDataAnalystSignoff: false, currentStatus: ''
     };
 
     function g(id)             { return document.getElementById(id); }
@@ -283,6 +284,7 @@ window.r60Tab = function(tab) {
     function unspin()          { show('r60Spinner', false); }
     function setWs(msg, type)  { var e = g('workspaceInfo'); if (e) { e.className = 'alert alert--' + (type || 'info'); e.textContent = msg; } }
     function setStatus(id, msg, type) { var e = g(id); if (e) { e.className = 'alert alert--' + (type || 'info'); e.textContent = msg; } }
+    function normRole(v)       { return String(v || '').replace(/[^a-z0-9]+/gi, '').toLowerCase(); }
 
     function fillSel(id, items, selected) {
         var sel = typeof id === 'string' ? g(id) : id; if (!sel) return;
@@ -341,7 +343,7 @@ window.r60Tab = function(tab) {
             unspin();
             if (!d.success) { setStatus('r60ConnOut', d.error || 'Connection failed.', 'error'); return; }
             fillSel('r60Db', d.databases || []);
-            setStatus('r60ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
+            setStatus('r60ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
             if ((d.databases || []).length) r60LoadTables();
         }).catch(function(e) { unspin(); setStatus('r60ConnOut', e.message, 'error'); });
     };
@@ -357,7 +359,7 @@ window.r60Tab = function(tab) {
             fillSel('r60StudTable',  tables, d.autoStudTable  || 'dbo_CRSE');
             fillSel('r60AuditTable', tables, d.autoAuditTable || 'H16CRSE');
             show('body-r60-tables', true); show('body-r60-colmap', true);
-            setStatus('r60TableOut', 'Loaded ' + tables.length + ' tables — CRSE and H16CRSE auto-detected.', 'success');
+            setStatus('r60TableOut', 'Loaded ' + tables.length + ' tables — CRSE and H16CRSE auto-detected.', 'success');
             st.pairs = DEF_PAIRS.slice();
             return Promise.all([
                 r60LoadColsInner('stud',  gv('r60StudTable')),
@@ -443,6 +445,16 @@ window.r60Tab = function(tab) {
         }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
     };
 
+    window.r60BeginEdit = function() {
+        spin('Preparing workspace edit...');
+        post(API + '/BeginWorkspaceEdit', buildReq()).then(function(d) {
+            unspin();
+            if (!d.success) { setWs(d.error || 'Could not begin editing.', 'error'); return; }
+            if (d.workspace) applyWsMeta(d.workspace);
+            setWs(d.message || 'Workspace ready for editing.', d.signoffsCleared ? 'warning' : 'success');
+        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
+    };
+
     window.r60SignOff = function() {
         spin('Saving signoff...');
         post(API + '/SignOffWorkspace', { clientId: st.clientId, runId: st.runId, comment: gv('r60SignoffComment') })
@@ -470,26 +482,47 @@ window.r60Tab = function(tab) {
     function applyWsMeta(ws) {
         st.isWorkspaceSaved = !!ws.isWorkspaceSaved;
         st.currentUserHasSignedOff = !!ws.currentUserHasSignedOff;
+        st.hasDataAnalystSignoff = !!ws.hasDataAnalystSignoff;
+        st.currentStatus = ws.currentStatus || ws.status || '';
         if (ws.currentUserEngagementRole) st.currentUserEngagementRole = ws.currentUserEngagementRole;
-        var b   = g('r60RunState');    if (b)   b.textContent   = ws.runId ? 'Run #' + ws.runId : 'No saved run loaded';
+        var runStateText = 'No saved run loaded';
+        if (ws.runId) {
+            runStateText = st.currentUserHasSignedOff
+                ? 'Run #' + ws.runId + ' signed off'
+                : (st.hasDataAnalystSignoff ? 'Run #' + ws.runId + ' analyst-signed' : 'Run #' + ws.runId + ' saved');
+        }
+        var b   = g('r60RunState');    if (b)   b.textContent   = runStateText;
         var rl  = g('r60RunLabel');    if (rl)  rl.textContent  = ws.runId ? 'Rule 60 Run #' + ws.runId : 'No saved run yet';
         var sl  = g('r60StatusLabel'); if (sl)  sl.textContent  = ws.currentStatus || ws.status || '-';
         var el  = g('r60EditedLabel'); if (el)  el.textContent  = ws.lastEditedAt ? new Date(ws.lastEditedAt).toLocaleString() : '-';
         var rl2 = g('r60RoleLabel');   if (rl2) rl2.textContent = ws.currentUserEngagementRole || ROLE || '-';
-        var sc  = g('r60SignoffComment'); if (sc && ws.currentUserSignoffComment) sc.value = ws.currentUserSignoffComment;
+        var sc  = g('r60SignoffComment'); if (sc) sc.value = ws.currentUserSignoffComment || '';
         updateButtons();
     }
 
     function updateButtons() {
-        var engRole = (st.currentUserEngagementRole || ROLE || '').toLowerCase();
-        var nSys    = (ROLE || '').toLowerCase();
+        var role = st.currentUserEngagementRole || ROLE || '';
+        var engRole = normRole(role);
+        var nSys    = normRole(ROLE || '');
         var canEdit = !IS_RESULTS_ONLY && (nSys === 'dataanalyst' || engRole === 'dataanalyst');
         var canSign = !!st.runId && !!st.isWorkspaceSaved &&
             (engRole === 'dataanalyst' || (st.resultsVisible && (engRole === 'manager' || engRole === 'director')));
         var signed  = st.currentUserHasSignedOff;
-        var sw = g('r60SaveBtn');   if (sw) sw.disabled = signed || !canEdit || !st.runId;
-        var so = g('r60SignoffBtn');if (so) { so.disabled = signed || !canSign; so.textContent = signed ? 'Signed Off' : 'Sign Off'; }
-        show('r60RemoveSignoffBtn', signed);
+        window.ruleWorkspaceUi && window.ruleWorkspaceUi.setReadonlyShell('app', !canEdit || signed);
+        window.ruleWorkspaceUi && window.ruleWorkspaceUi.setFormSectionReadonly('.accordion-stack', !canEdit || signed);
+        window.ruleWorkspaceUi && window.ruleWorkspaceUi.applyStates([
+            { target: 'r60VerifyBtn', disabled: !canEdit || signed },
+            { target: 'r60RunBtn', disabled: !canEdit || signed },
+            { target: 'r60SqlBtn', disabled: !canEdit || signed },
+            { target: 'r60BeginEditBtn', disabled: signed || !canEdit || !st.runId },
+            { target: 'r60SaveBtn', disabled: signed || !canEdit || !st.runId || !st.summary },
+            { target: 'r60SignoffBtn', disabled: signed || !canSign, text: signed ? ('Signed Off as ' + (role || ROLE || 'Reviewer')) : 'Save Signoff' },
+            { target: 'r60RemoveSignoffBtn', show: signed, display: '', disabled: !signed },
+            { target: 'r60SignoffComment', disabled: signed || !canSign }
+        ]);
+        window.ruleWorkspaceUi && window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signed, {
+            allow: ['#r60DlAllBtn', '#r60DlExcel', '#r60DlCsv', '#r60DlExcCsv', '#r60DlSql', '#r60RemoveSignoffBtn']
+        });
     }
 
     window.r60OnClientChange = function(val) {
@@ -512,11 +545,14 @@ window.r60Tab = function(tab) {
         if (!ws) {
             st.runId = null; st.summary = null; st.isWorkspaceSaved = false;
             st.currentUserHasSignedOff = false; st.resultsVisible = false; st.currentUserEngagementRole = '';
+            st.hasDataAnalystSignoff = false; st.currentStatus = '';
             setWs('No saved Rule 60 workspace for this engagement yet.', 'info');
             var b   = g('r60RunState');    if (b)   b.textContent   = 'No saved run loaded';
             var rl  = g('r60RunLabel');    if (rl)  rl.textContent  = 'No saved run yet';
             var sl  = g('r60StatusLabel'); if (sl)  sl.textContent  = '-';
             var el  = g('r60EditedLabel'); if (el)  el.textContent  = '-';
+            var rc  = g('r60RoleLabel');   if (rc)  rc.textContent  = ROLE || '-';
+            var sc  = g('r60SignoffComment'); if (sc) sc.value = '';
             st.pairs = DEF_PAIRS.slice(); renderPairs();
             applySummary(null, false); updateButtons(); return;
         }
@@ -525,6 +561,8 @@ window.r60Tab = function(tab) {
         st.currentUserHasSignedOff = !!ws.currentUserHasSignedOff;
         st.resultsVisible = !!resultsVisible;
         st.currentUserEngagementRole = ws.currentUserEngagementRole || '';
+        st.hasDataAnalystSignoff = !!ws.hasDataAnalystSignoff;
+        st.currentStatus = ws.currentStatus || '';
 
         if (!IS_RESULTS_ONLY) {
             var sv = g('r60Server'); if (sv && ws.server) sv.value = ws.server;
@@ -543,7 +581,13 @@ window.r60Tab = function(tab) {
         if (!IS_RESULTS_ONLY) renderPairs();
 
         if (!resultsVisible) { setWs('Saved Rule 60 results are not available for your role.', 'info'); applySummary(null, false); updateButtons(); return; }
-        setWs(ws.summary ? 'Saved Rule 60 workspace loaded.' : 'Rule 60 workspace loaded. Run validation to generate results.', 'success');
+        if (st.currentUserHasSignedOff) {
+            setWs(ws.runId ? ('Saved run #' + ws.runId + ' is loaded with its last configuration and results. Your signoff is already on this run.') : 'Saved Rule 60 workspace loaded.', 'success');
+        } else if (st.hasDataAnalystSignoff) {
+            setWs(ws.runId ? ('Saved run #' + ws.runId + ' is loaded. Other assigned users can review this analyst-signed run.') : 'Saved Rule 60 workspace loaded.', 'success');
+        } else {
+            setWs(ws.summary ? 'Saved Rule 60 workspace loaded. The analyst signoff is still outstanding.' : 'Rule 60 workspace loaded. Run validation to generate results.', ws.summary ? 'info' : 'success');
+        }
         if (ws.summary) applySummary(ws.summary, true);
         else { applySummary(null, false); updateButtons(); }
         var dlBtn = g('r60DlAllBtn'); if (dlBtn) dlBtn.disabled = !ws.runId;
@@ -612,7 +656,7 @@ window.r60Tab = function(tab) {
             '</div>' +
             '<div class="card" style="padding:12px;margin-bottom:12px;border-left:4px solid #C0392B">' +
             '<strong>Exception Rows</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING rows.' +
-            '</div>' + buildTable(excRows, pairs, 'No exceptions â€” all subjects agree.') +
+            '</div>' + buildTable(excRows, pairs, 'No exceptions — all subjects agree.') +
             '<div class="card" style="padding:12px;margin:20px 0 12px;border-left:4px solid #1E8449">' +
             '<strong>Agree Sample</strong>: ' + fmt(reconc.agreeCount || 0) + ' subject row(s) agree' +
             (agrRows.length < (reconc.agreeCount || 0) ? ' (sample of ' + fmt(agrRows.length) + ' shown)' : '') + '.' +
@@ -668,7 +712,7 @@ window.r60Tab = function(tab) {
         setHtml('r60FlaggedPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #C0392B">' +
             '<strong>FLAGGED</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING rows.' +
-            '</div>' + buildTable(excRows, pairs, 'No exceptions — all students agree.'));
+            '</div>' + buildTable(excRows, pairs, 'No exceptions — all students agree.'));
 
         setHtml('r60ClearPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #1E8449">' +
@@ -700,8 +744,8 @@ window.r60Tab = function(tab) {
                     }
                 }
                 f = f || {};
-                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
-                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
+                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
+                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
                 var matchVal = f.match || f.Match || 'MISSING';
                 var mi = matchVal === 'AGREE' ? '<span style="color:#1E8449">&#10003;</span>' : matchVal === 'DISAGREE' ? '<span style="color:#C0392B">&#x2717;</span>' : '<span style="color:#E67E22">?</span>';
                 return '<td>' + esc(sv) + '</td><td class="oc">' + esc(av) + '</td><td>' + mi + '</td>';
@@ -717,6 +761,23 @@ window.r60Tab = function(tab) {
     applySummary(null, false);
     updateButtons();
     if (st.clientId) loadWorkspace();
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>
-

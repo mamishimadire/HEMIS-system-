@@ -116,38 +116,35 @@ namespace HemisAudit.Services
                 var cresStatusCol  = Sanitise(!string.IsNullOrWhiteSpace(request.CresStatusCol) ? request.CresStatusCol : "_031");
                 var cresStatusFilter = !string.IsNullOrWhiteSpace(request.CresStatusFilter) ? Sanitise(request.CresStatusFilter.Trim()) : "A";
 
-                var cregCount      = await CountAsync(conn, $"SELECT COUNT(*) FROM [{cregTable}];");
-                var qualCount      = await CountAsync(conn, $"SELECT COUNT(*) FROM [{qualTable}];");
-                var cresActiveCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{cresTable}] WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), [{cresStatusCol}])))) = '{cresStatusFilter}';");
+                var (cregCount, qualCount, cresActiveCount, totalActiveStudents, matchedQuals, missingQuals) =
+                    await RunPrepAndGetCountsAsync(conn,
+                        BuildRule12PrepSql(
+                            cregTable, qualTable, cresTable,
+                            Sanitise(!string.IsNullOrWhiteSpace(request.CregStudentCol) ? request.CregStudentCol : "_007"),
+                            Sanitise(!string.IsNullOrWhiteSpace(request.CregQualCol) ? request.CregQualCol : "_001"),
+                            Sanitise(!string.IsNullOrWhiteSpace(request.CregCourseCol) ? request.CregCourseCol : "_030"),
+                            Sanitise(!string.IsNullOrWhiteSpace(request.QualJoinCol) ? request.QualJoinCol : "_001"),
+                            Sanitise(!string.IsNullOrWhiteSpace(request.QualDescCol) ? request.QualDescCol : "_003"),
+                            Sanitise(!string.IsNullOrWhiteSpace(request.CresCourseCol) ? request.CresCourseCol : "_030"),
+                            cresStatusCol, cresStatusFilter,
+                            string.IsNullOrWhiteSpace(request.CregExtra1Col) ? "" : Sanitise(request.CregExtra1Col),
+                            string.IsNullOrWhiteSpace(request.CregExtra2Col) ? "" : Sanitise(request.CregExtra2Col),
+                            string.IsNullOrWhiteSpace(request.CregFilterCol) ? "" : Sanitise(request.CregFilterCol),
+                            request.CregFilterValues?.Trim() ?? "",
+                            string.IsNullOrWhiteSpace(request.CregExtra3Col) ? "" : Sanitise(request.CregExtra3Col),
+                            string.IsNullOrWhiteSpace(request.CresExtra1Col) ? "" : Sanitise(request.CresExtra1Col)),
+                        cregTable, qualTable);
 
-                await using var command = conn.CreateConfiguredCommand();
-                command.CommandText = BuildPopulationCountSql(
-                    cregTable, qualTable, cresTable,
-                    Sanitise(!string.IsNullOrWhiteSpace(request.CregStudentCol) ? request.CregStudentCol : "_007"),
-                    Sanitise(!string.IsNullOrWhiteSpace(request.CregQualCol) ? request.CregQualCol : "_001"),
-                    Sanitise(!string.IsNullOrWhiteSpace(request.CregCourseCol) ? request.CregCourseCol : "_030"),
-                    Sanitise(!string.IsNullOrWhiteSpace(request.QualJoinCol) ? request.QualJoinCol : "_001"),
-                    Sanitise(!string.IsNullOrWhiteSpace(request.QualDescCol) ? request.QualDescCol : "_003"),
-                    Sanitise(!string.IsNullOrWhiteSpace(request.CresCourseCol) ? request.CresCourseCol : "_030"),
-                    cresStatusCol, cresStatusFilter);
-                await using var reader = await command.ExecuteReaderAsync();
-
-                var result = new Rule12VerifyResult
+                return new Rule12VerifyResult
                 {
-                    Success = true,
-                    CregRecordCount = cregCount,
-                    QualRecordCount = qualCount,
-                    CresActiveCount = cresActiveCount
+                    Success             = true,
+                    CregRecordCount     = cregCount,
+                    QualRecordCount     = qualCount,
+                    CresActiveCount     = cresActiveCount,
+                    TotalActiveStudents = totalActiveStudents,
+                    MatchedQualCount    = matchedQuals,
+                    MissingQualCount    = missingQuals
                 };
-
-                if (await reader.ReadAsync())
-                {
-                    result.TotalActiveStudents = GetInt(reader, 0);
-                    result.MatchedQualCount    = GetInt(reader, 1);
-                    result.MissingQualCount    = GetInt(reader, 2);
-                }
-
-                return result;
             }
             catch (Exception ex)
             {
@@ -166,48 +163,26 @@ namespace HemisAudit.Services
                 ValidateRequest(request);
                 await EnsureColumnsExistAsync(request);
 
-                var browserSummary = await AnalyseAsync(request, includeAllReviewRows: false);
-                if (browserSummary.Success && request.ClientId > 0)
+                var summary = await AnalyseAsync(request, includeAllReviewRows: true);
+
+                if (summary.Success && request.ClientId > 0)
                 {
-                    try
-                    {
-                        var summaryToPersist = CloneSummary(browserSummary);
-                        if (summaryToPersist.IsPreviewOnly || summaryToPersist.ReviewRows.Count < summaryToPersist.TotalValidated)
-                            summaryToPersist = await AnalyseAsync(request, includeAllReviewRows: true);
+                    summary.SavedRunId = null;
+                    var runId = await SaveValidationRunAsync(CloneValidationRequest(request), summary, userEmail, userName, markWorkspaceSaved: false);
+                    summary.SavedRunId = runId;
 
-                        summaryToPersist.SavedRunId = null;
-                        browserSummary.SavedRunId = await SaveValidationRunAsync(
-                            CloneValidationRequest(request),
-                            summaryToPersist,
-                            userEmail,
-                            userName,
-                            markWorkspaceSaved: false);
+                    if (!string.IsNullOrWhiteSpace(userEmail))
+                        _pendingValidationCache.ClearPending(12, request.ClientId, userEmail!);
 
-                        if (!string.IsNullOrWhiteSpace(userEmail))
-                            _pendingValidationCache.ClearPending(12, request.ClientId, userEmail!);
-                    }
-                    catch (Exception ex)
-                    {
-                        browserSummary.Warning = $"Analysis completed, but the workspace could not be saved automatically: {ex.Message}";
-                    }
+                    summary.Warning = "Rule 12 analysis complete. Click Save Workspace to finalise for signoff.";
+                }
+                else if (summary.Success)
+                {
+                    summary.Warning = "Rule 12 analysis complete. Select a client to save the workspace.";
                 }
 
-                if (!browserSummary.SavedRunId.HasValue)
-                {
-                    if (browserSummary.Success && request.ClientId > 0 && !string.IsNullOrWhiteSpace(userEmail))
-                        _pendingValidationCache.StorePending(12, request.ClientId, userEmail!, request, CloneSummary(browserSummary), userName);
-
-                    browserSummary.Warning = string.IsNullOrWhiteSpace(browserSummary.Warning)
-                        ? "Counts reflect the full dbo_CREG course population result set. Browser review rows are limited for performance."
-                        : browserSummary.Warning;
-                }
-                else
-                {
-                    browserSummary.Warning = "The current Rule 12 run has been written to the system database. Click Save Workspace to finalize it for signoff.";
-                }
-
-                ApplyBrowserPreview(browserSummary);
-                return browserSummary;
+                ApplyBrowserPreview(summary);
+                return summary;
             }
             catch (Exception ex)
             {
@@ -266,12 +241,14 @@ SELECT TOP 1
     ISNULL(vr.Status, '') AS Status,
     vr.LastEditedByUserName,
     vr.LastEditedAt,
-    vr.ResultsJSON
+    vr.ResultsJSON,
+    CASE WHEN vr.WorkspaceSavedAt IS NOT NULL
+          OR EXISTS (SELECT 1 FROM dbo.ReviewSignoffs rs WHERE rs.RunID = vr.RunID AND rs.SignoffRole = 'DataAnalyst')
+         THEN 1 ELSE 0 END AS IsWorkspaceSaved
 FROM dbo.ValidationRuns vr
 WHERE vr.ClientID = @ClientID
   AND vr.RuleNumber = 12
-  AND vr.IsCurrent = 1
-ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
+ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
             command.Parameters.AddWithValue("@ClientID", clientId);
 
             await using var reader = await command.ExecuteReaderAsync();
@@ -288,6 +265,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             var lastEditedByUserName = reader.IsDBNull(8) ? null : reader.GetString(8);
             DateTime? lastEditedAt = reader.IsDBNull(9) ? null : reader.GetDateTime(9);
             var encodedSummary = reader.IsDBNull(10) ? null : reader.GetString(10);
+            var isWorkspaceSaved = !reader.IsDBNull(11) && reader.GetInt32(11) == 1;
 
             await reader.CloseAsync();
 
@@ -301,7 +279,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                     deserializedSummary = DeserializeSummary(encodedSummary);
                     if (deserializedSummary != null)
                     {
-                        deserializedSummary = await ExpandAndPersistSavedSummaryIfNeededAsync(connection, runId, deserializedSummary, server);
+                        deserializedSummary = await ExpandSavedSummaryIfNeededAsync(deserializedSummary, server);
                         ApplyBrowserPreview(deserializedSummary);
                     }
                     else
@@ -324,30 +302,42 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             var summaryQualJoinCol = deserializedSummary?.QualJoinCol ?? summaryMetadata?.QualJoinCol;
             var summaryQualDescCol = deserializedSummary?.QualDescCol ?? summaryMetadata?.QualDescCol;
             var summaryCresCourseCol = deserializedSummary?.CresCourseCol ?? summaryMetadata?.CresCourseCol;
-            var summaryCresStatusCol = deserializedSummary?.CresStatusCol ?? summaryMetadata?.CresStatusCol;
-            var summaryCresStatusFilter = deserializedSummary?.CresStatusFilter ?? summaryMetadata?.CresStatusFilter;
+            var summaryCresStatusCol     = deserializedSummary?.CresStatusCol    ?? summaryMetadata?.CresStatusCol;
+            var summaryCresStatusFilter  = deserializedSummary?.CresStatusFilter ?? summaryMetadata?.CresStatusFilter;
+            var summaryCregExtra1Col     = deserializedSummary?.CregExtra1Col    ?? summaryMetadata?.CregExtra1Col;
+            var summaryCregExtra2Col     = deserializedSummary?.CregExtra2Col    ?? summaryMetadata?.CregExtra2Col;
+            var summaryCregFilterCol     = deserializedSummary?.CregFilterCol    ?? summaryMetadata?.CregFilterCol;
+            var summaryCregFilterValues  = deserializedSummary?.CregFilterValues ?? summaryMetadata?.CregFilterValues;
+            var summaryCregExtra3Col     = deserializedSummary?.CregExtra3Col    ?? summaryMetadata?.CregExtra3Col;
+            var summaryCresExtra1Col     = deserializedSummary?.CresExtra1Col    ?? summaryMetadata?.CresExtra1Col;
 
             var workspace = new Rule12WorkspaceStateViewModel
             {
-                ClientId = workspaceClientId,
-                RunId = runId,
-                Server = server,
-                Database = database,
-                CregTable    = cregTable,
-                QualTable    = summaryQualTable ?? "dbo_QUAL",
-                CresTable    = summaryCresTable ?? "dbo_CRES",
-                CregStudentCol  = summaryCregStudentCol ?? "_007",
-                CregQualCol     = summaryCregQualCol ?? "_001",
-                CregCourseCol   = summaryCregCourseCol ?? "_030",
-                QualJoinCol     = summaryQualJoinCol ?? "_001",
-                QualDescCol     = summaryQualDescCol ?? "_003",
-                CresCourseCol   = summaryCresCourseCol ?? "_030",
-                CresStatusCol   = summaryCresStatusCol ?? "_031",
+                ClientId         = workspaceClientId,
+                RunId            = runId,
+                Server           = server,
+                Database         = database,
+                CregTable        = cregTable,
+                QualTable        = summaryQualTable     ?? "dbo_QUAL",
+                CresTable        = summaryCresTable     ?? "dbo_CRES",
+                CregStudentCol   = summaryCregStudentCol ?? "_007",
+                CregQualCol      = summaryCregQualCol   ?? "_001",
+                CregCourseCol    = summaryCregCourseCol ?? "_030",
+                QualJoinCol      = summaryQualJoinCol   ?? "_001",
+                QualDescCol      = summaryQualDescCol   ?? "_003",
+                CresCourseCol    = summaryCresCourseCol ?? "_030",
+                CresStatusCol    = summaryCresStatusCol  ?? "_031",
                 CresStatusFilter = summaryCresStatusFilter ?? "A",
-                CurrentStatus = currentStatus,
+                CregExtra1Col    = summaryCregExtra1Col  ?? "_064",
+                CregExtra2Col    = summaryCregExtra2Col  ?? "_032",
+                CregFilterCol    = summaryCregFilterCol  ?? "_051",
+                CregFilterValues = summaryCregFilterValues ?? "",
+                CregExtra3Col    = summaryCregExtra3Col   ?? "_018",
+                CresExtra1Col    = summaryCresExtra1Col   ?? "_058",
+                CurrentStatus    = currentStatus,
                 LastEditedByUserName = lastEditedByUserName,
-                LastEditedAt = lastEditedAt,
-                Summary = summary
+                LastEditedAt     = lastEditedAt,
+                Summary          = summary
             };
 
             if (summary != null)
@@ -364,7 +354,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 HemisAudit.Helpers.ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, workspace.CurrentUserEngagementRole));
             workspace.CurrentUserHasSignedOff = currentRoleSignoff != null;
             workspace.CurrentUserSignoffComment = currentRoleSignoff?.Comment ?? "";
-            workspace.IsWorkspaceSaved = await IsWorkspaceSavedAsync(connection, workspace.RunId!.Value);
+            workspace.IsWorkspaceSaved = isWorkspaceSaved;
 
             if (workspace.Summary != null)
                 workspace.Summary.SavedRunId = workspace.RunId;
@@ -407,7 +397,7 @@ WHERE vr.RunID = @RunID
 
             await reader.CloseAsync();
 
-            summary = await ExpandAndPersistSavedSummaryIfNeededAsync(connection, runId, summary, sourceServer);
+            summary = await ExpandSavedSummaryIfNeededAsync(summary, sourceServer);
 
             if (includeFullResults)
             {
@@ -436,6 +426,7 @@ WHERE vr.RunID = @RunID
                 : "";
             review.Signoffs = await GetRunSignoffsAsync(connection, runId, currentUserId);
             review.HasDataAnalystSignoff = review.Signoffs.Any(s => string.Equals(s.SignoffRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase));
+            review.IsWorkspaceSaved = await IsWorkspaceSavedAsync(connection, runId);
 
             return review;
         }
@@ -446,26 +437,33 @@ WHERE vr.RunID = @RunID
             {
                 ValidateRequest(request);
 
-                if (request.RunId.HasValue && request.RunId.Value > 0)
+                if (!request.RunId.HasValue || request.RunId.Value <= 0)
                 {
-                    await using var connection = await OpenSystemConnectionAsync();
-                    var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
-                    if (!clientId.HasValue || clientId.Value != request.ClientId)
+                    return new Rule12WorkspaceSaveResult
                     {
-                        return new Rule12WorkspaceSaveResult
-                        {
-                            Success = false,
-                            Error = "The saved workspace could not be found for this engagement."
-                        };
-                    }
+                        Success = false,
+                        Error = "Run Rule 12 validation first before saving the workspace."
+                    };
+                }
 
-                    await EnsureClientNotArchivedAsync(connection, request.ClientId);
+                await using var connection = await OpenSystemConnectionAsync();
+                var clientId = await GetClientIdForRunAsync(connection, request.RunId.Value);
+                if (!clientId.HasValue || clientId.Value != request.ClientId)
+                {
+                    return new Rule12WorkspaceSaveResult
+                    {
+                        Success = false,
+                        Error = "The saved workspace could not be found for this engagement."
+                    };
+                }
 
-                    var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
-                    var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
+                await EnsureClientNotArchivedAsync(connection, request.ClientId);
 
-                    await using var command = connection.CreateConfiguredCommand();
-                    command.CommandText = @"
+                var clearedSignoffs = await ClearSignoffsAndFlagForReviewAsync(connection, request.RunId.Value);
+                var previousHash = await GetValidationRecordHashAsync(connection, request.RunId.Value);
+
+                await using var command = connection.CreateConfiguredCommand();
+                command.CommandText = @"
 UPDATE dbo.ValidationRuns
 SET LastEditedByUserName = @LastEditedByUserName,
     LastEditedAt = GETDATE(),
@@ -475,68 +473,57 @@ SET LastEditedByUserName = @LastEditedByUserName,
     Status = 'Needs Review'
 WHERE RunID = @RunID
   AND ClientID = @ClientID;";
-                    command.Parameters.AddWithValue("@RunID", request.RunId.Value);
-                    command.Parameters.AddWithValue("@ClientID", request.ClientId);
-                    command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
-                    command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
-                    command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule12|{request.RunId.Value}|{request.ClientId}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
-                    await command.ExecuteNonQueryAsync();
+                command.Parameters.AddWithValue("@RunID", request.RunId.Value);
+                command.Parameters.AddWithValue("@ClientID", request.ClientId);
+                command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
+                command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+                command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule12|{request.RunId.Value}|{request.ClientId}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
+                await command.ExecuteNonQueryAsync();
 
-                    if (!string.IsNullOrWhiteSpace(reviewerEmail))
-                        _pendingValidationCache.ClearPending(12, request.ClientId, reviewerEmail);
+                if (!string.IsNullOrWhiteSpace(reviewerEmail))
+                    _pendingValidationCache.ClearPending(12, request.ClientId, reviewerEmail);
 
-                    var currentWorkspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
-                    return new Rule12WorkspaceSaveResult
-                    {
-                        Success = true,
-                        Message = clearedSignoffs > 0
-                            ? "Workspace saved. Existing signoffs were removed and the run must be reviewed again."
-                            : "Workspace saved and marked for review again.",
-                        SignoffsCleared = clearedSignoffs > 0,
-                        ClearedSignoffCount = clearedSignoffs,
-                        Workspace = currentWorkspace
-                    };
-                }
-
-                var pending = _pendingValidationCache.GetPending<Rule12ValidationRequest, Rule12ValidationSummary>(12, request.ClientId, reviewerEmail);
-                if (pending == null)
+                var currentWorkspace = new Rule12WorkspaceStateViewModel
                 {
-                    return new Rule12WorkspaceSaveResult
-                    {
-                        Success = false,
-                        Error = "Run Rule 12 first so the current workspace is written to the system database."
-                    };
-                }
-
-                if (!RequestsMatchForPendingSave(request, pending.Request))
-                {
-                    return new Rule12WorkspaceSaveResult
-                    {
-                        Success = false,
-                        Error = "Workspace settings changed after validation. Run Rule 12 again before saving."
-                    };
-                }
-
-                var summaryToSave = CloneSummary(pending.Summary);
-                if (summaryToSave.IsPreviewOnly || summaryToSave.ReviewRows.Count < summaryToSave.TotalValidated)
-                {
-                    summaryToSave = await AnalyseAsync(pending.Request, includeAllReviewRows: true);
-                }
-
-                summaryToSave.SavedRunId = null;
-                var requestToSave = CloneValidationRequest(pending.Request);
-
-                var savedRunId = await SaveValidationRunAsync(requestToSave, summaryToSave, reviewerEmail, reviewerName ?? pending.ReviewerName, markWorkspaceSaved: true);
-                _pendingValidationCache.ClearPending(12, request.ClientId, reviewerEmail);
-
-                var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
+                    ClientId = request.ClientId,
+                    RunId = request.RunId,
+                    Server = request.Server ?? "",
+                    Database = request.Database ?? "",
+                    Driver = string.IsNullOrWhiteSpace(request.Driver) ? "ODBC Driver 17 for SQL Server" : request.Driver,
+                    CregTable = string.IsNullOrWhiteSpace(request.CregTable) ? "dbo_CREG" : request.CregTable,
+                    QualTable = string.IsNullOrWhiteSpace(request.QualTable) ? "dbo_QUAL" : request.QualTable,
+                    CresTable = string.IsNullOrWhiteSpace(request.CresTable) ? "dbo_CRES" : request.CresTable,
+                    CregStudentCol = string.IsNullOrWhiteSpace(request.CregStudentCol) ? "_007" : request.CregStudentCol,
+                    CregQualCol = string.IsNullOrWhiteSpace(request.CregQualCol) ? "_001" : request.CregQualCol,
+                    CregCourseCol = string.IsNullOrWhiteSpace(request.CregCourseCol) ? "_030" : request.CregCourseCol,
+                    QualJoinCol = string.IsNullOrWhiteSpace(request.QualJoinCol) ? "_001" : request.QualJoinCol,
+                    QualDescCol = string.IsNullOrWhiteSpace(request.QualDescCol) ? "_003" : request.QualDescCol,
+                    CresCourseCol = string.IsNullOrWhiteSpace(request.CresCourseCol) ? "_030" : request.CresCourseCol,
+                    CresStatusCol = string.IsNullOrWhiteSpace(request.CresStatusCol) ? "_031" : request.CresStatusCol,
+                    CresStatusFilter = string.IsNullOrWhiteSpace(request.CresStatusFilter) ? "A" : request.CresStatusFilter,
+                    CregExtra1Col = string.IsNullOrWhiteSpace(request.CregExtra1Col) ? "_064" : request.CregExtra1Col,
+                    CregExtra2Col = string.IsNullOrWhiteSpace(request.CregExtra2Col) ? "_032" : request.CregExtra2Col,
+                    CregFilterCol = string.IsNullOrWhiteSpace(request.CregFilterCol) ? "_051" : request.CregFilterCol,
+                    CregFilterValues = request.CregFilterValues ?? "",
+                    CregExtra3Col = string.IsNullOrWhiteSpace(request.CregExtra3Col) ? "_018" : request.CregExtra3Col,
+                    CresExtra1Col = string.IsNullOrWhiteSpace(request.CresExtra1Col) ? "_058" : request.CresExtra1Col,
+                    CurrentStatus = "Needs Review",
+                    LastEditedByUserName = reviewerName ?? reviewerEmail,
+                    LastEditedAt = DateTime.UtcNow,
+                    IsWorkspaceSaved = true,
+                    HasDataAnalystSignoff = false,
+                    CurrentUserHasSignedOff = false,
+                    CurrentUserSignoffComment = ""
+                };
                 return new Rule12WorkspaceSaveResult
                 {
                     Success = true,
-                    Message = $"Workspace saved as Run #{savedRunId}. Sign off this saved workspace when you are ready.",
-                    SignoffsCleared = false,
-                    ClearedSignoffCount = 0,
-                    Workspace = workspace
+                    Message = clearedSignoffs > 0
+                        ? "Workspace saved. Existing signoffs were removed and the run must be reviewed again."
+                        : "Workspace saved and marked for review again.",
+                    SignoffsCleared = clearedSignoffs > 0,
+                    ClearedSignoffCount = clearedSignoffs,
+                    Workspace = currentWorkspace
                 };
             }
             catch (Exception ex)
@@ -703,34 +690,50 @@ END";
             var qualDescCol    = Sanitise(!string.IsNullOrWhiteSpace(request.QualDescCol) ? request.QualDescCol : "_003");
             var cresCourseCol  = Sanitise(!string.IsNullOrWhiteSpace(request.CresCourseCol) ? request.CresCourseCol : "_030");
             var cresStatusCol  = Sanitise(!string.IsNullOrWhiteSpace(request.CresStatusCol) ? request.CresStatusCol : "_031");
-            var cresStatusFilter = !string.IsNullOrWhiteSpace(request.CresStatusFilter) ? request.CresStatusFilter.Trim() : "A";
+            var cresStatusFilter  = !string.IsNullOrWhiteSpace(request.CresStatusFilter) ? request.CresStatusFilter.Trim() : "A";
+            var cregExtra1Col     = string.IsNullOrWhiteSpace(request.CregExtra1Col) ? "" : Sanitise(request.CregExtra1Col);
+            var cregExtra2Col     = string.IsNullOrWhiteSpace(request.CregExtra2Col) ? "" : Sanitise(request.CregExtra2Col);
+            var cregFilterCol     = string.IsNullOrWhiteSpace(request.CregFilterCol) ? "" : Sanitise(request.CregFilterCol);
+            var cregFilterValues  = request.CregFilterValues?.Trim() ?? "";
+            var cregExtra3Col     = string.IsNullOrWhiteSpace(request.CregExtra3Col) ? "" : Sanitise(request.CregExtra3Col);
+            var cresExtra1Col     = string.IsNullOrWhiteSpace(request.CresExtra1Col) ? "" : Sanitise(request.CresExtra1Col);
+
+            var extraCols = new System.Text.StringBuilder();
+            if (!string.IsNullOrWhiteSpace(cregExtra1Col)) extraCols.Append($"\n    CREG__{cregExtra1Col.TrimStart('_')},");
+            if (!string.IsNullOrWhiteSpace(cregExtra2Col)) extraCols.Append($"\n    CREG__{cregExtra2Col.TrimStart('_')},");
+            if (!string.IsNullOrWhiteSpace(cregFilterCol)) extraCols.Append($"\n    CREG__{cregFilterCol.TrimStart('_')},");
+            if (!string.IsNullOrWhiteSpace(cregExtra3Col)) extraCols.Append($"\n    CREG__{cregExtra3Col.TrimStart('_')},");
+            if (!string.IsNullOrWhiteSpace(cresExtra1Col)) extraCols.Append($"\n    CRES__{cresExtra1Col.TrimStart('_')},");
 
             var sql = $@"-- HEMIS RULE 12: ACTIVE STUDENTS
 -- Tables: [{cregTable}], [{qualTable}], [{cresTable}]
 -- Join 1: [{cregTable}].[{cregQualCol}] = [{qualTable}].[{qualJoinCol}]
 -- Join 2: [{cregTable}].[{cregCourseCol}] = [{cresTable}].[{cresCourseCol}]
 -- Filter: [{cresTable}].[{cresStatusCol}] = '{cresStatusFilter}'
+-- Extra CREG cols: {(string.IsNullOrWhiteSpace(cregExtra1Col) ? "none" : cregExtra1Col)}, {(string.IsNullOrWhiteSpace(cregExtra2Col) ? "none" : cregExtra2Col)}, filter={cregFilterCol} ({cregFilterValues}), {(string.IsNullOrWhiteSpace(cregExtra3Col) ? "none" : cregExtra3Col)}
+-- Extra CRES col: {(string.IsNullOrWhiteSpace(cresExtra1Col) ? "none" : cresExtra1Col)}
 -- PASS when the active student qualification exists in [{qualTable}]
 
-{BuildRule12SourceCtes(cregTable, qualTable, cresTable, cregStudentCol, cregQualCol, cregCourseCol, qualJoinCol, qualDescCol, cresCourseCol, cresStatusCol, cresStatusFilter)}
+{BuildRule12PrepSql(cregTable, qualTable, cresTable, cregStudentCol, cregQualCol, cregCourseCol, qualJoinCol, qualDescCol, cresCourseCol, cresStatusCol, cresStatusFilter, cregExtra1Col, cregExtra2Col, cregFilterCol, cregFilterValues, cregExtra3Col, cresExtra1Col)}
 SELECT
     'Control_1' AS Control_Type,
     'CONTROL 1: [{cregTable}].[{cregQualCol}] = [{qualTable}].[{qualJoinCol}] WHERE [{cresTable}].[{cresStatusCol}] = ''{cresStatusFilter}''' AS Control_Label,
-    CREG__007,
-    CREG__001,
-    CREG__030,
-    QUAL__001,
-    QUAL__003,
-    CRES__030,
-    CRES__031,
-    CASE WHEN QUAL__001 IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result
-FROM ValidationResults
-ORDER BY CREG__007, CREG__001;
+    a.CREG__007,
+    a.CREG__001,
+    a.CREG__030,{extraCols}
+    q.QUAL__001,
+    q.QUAL__003,
+    a.CRES__030,
+    a.CRES__031,
+    CASE WHEN q.QUAL__001 IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result
+FROM #Rule12Active a
+LEFT JOIN #Rule12Quals q ON q.QUAL__001 = a.CREG__001
+ORDER BY a.CREG__007, a.CREG__001;
 
 SELECT
-    (SELECT COUNT(1) FROM ActiveStudents) AS Active_Students,
-    (SELECT COUNT(1) FROM ValidationResults WHERE QUAL__001 IS NOT NULL) AS Matched_Quals,
-    (SELECT COUNT(1) FROM ValidationResults WHERE QUAL__001 IS NULL)     AS Missing_Quals;";
+    (SELECT COUNT(1) FROM #Rule12Active) AS Active_Students,
+    (SELECT COUNT(1) FROM #Rule12Active a LEFT JOIN #Rule12Quals q ON q.QUAL__001 = a.CREG__001 WHERE q.QUAL__001 IS NOT NULL) AS Matched_Quals,
+    (SELECT COUNT(1) FROM #Rule12Active a LEFT JOIN #Rule12Quals q ON q.QUAL__001 = a.CREG__001 WHERE q.QUAL__001 IS NULL) AS Missing_Quals;";
 
             return Task.FromResult(sql.Trim());
         }
@@ -741,39 +744,32 @@ SELECT
             await using var conn = new SqlConnection(connStr);
             await conn.OpenAsync();
 
-            var cregTable      = Sanitise(request.CregTable);
-            var qualTable      = Sanitise(!string.IsNullOrWhiteSpace(request.QualTable) ? request.QualTable : "dbo_QUAL");
-            var cresTable      = Sanitise(!string.IsNullOrWhiteSpace(request.CresTable) ? request.CresTable : "dbo_CRES");
-            var cregStudentCol = Sanitise(!string.IsNullOrWhiteSpace(request.CregStudentCol) ? request.CregStudentCol : "_007");
-            var cregQualCol    = Sanitise(!string.IsNullOrWhiteSpace(request.CregQualCol) ? request.CregQualCol : "_001");
-            var cregCourseCol  = Sanitise(!string.IsNullOrWhiteSpace(request.CregCourseCol) ? request.CregCourseCol : "_030");
-            var qualJoinCol    = Sanitise(!string.IsNullOrWhiteSpace(request.QualJoinCol) ? request.QualJoinCol : "_001");
-            var qualDescCol    = Sanitise(!string.IsNullOrWhiteSpace(request.QualDescCol) ? request.QualDescCol : "_003");
-            var cresCourseCol  = Sanitise(!string.IsNullOrWhiteSpace(request.CresCourseCol) ? request.CresCourseCol : "_030");
-            var cresStatusCol  = Sanitise(!string.IsNullOrWhiteSpace(request.CresStatusCol) ? request.CresStatusCol : "_031");
+            var cregTable        = Sanitise(request.CregTable);
+            var qualTable        = Sanitise(!string.IsNullOrWhiteSpace(request.QualTable) ? request.QualTable : "dbo_QUAL");
+            var cresTable        = Sanitise(!string.IsNullOrWhiteSpace(request.CresTable) ? request.CresTable : "dbo_CRES");
+            var cregStudentCol   = Sanitise(!string.IsNullOrWhiteSpace(request.CregStudentCol) ? request.CregStudentCol : "_007");
+            var cregQualCol      = Sanitise(!string.IsNullOrWhiteSpace(request.CregQualCol) ? request.CregQualCol : "_001");
+            var cregCourseCol    = Sanitise(!string.IsNullOrWhiteSpace(request.CregCourseCol) ? request.CregCourseCol : "_030");
+            var qualJoinCol      = Sanitise(!string.IsNullOrWhiteSpace(request.QualJoinCol) ? request.QualJoinCol : "_001");
+            var qualDescCol      = Sanitise(!string.IsNullOrWhiteSpace(request.QualDescCol) ? request.QualDescCol : "_003");
+            var cresCourseCol    = Sanitise(!string.IsNullOrWhiteSpace(request.CresCourseCol) ? request.CresCourseCol : "_030");
+            var cresStatusCol    = Sanitise(!string.IsNullOrWhiteSpace(request.CresStatusCol) ? request.CresStatusCol : "_031");
             var cresStatusFilter = !string.IsNullOrWhiteSpace(request.CresStatusFilter) ? request.CresStatusFilter.Trim() : "A";
+            var cregExtra1Col    = string.IsNullOrWhiteSpace(request.CregExtra1Col) ? "" : Sanitise(request.CregExtra1Col);
+            var cregExtra2Col    = string.IsNullOrWhiteSpace(request.CregExtra2Col) ? "" : Sanitise(request.CregExtra2Col);
+            var cregFilterCol    = string.IsNullOrWhiteSpace(request.CregFilterCol) ? "" : Sanitise(request.CregFilterCol);
+            var cregFilterValues = request.CregFilterValues?.Trim() ?? "";
+            var cregExtra3Col    = string.IsNullOrWhiteSpace(request.CregExtra3Col) ? "" : Sanitise(request.CregExtra3Col);
+            var cresExtra1Col    = string.IsNullOrWhiteSpace(request.CresExtra1Col) ? "" : Sanitise(request.CresExtra1Col);
 
-            var cregCount      = await CountAsync(conn, $"SELECT COUNT(*) FROM [{cregTable}];");
-            var qualCount      = await CountAsync(conn, $"SELECT COUNT(*) FROM [{qualTable}];");
-            var cresActiveCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{cresTable}] WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), [{cresStatusCol}])))) = '{Sanitise(cresStatusFilter)}';");
+            var (cregCount, qualCount, cresActiveCount, totalActiveStudents, matchedQuals, missingQuals) =
+                await RunPrepAndGetCountsAsync(conn,
+                    BuildRule12PrepSql(cregTable, qualTable, cresTable, cregStudentCol, cregQualCol, cregCourseCol,
+                        qualJoinCol, qualDescCol, cresCourseCol, cresStatusCol, cresStatusFilter,
+                        cregExtra1Col, cregExtra2Col, cregFilterCol, cregFilterValues, cregExtra3Col, cresExtra1Col),
+                    cregTable, qualTable);
 
-            await using var countCommand = conn.CreateConfiguredCommand();
-            countCommand.CommandText = BuildPopulationCountSql(cregTable, qualTable, cresTable, cregStudentCol, cregQualCol, cregCourseCol, qualJoinCol, qualDescCol, cresCourseCol, cresStatusCol, cresStatusFilter);
-            await using var countReader = await countCommand.ExecuteReaderAsync();
-
-            var totalActiveStudents = 0;
-            var matchedQuals = 0;
-            var missingQuals = 0;
-            if (await countReader.ReadAsync())
-            {
-                totalActiveStudents = GetInt(countReader, 0);
-                matchedQuals        = GetInt(countReader, 1);
-                missingQuals        = GetInt(countReader, 2);
-            }
-
-            await countReader.CloseAsync();
-
-            var reviewRows = await LoadControlRowsAsync(conn, cregTable, qualTable, cresTable, includeAllReviewRows ? null : BrowserPreviewRowLimit, cregStudentCol, cregQualCol, cregCourseCol, qualJoinCol, qualDescCol, cresCourseCol, cresStatusCol, cresStatusFilter);
+            var reviewRows = await LoadControlRowsFromPrepAsync(conn, cregTable, qualTable, cresTable, includeAllReviewRows ? null : BrowserPreviewRowLimit, cregQualCol, qualJoinCol, cresStatusCol, cresStatusFilter);
             reviewRows = NormalizeReviewRows(reviewRows);
 
             var controlSummaries = BuildControlSummaries(totalActiveStudents, matchedQuals, cregTable, qualTable, cresTable, cregQualCol, qualJoinCol, cresStatusCol, cresStatusFilter);
@@ -810,6 +806,12 @@ SELECT
                 CresCourseCol    = cresCourseCol,
                 CresStatusCol    = cresStatusCol,
                 CresStatusFilter = cresStatusFilter,
+                CregExtra1Col    = cregExtra1Col,
+                CregExtra2Col    = cregExtra2Col,
+                CregFilterCol    = cregFilterCol,
+                CregFilterValues = cregFilterValues,
+                CregExtra3Col    = cregExtra3Col,
+                CresExtra1Col    = cresExtra1Col,
                 TableLinkageText = $"{request.CregTable}.{cregQualCol} = {qualTable}.{qualJoinCol} | {request.CregTable}.{cregCourseCol} = {cresTable}.{cresCourseCol} WHERE {cresTable}.{cresStatusCol} = '{cresStatusFilter}'",
                 RuleModeText     = $"Active students from {request.CregTable} (CRES.{cresStatusCol}='{cresStatusFilter}') qualification codes tested against {qualTable}.{qualJoinCol}",
                 ProcedureSteps   = BuildProcedureSteps(request.CregTable, qualTable, cresTable, cresStatusCol, cresStatusFilter),
@@ -861,10 +863,15 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             command.Parameters.AddWithValue("@HemisServer", request.Server);
             command.Parameters.AddWithValue("@AuditDatabase", request.Database);
             command.Parameters.AddWithValue("@StudTable", request.CregTable);
-            command.Parameters.AddWithValue("@BridgeTable", request.CrseTable);
-            command.Parameters.AddWithValue("@CrseTable", request.CrseTable);
+            command.Parameters.AddWithValue("@BridgeTable", request.CresTable);
+            command.Parameters.AddWithValue("@CrseTable", request.CresTable);
+            // Persist only the fail rows in ResultsJSON — storing all PASS rows for large datasets
+            // (hundreds of thousands of records) would make the DB blob unmanageably large.
             var persistedSummary = CloneSummary(summary);
             persistedSummary.SavedRunId = summary.SavedRunId;
+            persistedSummary.ReviewRows = failRows.ToList();
+            persistedSummary.DisplayedCount = failRows.Count;
+            persistedSummary.IsPreviewOnly = false;
             command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(failRows)));
             command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(persistedSummary)));
             command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? (object?)userEmail ?? DBNull.Value);
@@ -883,9 +890,236 @@ WHERE RunID = @RunID;";
             hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash($@"ValidationRun|Rule12|{runId}|{request.ClientId}|{systemUserId.Value}|{summary.Status}|{summary.TotalValidated}|{summary.FailCount}|{summary.ExceptionRate}|{summary.Timestamp}|{previousHash}"));
             await hashCommand.ExecuteNonQueryAsync();
 
-            await UpdateStoredSummaryAsync(connection, runId, summary);
+            persistedSummary.SavedRunId = runId;
+            await UpdateStoredSummaryAsync(connection, runId, persistedSummary);
 
             return runId;
+        }
+
+        private static async Task RunPrepSqlAsync(SqlConnection connection, string prepSql)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = prepSql;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private static string BuildRule12CountAfterPrepSql(string cregTable, string qualTable) =>
+            $@"SELECT
+    (SELECT COUNT(1) FROM [{cregTable}]) AS CregCount,
+    (SELECT COUNT(1) FROM [{qualTable}]) AS QualCount,
+    (SELECT COUNT(1) FROM #Rule12CresActive) AS CresActiveCount,
+    (SELECT COUNT(1) FROM #Rule12Active) AS TotalActiveStudents,
+    SUM(CASE WHEN q.QUAL__001 IS NOT NULL THEN 1 ELSE 0 END) AS MatchedQuals,
+    SUM(CASE WHEN q.QUAL__001 IS NULL     THEN 1 ELSE 0 END) AS MissingQuals
+FROM #Rule12Active a
+LEFT JOIN #Rule12Quals q ON q.QUAL__001 = a.CREG__001;";
+
+        private static async Task<(int cregCount, int qualCount, int cresActiveCount, int totalActiveStudents, int matchedQuals, int missingQuals)>
+            RunPrepAndGetCountsAsync(SqlConnection conn, string prepSql, string cregTable, string qualTable)
+        {
+            await using var command = conn.CreateConfiguredCommand();
+            command.CommandText = "SET NOCOUNT ON;\n" + prepSql + "\n" + BuildRule12CountAfterPrepSql(cregTable, qualTable);
+            await using var reader = await command.ExecuteReaderAsync();
+            do
+            {
+                if (reader.FieldCount >= 6 && await reader.ReadAsync())
+                    return (GetInt(reader, 0), GetInt(reader, 1), GetInt(reader, 2),
+                            GetInt(reader, 3), GetInt(reader, 4), GetInt(reader, 5));
+            }
+            while (await reader.NextResultAsync());
+            return (0, 0, 0, 0, 0, 0);
+        }
+
+        private static async Task<Dictionary<string, List<string>>> GetTableColumnsMultiAsync(
+            SqlConnection conn, params string[] tableNames)
+        {
+            var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in tableNames) result[t] = new List<string>();
+            if (tableNames.Length == 0) return result;
+
+            await using var cmd = conn.CreateConfiguredCommand();
+            var placeholders = tableNames.Select((_, i) => $"@T{i}").ToArray();
+            cmd.CommandText = $"SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME IN ({string.Join(",", placeholders)}) ORDER BY TABLE_NAME, ORDINAL_POSITION;";
+            for (var i = 0; i < tableNames.Length; i++)
+                cmd.Parameters.AddWithValue($"@T{i}", tableNames[i]);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var tbl = reader.GetString(0);
+                if (result.TryGetValue(tbl, out var cols) && !reader.IsDBNull(1))
+                    cols.Add(reader.GetString(1));
+            }
+            return result;
+        }
+
+        private static string BuildRule12PrepSql(
+            string cregTable, string qualTable, string cresTable,
+            string cregStudentCol, string cregQualCol, string cregCourseCol,
+            string qualJoinCol, string qualDescCol,
+            string cresCourseCol, string cresStatusCol, string cresStatusFilter,
+            string cregExtra1Col = "", string cregExtra2Col = "",
+            string cregFilterCol = "", string cregFilterValues = "",
+            string cregExtra3Col = "", string cresExtra1Col = "")
+        {
+            var extra1Sql   = string.IsNullOrWhiteSpace(cregExtra1Col)
+                ? "CAST(NULL AS nvarchar(255))"
+                : $"CONVERT(nvarchar(255), cr.[{cregExtra1Col}])";
+            var extra2Sql   = string.IsNullOrWhiteSpace(cregExtra2Col)
+                ? "CAST(NULL AS nvarchar(255))"
+                : $"CONVERT(nvarchar(255), cr.[{cregExtra2Col}])";
+            var filterSql   = string.IsNullOrWhiteSpace(cregFilterCol)
+                ? "CAST(NULL AS nvarchar(255))"
+                : $"UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregFilterCol}]))))";
+            var extra3Sql   = string.IsNullOrWhiteSpace(cregExtra3Col)
+                ? "CAST(NULL AS nvarchar(255))"
+                : $"CONVERT(nvarchar(255), cr.[{cregExtra3Col}])";
+            var filterWhere = BuildFilterWhereClause(cregFilterCol, cregFilterValues);
+            var cresExtra1SelectInto = string.IsNullOrWhiteSpace(cresExtra1Col)
+                ? "CAST(NULL AS nvarchar(255)) AS CresExtra1"
+                : $"CONVERT(nvarchar(255), cres.[{cresExtra1Col}]) AS CresExtra1";
+            var cresExtra1ResultSql = string.IsNullOrWhiteSpace(cresExtra1Col)
+                ? "CAST(NULL AS nvarchar(255))"
+                : "ca.CresExtra1";
+
+            return $@"
+DROP TABLE IF EXISTS #Rule12CresActive;
+DROP TABLE IF EXISTS #Rule12Active;
+DROP TABLE IF EXISTS #Rule12Quals;
+
+SELECT UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cres.[{cresCourseCol}])))) AS CourseCode,
+    {cresExtra1SelectInto}
+INTO #Rule12CresActive
+FROM [{cresTable}] cres
+WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cres.[{cresStatusCol}])))) = '{cresStatusFilter}';
+
+CREATE INDEX IX_Rule12CresActive ON #Rule12CresActive (CourseCode);
+
+SELECT
+    CONVERT(nvarchar(255), cr.[{cregStudentCol}])                              AS CREG__007,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregQualCol}]))))            AS CREG__001,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregCourseCol}]))))          AS CREG__030,
+    {extra1Sql}                                                                 AS CREG__EXTRA1,
+    {extra2Sql}                                                                 AS CREG__EXTRA2,
+    {filterSql}                                                                 AS CREG__FILTER,
+    {extra3Sql}                                                                 AS CREG__EXTRA3,
+    ca.CourseCode                                                               AS CRES__030,
+    '{cresStatusFilter}'                                                        AS CRES__031,
+    {cresExtra1ResultSql}                                                       AS CRES__EXTRA1
+INTO #Rule12Active
+FROM [{cregTable}] cr
+INNER JOIN #Rule12CresActive ca
+    ON ca.CourseCode = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregCourseCol}]))))
+WHERE cr.[{cregQualCol}] IS NOT NULL
+  AND LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregQualCol}]))) <> ''{filterWhere};
+
+CREATE INDEX IX_Rule12Active ON #Rule12Active (CREG__001);
+
+SELECT DISTINCT
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), q.[{qualJoinCol}])))) AS QUAL__001,
+    CONVERT(nvarchar(255), q.[{qualDescCol}])                      AS QUAL__003
+INTO #Rule12Quals
+FROM [{qualTable}] q
+WHERE q.[{qualJoinCol}] IS NOT NULL
+  AND LTRIM(RTRIM(CONVERT(nvarchar(255), q.[{qualJoinCol}]))) <> '';
+
+CREATE INDEX IX_Rule12Quals ON #Rule12Quals (QUAL__001);";
+        }
+
+        private static string BuildFilterWhereClause(string filterCol, string filterValues)
+        {
+            if (string.IsNullOrWhiteSpace(filterCol) || string.IsNullOrWhiteSpace(filterValues))
+                return "";
+
+            var values = filterValues
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(v => Sanitise(v).ToUpperInvariant())
+                .Where(v => v.Length > 0)
+                .Select(v => $"'{v}'")
+                .ToList();
+
+            return values.Count == 0
+                ? ""
+                : $"\n  AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{filterCol}])))) IN ({string.Join(", ", values)})";
+        }
+
+        private static string BuildCountFromPrepSql() => @"
+SELECT
+    (SELECT COUNT(1) FROM #Rule12Active) AS TotalActiveStudents,
+    SUM(CASE WHEN q.QUAL__001 IS NOT NULL THEN 1 ELSE 0 END) AS MatchedQuals,
+    SUM(CASE WHEN q.QUAL__001 IS NULL     THEN 1 ELSE 0 END) AS MissingQuals
+FROM #Rule12Active a
+LEFT JOIN #Rule12Quals q ON q.QUAL__001 = a.CREG__001;";
+
+        private static string BuildReviewFromPrepSql(
+            int? maxRows,
+            string cregTable, string qualTable, string cresTable,
+            string cregQualCol, string qualJoinCol, string cresStatusCol, string cresStatusFilter)
+        {
+            var topClause = maxRows.HasValue && maxRows.Value > 0 ? $"TOP {maxRows.Value}" : string.Empty;
+            return $@"
+SELECT {topClause}
+    1 AS Control_Sort,
+    'Control_1' AS Control_Type,
+    'CONTROL 1: [{cregTable}].[{cregQualCol}] = [{qualTable}].[{qualJoinCol}] WHERE [{cresTable}].[{cresStatusCol}] = ''{cresStatusFilter}''' AS Control_Label,
+    CASE WHEN q.QUAL__001 IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result,
+    CASE
+        WHEN q.QUAL__001 IS NOT NULL
+            THEN 'Active student qualification exists in {qualTable}.'
+        ELSE 'Active student qualification does not exist in {qualTable}.'
+    END AS Validation_Explanation,
+    a.CREG__007,
+    a.CREG__001,
+    a.CREG__030,
+    a.CREG__EXTRA1,
+    a.CREG__EXTRA2,
+    a.CREG__FILTER,
+    a.CREG__EXTRA3,
+    q.QUAL__001,
+    q.QUAL__003,
+    a.CRES__030,
+    a.CRES__031,
+    a.CRES__EXTRA1
+FROM #Rule12Active a
+LEFT JOIN #Rule12Quals q ON q.QUAL__001 = a.CREG__001
+ORDER BY a.CREG__007, a.CREG__001;";
+        }
+
+        private async Task<List<Rule12ValidationRowRecord>> LoadControlRowsFromPrepAsync(
+            SqlConnection connection,
+            string cregTable, string qualTable, string cresTable,
+            int? maxRows,
+            string cregQualCol, string qualJoinCol, string cresStatusCol, string cresStatusFilter)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = BuildReviewFromPrepSql(maxRows, cregTable, qualTable, cresTable, cregQualCol, qualJoinCol, cresStatusCol, cresStatusFilter);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            var rows = new List<Rule12ValidationRowRecord>();
+            while (await reader.ReadAsync())
+            {
+                var displayValues = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                for (var i = 0; i < reader.FieldCount; i++)
+                {
+                    displayValues[reader.GetName(i)] = reader.IsDBNull(i)
+                        ? null
+                        : Convert.ToString(reader.GetValue(i), CultureInfo.InvariantCulture);
+                }
+
+                rows.Add(new Rule12ValidationRowRecord
+                {
+                    ValidationNumber = rows.Count + 1,
+                    ControlType = ReadValue(displayValues, "Control_Type"),
+                    ControlLabel = ReadValue(displayValues, "Control_Label"),
+                    ValidationResult = ReadValue(displayValues, "Validation_Result"),
+                    ValidationExplanation = ReadValue(displayValues, "Validation_Explanation"),
+                    DisplayValues = displayValues
+                });
+
+                EnrichRule12DisplayValues(rows[^1]);
+            }
+
+            return rows;
         }
 
         private static string BuildPopulationCountSql(
@@ -944,11 +1178,12 @@ FROM ValidationResults;";
             int? maxRows,
             string cregStudentCol = "_007", string cregQualCol = "_001", string cregCourseCol = "_030",
             string qualJoinCol = "_001", string qualDescCol = "_003",
-            string cresCourseCol = "_030", string cresStatusCol = "_031", string cresStatusFilter = "A")
+            string cresCourseCol = "_030", string cresStatusCol = "_031", string cresStatusFilter = "A",
+            string cresExtra1Col = "")
         {
             var topClause = maxRows.HasValue && maxRows.Value > 0 ? $"TOP {maxRows.Value}" : string.Empty;
             return $@"
-{BuildRule12SourceCtes(cregTable, qualTable, cresTable, cregStudentCol, cregQualCol, cregCourseCol, qualJoinCol, qualDescCol, cresCourseCol, cresStatusCol, cresStatusFilter)}
+{BuildRule12SourceCtes(cregTable, qualTable, cresTable, cregStudentCol, cregQualCol, cregCourseCol, qualJoinCol, qualDescCol, cresCourseCol, cresStatusCol, cresStatusFilter, cresExtra1Col)}
 SELECT {topClause}
     1 AS Control_Sort,
     'Control_1' AS Control_Type,
@@ -965,7 +1200,8 @@ SELECT {topClause}
     QUAL__001,
     QUAL__003,
     CRES__030,
-    CRES__031
+    CRES__031,
+    CRES__EXTRA1
 FROM ValidationResults
 ORDER BY CREG__007, CREG__001;";
         }
@@ -974,7 +1210,13 @@ ORDER BY CREG__007, CREG__001;";
             string cregTable, string qualTable, string cresTable,
             string cregStudentCol = "_007", string cregQualCol = "_001", string cregCourseCol = "_030",
             string qualJoinCol = "_001", string qualDescCol = "_003",
-            string cresCourseCol = "_030", string cresStatusCol = "_031", string cresStatusFilter = "A") => $@"
+            string cresCourseCol = "_030", string cresStatusCol = "_031", string cresStatusFilter = "A",
+            string cresExtra1Col = "")
+        {
+            var cresExtra1Select = string.IsNullOrWhiteSpace(cresExtra1Col)
+                ? "CAST(NULL AS nvarchar(255)) AS CRES__EXTRA1"
+                : $"CONVERT(nvarchar(255), CRES.[{cresExtra1Col}]) AS CRES__EXTRA1";
+            return $@"
 WITH ActiveStudents AS
 (
     SELECT
@@ -982,7 +1224,8 @@ WITH ActiveStudents AS
         UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), CREG.[{cregQualCol}]))))            AS CREG__001,
         UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), CREG.[{cregCourseCol}]))))          AS CREG__030,
         UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), CRES.[{cresCourseCol}]))))          AS CRES__030,
-        UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), CRES.[{cresStatusCol}]))))          AS CRES__031
+        UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), CRES.[{cresStatusCol}]))))          AS CRES__031,
+        {cresExtra1Select}
     FROM [{cregTable}] CREG
     INNER JOIN [{cresTable}] CRES
         ON  UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), CRES.[{cresCourseCol}]))))
@@ -1008,11 +1251,13 @@ ValidationResults AS
         Stud.CREG__030,
         Stud.CRES__030,
         Stud.CRES__031,
+        Stud.CRES__EXTRA1,
         Ref.QUAL__001,
         Ref.QUAL__003
     FROM ActiveStudents Stud
     LEFT JOIN ReferenceQuals Ref ON Ref.QUAL__001 = Stud.CREG__001
 )";
+        }
 
         private static List<Rule12ControlSummaryItemViewModel> BuildControlSummaries(
             int totalActiveStudents, int matchedQuals,
@@ -1068,8 +1313,8 @@ ValidationResults AS
 
         private async Task<Rule12ValidationSummary> ExpandSavedSummaryIfNeededAsync(Rule12ValidationSummary summary, string? server)
         {
-            if (!summary.IsPreviewOnly &&
-                summary.ReviewRows.Count >= summary.TotalValidated)
+            var hasAllRows = !summary.IsPreviewOnly && summary.ReviewRows.Count >= summary.TotalValidated;
+            if (hasAllRows)
             {
                 return summary;
             }
@@ -1077,7 +1322,7 @@ ValidationResults AS
             if (string.IsNullOrWhiteSpace(server) ||
                 string.IsNullOrWhiteSpace(summary.Database) ||
                 string.IsNullOrWhiteSpace(summary.CregTable) ||
-                string.IsNullOrWhiteSpace(summary.CrseTable))
+                string.IsNullOrWhiteSpace(summary.CresTable))
             {
                 return summary;
             }
@@ -1102,7 +1347,13 @@ ValidationResults AS
                         QualDescCol      = !string.IsNullOrWhiteSpace(summary.QualDescCol) ? summary.QualDescCol : "_003",
                         CresCourseCol    = !string.IsNullOrWhiteSpace(summary.CresCourseCol) ? summary.CresCourseCol : "_030",
                         CresStatusCol    = !string.IsNullOrWhiteSpace(summary.CresStatusCol) ? summary.CresStatusCol : "_031",
-                        CresStatusFilter = !string.IsNullOrWhiteSpace(summary.CresStatusFilter) ? summary.CresStatusFilter : "A"
+                        CresStatusFilter = !string.IsNullOrWhiteSpace(summary.CresStatusFilter) ? summary.CresStatusFilter : "A",
+                        CregExtra1Col    = !string.IsNullOrWhiteSpace(summary.CregExtra1Col) ? summary.CregExtra1Col : "_064",
+                        CregExtra2Col    = !string.IsNullOrWhiteSpace(summary.CregExtra2Col) ? summary.CregExtra2Col : "_032",
+                        CregFilterCol    = !string.IsNullOrWhiteSpace(summary.CregFilterCol) ? summary.CregFilterCol : "_051",
+                        CregFilterValues = summary.CregFilterValues ?? "",
+                        CregExtra3Col    = !string.IsNullOrWhiteSpace(summary.CregExtra3Col) ? summary.CregExtra3Col : "_018",
+                        CresExtra1Col    = !string.IsNullOrWhiteSpace(summary.CresExtra1Col) ? summary.CresExtra1Col : "_058"
                     },
                     includeAllReviewRows: true);
 
@@ -1163,6 +1414,12 @@ ValidationResults AS
                 CresCourseCol    = summary.CresCourseCol,
                 CresStatusCol    = summary.CresStatusCol,
                 CresStatusFilter = summary.CresStatusFilter,
+                CregExtra1Col    = summary.CregExtra1Col,
+                CregExtra2Col    = summary.CregExtra2Col,
+                CregFilterCol    = summary.CregFilterCol,
+                CregFilterValues = summary.CregFilterValues,
+                CregExtra3Col    = summary.CregExtra3Col,
+                CresExtra1Col    = summary.CresExtra1Col,
                 TableLinkageText = summary.TableLinkageText,
                 RuleModeText     = summary.RuleModeText,
                 ProcedureSteps   = summary.ProcedureSteps.ToList(),
@@ -1247,6 +1504,12 @@ ValidationResults AS
                 CresCourseCol    = summary.CresCourseCol,
                 CresStatusCol    = summary.CresStatusCol,
                 CresStatusFilter = summary.CresStatusFilter,
+                CregExtra1Col    = summary.CregExtra1Col,
+                CregExtra2Col    = summary.CregExtra2Col,
+                CregFilterCol    = summary.CregFilterCol,
+                CregFilterValues = summary.CregFilterValues,
+                CregExtra3Col    = summary.CregExtra3Col,
+                CresExtra1Col    = summary.CresExtra1Col,
                 TableLinkageText = summary.TableLinkageText,
                 RuleModeText     = summary.RuleModeText,
                 ProcedureSteps   = summary.ProcedureSteps.ToList(),
@@ -1336,7 +1599,13 @@ ValidationResults AS
                 QualDescCol      = request.QualDescCol,
                 CresCourseCol    = request.CresCourseCol,
                 CresStatusCol    = request.CresStatusCol,
-                CresStatusFilter = request.CresStatusFilter
+                CresStatusFilter = request.CresStatusFilter,
+                CregExtra1Col    = request.CregExtra1Col,
+                CregExtra2Col    = request.CregExtra2Col,
+                CregFilterCol    = request.CregFilterCol,
+                CregFilterValues = request.CregFilterValues,
+                CregExtra3Col    = request.CregExtra3Col,
+                CresExtra1Col    = request.CresExtra1Col
             };
         }
 
@@ -1381,13 +1650,24 @@ ValidationResults AS
             var cresCourseCol  = !string.IsNullOrWhiteSpace(request.CresCourseCol) ? request.CresCourseCol : "_030";
             var cresStatusCol  = !string.IsNullOrWhiteSpace(request.CresStatusCol) ? request.CresStatusCol : "_031";
 
-            var cregColumns = await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.CregTable);
-            var qualColumns = await GetTableColumnsAsync(request.Server, request.Database, request.Driver, qualTable);
-            var cresColumns = await GetTableColumnsAsync(request.Server, request.Database, request.Driver, cresTable);
+            var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+            await using var conn = new SqlConnection(connStr);
+            await conn.OpenAsync();
+            var allCols = await GetTableColumnsMultiAsync(conn, request.CregTable, qualTable, cresTable);
+            var cregColumns = allCols.GetValueOrDefault(request.CregTable) ?? new List<string>();
+            var qualColumns = allCols.GetValueOrDefault(qualTable) ?? new List<string>();
+            var cresColumns = allCols.GetValueOrDefault(cresTable) ?? new List<string>();
 
-            EnsureHasColumns(request.CregTable, cregColumns, cregStudentCol, cregQualCol, cregCourseCol);
+            var requiredCregCols = new List<string> { cregStudentCol, cregQualCol, cregCourseCol };
+            if (!string.IsNullOrWhiteSpace(request.CregExtra1Col)) requiredCregCols.Add(Sanitise(request.CregExtra1Col));
+            if (!string.IsNullOrWhiteSpace(request.CregExtra2Col)) requiredCregCols.Add(Sanitise(request.CregExtra2Col));
+            if (!string.IsNullOrWhiteSpace(request.CregFilterCol)) requiredCregCols.Add(Sanitise(request.CregFilterCol));
+            if (!string.IsNullOrWhiteSpace(request.CregExtra3Col)) requiredCregCols.Add(Sanitise(request.CregExtra3Col));
+            EnsureHasColumns(request.CregTable, cregColumns, requiredCregCols.ToArray());
             EnsureHasColumns(qualTable, qualColumns, qualJoinCol, qualDescCol);
-            EnsureHasColumns(cresTable, cresColumns, cresCourseCol, cresStatusCol);
+            var requiredCresCols = new List<string> { cresCourseCol, cresStatusCol };
+            if (!string.IsNullOrWhiteSpace(request.CresExtra1Col)) requiredCresCols.Add(Sanitise(request.CresExtra1Col));
+            EnsureHasColumns(cresTable, cresColumns, requiredCresCols.ToArray());
         }
 
         private async Task EnsureColumnsExistAsync(Rule12VerifyRequest request)
@@ -1402,13 +1682,24 @@ ValidationResults AS
             var cresCourseCol  = !string.IsNullOrWhiteSpace(request.CresCourseCol) ? request.CresCourseCol : "_030";
             var cresStatusCol  = !string.IsNullOrWhiteSpace(request.CresStatusCol) ? request.CresStatusCol : "_031";
 
-            var cregColumns = await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.CregTable);
-            var qualColumns = await GetTableColumnsAsync(request.Server, request.Database, request.Driver, qualTable);
-            var cresColumns = await GetTableColumnsAsync(request.Server, request.Database, request.Driver, cresTable);
+            var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+            await using var conn = new SqlConnection(connStr);
+            await conn.OpenAsync();
+            var allCols = await GetTableColumnsMultiAsync(conn, request.CregTable, qualTable, cresTable);
+            var cregColumns = allCols.GetValueOrDefault(request.CregTable) ?? new List<string>();
+            var qualColumns = allCols.GetValueOrDefault(qualTable) ?? new List<string>();
+            var cresColumns = allCols.GetValueOrDefault(cresTable) ?? new List<string>();
 
-            EnsureHasColumns(request.CregTable, cregColumns, cregStudentCol, cregQualCol, cregCourseCol);
+            var requiredCregColsV = new List<string> { cregStudentCol, cregQualCol, cregCourseCol };
+            if (!string.IsNullOrWhiteSpace(request.CregExtra1Col)) requiredCregColsV.Add(Sanitise(request.CregExtra1Col));
+            if (!string.IsNullOrWhiteSpace(request.CregExtra2Col)) requiredCregColsV.Add(Sanitise(request.CregExtra2Col));
+            if (!string.IsNullOrWhiteSpace(request.CregFilterCol)) requiredCregColsV.Add(Sanitise(request.CregFilterCol));
+            if (!string.IsNullOrWhiteSpace(request.CregExtra3Col)) requiredCregColsV.Add(Sanitise(request.CregExtra3Col));
+            EnsureHasColumns(request.CregTable, cregColumns, requiredCregColsV.ToArray());
             EnsureHasColumns(qualTable, qualColumns, qualJoinCol, qualDescCol);
-            EnsureHasColumns(cresTable, cresColumns, cresCourseCol, cresStatusCol);
+            var requiredCresCols = new List<string> { cresCourseCol, cresStatusCol };
+            if (!string.IsNullOrWhiteSpace(request.CresExtra1Col)) requiredCresCols.Add(Sanitise(request.CresExtra1Col));
+            EnsureHasColumns(cresTable, cresColumns, requiredCresCols.ToArray());
         }
 
         private async Task<List<string>> GetTableColumnsAsync(string server, string database, string driver, string tableName)
@@ -1845,6 +2136,24 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
                         case nameof(Rule12ValidationSummary.CresStatusFilter):
                             metadata.CresStatusFilter = reader.Value?.ToString();
                             break;
+                        case nameof(Rule12ValidationSummary.CregExtra1Col):
+                            metadata.CregExtra1Col = reader.Value?.ToString();
+                            break;
+                        case nameof(Rule12ValidationSummary.CregExtra2Col):
+                            metadata.CregExtra2Col = reader.Value?.ToString();
+                            break;
+                        case nameof(Rule12ValidationSummary.CregFilterCol):
+                            metadata.CregFilterCol = reader.Value?.ToString();
+                            break;
+                        case nameof(Rule12ValidationSummary.CregFilterValues):
+                            metadata.CregFilterValues = reader.Value?.ToString();
+                            break;
+                        case nameof(Rule12ValidationSummary.CregExtra3Col):
+                            metadata.CregExtra3Col = reader.Value?.ToString();
+                            break;
+                        case nameof(Rule12ValidationSummary.CresExtra1Col):
+                            metadata.CresExtra1Col = reader.Value?.ToString();
+                            break;
                         default:
                             if (reader.TokenType == JsonToken.StartArray || reader.TokenType == JsonToken.StartObject)
                                 reader.Skip();
@@ -1862,16 +2171,22 @@ ORDER BY RunTimestamp DESC, RunID DESC;";
 
         private sealed class Rule12WorkspaceSummaryMetadata
         {
-            public string? QualTable { get; set; }
-            public string? CresTable { get; set; }
-            public string? CregStudentCol { get; set; }
-            public string? CregQualCol { get; set; }
-            public string? CregCourseCol { get; set; }
-            public string? QualJoinCol { get; set; }
-            public string? QualDescCol { get; set; }
-            public string? CresCourseCol { get; set; }
-            public string? CresStatusCol { get; set; }
+            public string? QualTable       { get; set; }
+            public string? CresTable       { get; set; }
+            public string? CregStudentCol  { get; set; }
+            public string? CregQualCol     { get; set; }
+            public string? CregCourseCol   { get; set; }
+            public string? QualJoinCol     { get; set; }
+            public string? QualDescCol     { get; set; }
+            public string? CresCourseCol   { get; set; }
+            public string? CresStatusCol   { get; set; }
             public string? CresStatusFilter { get; set; }
+            public string? CregExtra1Col   { get; set; }
+            public string? CregExtra2Col   { get; set; }
+            public string? CregFilterCol   { get; set; }
+            public string? CregFilterValues { get; set; }
+            public string? CregExtra3Col   { get; set; }
+            public string? CresExtra1Col   { get; set; }
         }
 
         private static async Task<int?> GetClientIdForRunAsync(SqlConnection connection, int runId)
@@ -1948,10 +2263,6 @@ WHERE RunID = @RunID;";
 
     }
 }
-
-
-
-
 
 
 

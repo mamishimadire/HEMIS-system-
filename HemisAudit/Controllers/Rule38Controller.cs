@@ -174,9 +174,7 @@ namespace HemisAudit.Controllers
                 QualMinTimeWilCol     = review.Summary.QualMinTimeWilCol,
                 QualHeqfCol           = review.Summary.QualHeqfCol,
                 QualTotalSubsidyCol   = review.Summary.QualTotalSubsidyCol,
-                CesmTable             = review.Summary.CesmTable,
-                CesmIdCol             = review.Summary.CesmIdCol,
-                CesmCodeCol           = review.Summary.CesmCodeCol,
+                QualCesmCodeCol       = review.Summary.QualCesmCodeCol,
                 PqmTable              = review.Summary.PqmTable,
                 PqmNameCol            = review.Summary.PqmNameCol,
                 PqmQualTypeCol        = review.Summary.PqmQualTypeCol,
@@ -547,6 +545,21 @@ namespace HemisAudit.Controllers
 
             return Json(RequireDataAnalystResult(() => new SqlResult { Success = true, Sql = _rule38.GenerateSql(request) }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule38ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(RequireDataAnalystResult(() => new SqlResult
+            {
+                Success = true,
+                Sql = Rule38RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule38")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule38RunSignoffInputModel model)
@@ -667,7 +680,7 @@ namespace HemisAudit.Controllers
             var bytes = _export.ExportRule38Excel(review.Summary);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"Rule38_QUAL_CESM_PQM_Validation_Run_{runId}.xlsx");
+                $"Rule38_QUAL_PQM_Validation_Run_{runId}.xlsx");
         }
 
         [HttpGet]
@@ -689,7 +702,7 @@ namespace HemisAudit.Controllers
                 return RedirectToAction(nameof(Run), new { id = runId });
 
             var bytes = _export.ExportRule38Csv(review.Summary, true);
-            return File(bytes, "text/csv", $"Rule38_QUAL_CESM_PQM_Exceptions_Run_{runId}.csv");
+            return File(bytes, "text/csv", $"Rule38_QUAL_PQM_Exceptions_Run_{runId}.csv");
         }
 
         [HttpGet]
@@ -713,9 +726,7 @@ namespace HemisAudit.Controllers
                 QualMinTimeWilCol     = review.Summary.QualMinTimeWilCol,
                 QualHeqfCol           = review.Summary.QualHeqfCol,
                 QualTotalSubsidyCol   = review.Summary.QualTotalSubsidyCol,
-                CesmTable             = review.Summary.CesmTable,
-                CesmIdCol             = review.Summary.CesmIdCol,
-                CesmCodeCol           = review.Summary.CesmCodeCol,
+                QualCesmCodeCol       = review.Summary.QualCesmCodeCol,
                 PqmTable              = review.Summary.PqmTable,
                 PqmNameCol            = review.Summary.PqmNameCol,
                 PqmQualTypeCol        = review.Summary.PqmQualTypeCol,
@@ -731,7 +742,7 @@ namespace HemisAudit.Controllers
                 PostgraduateTypesCsv = review.Summary.PostgraduateTypesCsv
             };
             var bytes = _export.ExportSql(_rule38.GenerateSql(request));
-            return File(bytes, "application/sql", $"Rule38_QUAL_CESM_PQM_Validation_Run_{runId}.sql");
+            return File(bytes, "application/sql", $"Rule38_QUAL_PQM_Validation_Run_{runId}.sql");
         }
 
         [HttpPost]
@@ -741,7 +752,7 @@ namespace HemisAudit.Controllers
             var bytes = _export.ExportRule38Excel(summary);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"Rule38_QUAL_CESM_PQM_Validation_{Ts()}.xlsx");
+                $"Rule38_QUAL_PQM_Validation_{Ts()}.xlsx");
         }
 
         [HttpPost]
@@ -757,7 +768,7 @@ namespace HemisAudit.Controllers
         {
             summary = await ResolveExportSummaryAsync(summary);
             var bytes = _export.ExportRule38Csv(summary, true);
-            return File(bytes, "text/csv", $"Rule38_QUAL_CESM_PQM_Exceptions_{Ts()}.csv");
+            return File(bytes, "text/csv", $"Rule38_QUAL_PQM_Exceptions_{Ts()}.csv");
         }
 
         [HttpPost]
@@ -775,7 +786,7 @@ namespace HemisAudit.Controllers
             }
 
             var bytes = _export.ExportSql(_rule38.GenerateSql(request));
-            return File(bytes, "application/sql", $"Rule38_QUAL_CESM_PQM_Validation_{Ts()}.sql");
+            return File(bytes, "application/sql", $"Rule38_QUAL_PQM_Validation_{Ts()}.sql");
         }
 
         private async Task<Rule38RunReviewViewModel?> LoadAuthorizedSavedRunAsync(int runId, bool requireDownloadAccess)

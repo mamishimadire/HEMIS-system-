@@ -73,7 +73,7 @@ namespace HemisAudit.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetWorkspaceState(int clientId, bool includeSummary = false)
+        public async Task<IActionResult> GetWorkspaceState(int clientId, bool includeSummary = true)
         {
             var user = await _users.GetUserAsync(User);
             var role = await GetCurrentSystemRoleAsync(user);
@@ -102,6 +102,42 @@ namespace HemisAudit.Controllers
                 hasWorkspace = workspace != null,
                 resultsVisible,
                 workspace
+            });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetWorkspaceSummary(int runId)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+            await _systemDb.NormalizeCompletedRunStatusesAsync();
+
+            if (runId <= 0)
+                return Json(new { success = false, error = "Select a saved Rule 12 run first." });
+
+            var review = await _rule12.GetSavedRunAsync(runId, user?.Email, includeFullResults: false);
+            if (review == null)
+            {
+                Response.StatusCode = StatusCodes.Status404NotFound;
+                return Json(new { success = false, error = "Saved Rule 12 results were not found." });
+            }
+
+            if (!await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
+            {
+                Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Json(new { success = false, error = "You cannot access this engagement." });
+            }
+
+            if (!CanViewSavedRun(review, role))
+            {
+                Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Json(new { success = false, error = "Saved Rule 12 results are not available for your engagement role." });
+            }
+
+            return Json(new
+            {
+                success = true,
+                summary = review.Summary
             });
         }
 
@@ -163,7 +199,13 @@ namespace HemisAudit.Controllers
                 QualDescCol      = review.Summary.QualDescCol,
                 CresCourseCol    = review.Summary.CresCourseCol,
                 CresStatusCol    = review.Summary.CresStatusCol,
-                CresStatusFilter = review.Summary.CresStatusFilter
+                CresStatusFilter = review.Summary.CresStatusFilter,
+                CregExtra1Col    = review.Summary.CregExtra1Col,
+                CregExtra2Col    = review.Summary.CregExtra2Col,
+                CregFilterCol    = review.Summary.CregFilterCol,
+                CregFilterValues = review.Summary.CregFilterValues,
+                CregExtra3Col    = review.Summary.CregExtra3Col,
+                CresExtra1Col    = review.Summary.CresExtra1Col
             });
 
             return View(review);
@@ -286,7 +328,20 @@ namespace HemisAudit.Controllers
                     user?.Email);
             }
 
-            return Json(result);
+            var editResultsVisible = CanViewWorkspaceResults(role, result.Workspace);
+            if (result.Workspace != null)
+                result.Workspace.ResultsVisible = editResultsVisible;
+
+            return Json(new
+            {
+                success = result.Success,
+                error = result.Error,
+                message = result.Message,
+                signoffsCleared = result.SignoffsCleared,
+                clearedSignoffCount = result.ClearedSignoffCount,
+                workspace = result.Workspace,
+                resultsVisible = editResultsVisible
+            });
         }
 
         [HttpPost]
@@ -314,7 +369,20 @@ namespace HemisAudit.Controllers
                     user?.Email);
             }
 
-            return Json(result);
+            var workspaceResultsVisible = CanViewWorkspaceResults(role, result.Workspace);
+            if (result.Workspace != null)
+                result.Workspace.ResultsVisible = workspaceResultsVisible;
+
+            return Json(new
+            {
+                success = result.Success,
+                error = result.Error,
+                message = result.Message,
+                signoffsCleared = result.SignoffsCleared,
+                clearedSignoffCount = result.ClearedSignoffCount,
+                workspace = result.Workspace,
+                resultsVisible = workspaceResultsVisible
+            });
         }
 
         [HttpPost]
@@ -444,6 +512,21 @@ namespace HemisAudit.Controllers
                     Sql = await _rule12.GenerateSqlAsync(request)
                 }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule12ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule12SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule12SqlResult
+            {
+                Success = true,
+                Sql = Rule12RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule12")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule12RunSignoffInputModel model)
@@ -561,7 +644,8 @@ namespace HemisAudit.Controllers
             if (review == null)
                 return RedirectToAction(nameof(Run), new { id = runId });
 
-            var bytes = _export.ExportExcel(review.Summary);
+            var summary = await EnsureFullPopulationForExportAsync(review.Summary, BuildSavedRunExportRequest(review));
+            var bytes = _export.ExportExcel(summary);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule12_Course_Selection_Run_{runId}.xlsx");
         }
 
@@ -572,7 +656,8 @@ namespace HemisAudit.Controllers
             if (review == null)
                 return RedirectToAction(nameof(Run), new { id = runId });
 
-            var bytes = _export.ExportCsv(review.Summary);
+            var summary = await EnsureFullPopulationForExportAsync(review.Summary, BuildSavedRunExportRequest(review));
+            var bytes = _export.ExportCsv(summary);
             return File(bytes, "text/csv", $"Rule12_Course_Selection_Run_{runId}.csv");
         }
 
@@ -598,19 +683,35 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> DownloadExcel([FromBody] Rule12ValidationSummary summary)
+        public async Task<IActionResult> DownloadExcel([FromBody] Rule12ValidationRequest request)
         {
-            summary = await ResolveExportSummaryAsync(summary);
-            var bytes = _export.ExportExcel(summary);
-            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule12_Course_Selection_{Ts()}.xlsx");
+            try
+            {
+                var summary = await ResolveExportSummaryAsync(request, forceFullPopulationScan: true);
+                var bytes = _export.ExportExcel(summary);
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule12_Course_Selection_{Ts()}.xlsx");
+            }
+            catch (Exception ex)
+            {
+                Response.StatusCode = StatusCodes.Status400BadRequest;
+                return Json(new { error = ex.Message });
+            }
         }
 
         [HttpPost]
-        public async Task<IActionResult> DownloadCsv([FromBody] Rule12ValidationSummary summary)
+        public async Task<IActionResult> DownloadCsv([FromBody] Rule12ValidationRequest request)
         {
-            summary = await ResolveExportSummaryAsync(summary);
-            var bytes = _export.ExportCsv(summary);
-            return File(bytes, "text/csv", $"Rule12_Course_Selection_{Ts()}.csv");
+            try
+            {
+                var summary = await ResolveExportSummaryAsync(request, forceFullPopulationScan: true);
+                var bytes = _export.ExportCsv(summary);
+                return File(bytes, "text/csv", $"Rule12_Course_Selection_{Ts()}.csv");
+            }
+            catch (Exception ex)
+            {
+                Response.StatusCode = StatusCodes.Status400BadRequest;
+                return Json(new { error = ex.Message });
+            }
         }
 
         [HttpPost]
@@ -658,10 +759,12 @@ namespace HemisAudit.Controllers
         }
 
         private static bool CanDownloadSavedRun(Rule12RunReviewViewModel review, string systemRole)
-            => ValidationRunAccessPolicy.CanDownloadSignedResults(systemRole, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff);
+            => string.Equals(systemRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
+               ValidationRunAccessPolicy.CanDownloadSignedResults(systemRole, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff);
 
         private static bool CanViewSavedRun(Rule12RunReviewViewModel review, string systemRole)
-            => ValidationRunAccessPolicy.CanViewSignedResults(systemRole, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff);
+            => string.Equals(systemRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
+               ValidationRunAccessPolicy.CanViewSignedResults(systemRole, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff);
 
         private async Task<string> GetCurrentSystemRoleAsync(ApplicationUser? user)
         {
@@ -688,32 +791,149 @@ namespace HemisAudit.Controllers
             if (workspace == null)
                 return false;
 
+            // DataAnalyst system role can always view their own workspace regardless of engagement-role lookup
+            if (string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
+                return true;
+
             return ValidationRunAccessPolicy.CanViewSignedResults(role, workspace.CurrentUserEngagementRole, workspace.HasDataAnalystSignoff);
         }
 
-        private async Task<Rule12ValidationSummary> ResolveExportSummaryAsync(Rule12ValidationSummary summary)
+        private async Task<Rule12ValidationSummary> ResolveExportSummaryAsync(Rule12ValidationRequest request, bool forceFullPopulationScan = false)
         {
             var user = await _users.GetUserAsync(User);
 
-            if (summary.SavedRunId is int savedRunId && savedRunId > 0)
+            if (forceFullPopulationScan)
+            {
+                // Fast path: request already carries all connection config — do ONE live scan, no stored-run lookup.
+                if (!string.IsNullOrWhiteSpace(request.Server) &&
+                    !string.IsNullOrWhiteSpace(request.Database) &&
+                    !string.IsNullOrWhiteSpace(request.CregTable))
+                {
+                    return await EnsureFullPopulationForExportAsync(null, request);
+                }
+
+                // Fallback: recover connection config from the saved run (server may not be in the form).
+                int? lookupRunId = request.RunId is int r && r > 0 ? r : null;
+                if (lookupRunId == null && request.ClientId > 0)
+                {
+                    var ws = await _rule12.GetCurrentWorkspaceStateAsync(request.ClientId, user?.Email, includeSummary: false);
+                    lookupRunId = ws?.RunId;
+                }
+                if (lookupRunId.HasValue)
+                {
+                    var review = await _rule12.GetSavedRunAsync(lookupRunId.Value, user?.Email, includeFullResults: false);
+                    if (review != null)
+                    {
+                        var savedConfig = BuildSavedRunExportRequest(review);
+                        if (!string.IsNullOrWhiteSpace(savedConfig.Server))
+                            return await EnsureFullPopulationForExportAsync(null, savedConfig);
+                    }
+                }
+
+                throw new InvalidOperationException("Run Rule 12 first before downloading results.");
+            }
+
+            if (request.RunId is int savedRunId && savedRunId > 0)
             {
                 var review = await _rule12.GetSavedRunAsync(savedRunId, user?.Email, includeFullResults: true);
                 if (review?.Summary != null)
-                    return review.Summary;
+                    return await EnsureFullPopulationForExportAsync(review.Summary, BuildSavedRunExportRequest(review));
             }
 
-            if (summary.ClientId > 0)
+            if (request.ClientId > 0)
             {
-                var workspace = await _rule12.GetCurrentWorkspaceStateAsync(summary.ClientId, user?.Email, includeSummary: false);
+                var workspace = await _rule12.GetCurrentWorkspaceStateAsync(request.ClientId, user?.Email, includeSummary: false);
                 if (workspace?.RunId is int workspaceRunId && workspaceRunId > 0)
                 {
                     var review = await _rule12.GetSavedRunAsync(workspaceRunId, user?.Email, includeFullResults: true);
                     if (review?.Summary != null)
-                        return review.Summary;
+                        return await EnsureFullPopulationForExportAsync(review.Summary, BuildSavedRunExportRequest(review));
                 }
             }
 
-            return summary;
+            if (!string.IsNullOrWhiteSpace(request.Server) &&
+                !string.IsNullOrWhiteSpace(request.Database) &&
+                !string.IsNullOrWhiteSpace(request.CregTable))
+            {
+                return await EnsureFullPopulationForExportAsync(null, request);
+            }
+
+            throw new InvalidOperationException("Run Rule 12 first before downloading results.");
+        }
+
+        private async Task<Rule12ValidationSummary> EnsureFullPopulationForExportAsync(
+            Rule12ValidationSummary? summary,
+            Rule12ValidationRequest request)
+        {
+            if (HasFullPopulation(summary))
+            {
+                MarkFullPopulationEvidence(summary!);
+                return summary!;
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Server) ||
+                string.IsNullOrWhiteSpace(request.Database) ||
+                string.IsNullOrWhiteSpace(request.CregTable))
+            {
+                throw new InvalidOperationException("The full Rule 12 dashboard population could not be prepared for export. Reload the saved run or workspace and try again.");
+            }
+
+            var fullSummary = await _rule12.GetExportSummaryAsync(request);
+            MarkFullPopulationEvidence(fullSummary);
+            return fullSummary;
+        }
+
+        private static Rule12ValidationRequest BuildSavedRunExportRequest(Rule12RunReviewViewModel review)
+        {
+            return new Rule12ValidationRequest
+            {
+                ClientId = review.ClientId,
+                RunId = review.RunId,
+                Server = review.SourceServer,
+                Database = review.Summary.Database,
+                CregTable = review.Summary.CregTable,
+                QualTable = review.Summary.QualTable,
+                CresTable = review.Summary.CresTable,
+                CregStudentCol = review.Summary.CregStudentCol,
+                CregQualCol = review.Summary.CregQualCol,
+                CregCourseCol = review.Summary.CregCourseCol,
+                QualJoinCol = review.Summary.QualJoinCol,
+                QualDescCol = review.Summary.QualDescCol,
+                CresCourseCol = review.Summary.CresCourseCol,
+                CresStatusCol = review.Summary.CresStatusCol,
+                CresStatusFilter = review.Summary.CresStatusFilter,
+                CregExtra1Col = review.Summary.CregExtra1Col,
+                CregExtra2Col = review.Summary.CregExtra2Col,
+                CregFilterCol = review.Summary.CregFilterCol,
+                CregFilterValues = review.Summary.CregFilterValues,
+                CregExtra3Col = review.Summary.CregExtra3Col,
+                CresExtra1Col = review.Summary.CresExtra1Col
+            };
+        }
+
+        private static bool HasFullPopulation(Rule12ValidationSummary? summary)
+        {
+            if (summary == null)
+                return false;
+
+            if (summary.TotalValidated <= 0)
+                return true;
+
+            return !summary.IsPreviewOnly && summary.ReviewRows.Count >= summary.TotalValidated;
+        }
+
+        private static void MarkFullPopulationEvidence(Rule12ValidationSummary summary)
+        {
+            const string note = "Excel/CSV export includes the full dashboard result population for audit evidence.";
+
+            if (string.IsNullOrWhiteSpace(summary.Warning))
+            {
+                summary.Warning = note;
+                return;
+            }
+
+            if (!summary.Warning.Contains(note, StringComparison.OrdinalIgnoreCase))
+                summary.Warning = $"{summary.Warning} {note}";
         }
 
         private async Task<object> RequireDataAnalystAsync<T>(Func<Task<T>> action) where T : class
@@ -735,8 +955,3 @@ namespace HemisAudit.Controllers
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
     }
 }
-
-
-
-
-

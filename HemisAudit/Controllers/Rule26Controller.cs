@@ -446,6 +446,22 @@ namespace HemisAudit.Controllers
                 }));
         }
 
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule26ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule26SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule26SqlResult
+            {
+                Success = true,
+                Sql = Rule26RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule26")
+            }));
+        }
+
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule26RunSignoffInputModel model)
         {

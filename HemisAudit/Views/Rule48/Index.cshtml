@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 48 – CRED vs H16CRED Agreement";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -53,7 +53,7 @@
         <div>
             <h1 class="rule-header__title">HEMIS RULE 48: CRED vs H16CRED Agreement</h1>
             <p class="rule-header__sub">
-                Full outer reconciliation — <code>dbo_CRED</code> vs <code>H16CRED</code>.
+                Full outer reconciliation — <code>dbo_CRED</code> vs <code>H16CRED</code>.
                 Join key: <code>_001</code> (CRED) &harr; <code>_001</code> (H16CRED).
             </p>
         </div>
@@ -202,10 +202,10 @@
             <div id="r48AnalysisPane"><div class="empty-state"><p>Run Rule 48 validation to see results here.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r48-flagged">
-            <div id="r48FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
+            <div id="r48FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r48-clear">
-            <div id="r48ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
+            <div id="r48ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r48-sql">
             <textarea id="r48SqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
@@ -370,7 +370,7 @@ window.r48Tab = function(tab) {
             unspin();
             if (!d.success) { setStatus('r48ConnOut', d.error || 'Connection failed.', 'error'); return; }
             fillSel('r48Db', d.databases || []);
-            setStatus('r48ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
+            setStatus('r48ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
             if ((d.databases || []).length) r48LoadTables();
         }).catch(function(e) { unspin(); setStatus('r48ConnOut', e.message, 'error'); });
     };
@@ -386,7 +386,7 @@ window.r48Tab = function(tab) {
             fillSel('r48StudTable',  tables, d.autoStudTable  || 'dbo_CRED');
             fillSel('r48AuditTable', tables, d.autoAuditTable || 'H16CRED');
             show('body-r48-tables', true); show('body-r48-colmap', true);
-            setStatus('r48TableOut', 'Loaded ' + tables.length + ' tables — CRED and H16CRED auto-detected.', 'success');
+            setStatus('r48TableOut', 'Loaded ' + tables.length + ' tables — CRED and H16CRED auto-detected.', 'success');
             st.pairs = DEF_PAIRS.slice();
             return Promise.all([
                 r48LoadColsInner('stud',  gv('r48StudTable')),
@@ -632,7 +632,7 @@ window.r48Tab = function(tab) {
         setHtml('r48FlaggedPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #C0392B">' +
             '<strong>FLAGGED</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING rows.' +
-            '</div>' + buildTable(excRows, pairs, 'No exceptions — all credentials agree.'));
+            '</div>' + buildTable(excRows, pairs, 'No exceptions — all credentials agree.'));
 
         setHtml('r48ClearPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #1E8449">' +
@@ -664,8 +664,8 @@ window.r48Tab = function(tab) {
                     }
                 }
                 f = f || {};
-                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
-                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
+                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
+                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
                 var matchVal = f.match || f.Match || 'MISSING';
                 var mi = matchVal === 'AGREE' ? '<span style="color:#1E8449">&#10003;</span>' : matchVal === 'DISAGREE' ? '<span style="color:#C0392B">&#x2717;</span>' : '<span style="color:#E67E22">?</span>';
                 return '<td>' + esc(sv) + '</td><td class="oc">' + esc(av) + '</td><td>' + mi + '</td>';
@@ -680,5 +680,23 @@ window.r48Tab = function(tab) {
     applySummary(null, false);
     updateButtons();
     if (st.clientId) loadWorkspace();
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>

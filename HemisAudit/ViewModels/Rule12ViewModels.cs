@@ -43,6 +43,12 @@ namespace HemisAudit.ViewModels
         public string CresCourseCol   { get; set; } = "_030";
         public string CresStatusCol   { get; set; } = "_031";
         public string CresStatusFilter { get; set; } = "A";
+        public string CregExtra1Col    { get; set; } = "_064";
+        public string CregExtra2Col    { get; set; } = "_032";
+        public string CregFilterCol    { get; set; } = "_051";
+        public string CregFilterValues { get; set; } = "";
+        public string CregExtra3Col    { get; set; } = "_018";
+        public string CresExtra1Col    { get; set; } = "_058";
 
         public string CrseTable
         {
@@ -137,6 +143,12 @@ namespace HemisAudit.ViewModels
         public string CresCourseCol   { get; set; } = "_030";
         public string CresStatusCol   { get; set; } = "_031";
         public string CresStatusFilter { get; set; } = "A";
+        public string CregExtra1Col    { get; set; } = "_064";
+        public string CregExtra2Col    { get; set; } = "_032";
+        public string CregFilterCol    { get; set; } = "_051";
+        public string CregFilterValues { get; set; } = "";
+        public string CregExtra3Col    { get; set; } = "_018";
+        public string CresExtra1Col    { get; set; } = "_058";
 
         public string CrseTable
         {
@@ -212,6 +224,12 @@ namespace HemisAudit.ViewModels
         public string CresCourseCol   { get; set; } = "_030";
         public string CresStatusCol   { get; set; } = "_031";
         public string CresStatusFilter { get; set; } = "A";
+        public string CregExtra1Col    { get; set; } = "_064";
+        public string CregExtra2Col    { get; set; } = "_032";
+        public string CregFilterCol    { get; set; } = "_051";
+        public string CregFilterValues { get; set; } = "";
+        public string CregExtra3Col    { get; set; } = "_018";
+        public string CresExtra1Col    { get; set; } = "_058";
         public string TableLinkageText { get; set; } = "";
         public string RuleModeText { get; set; } = "";
         public List<string> ProcedureSteps { get; set; } = new();
@@ -265,6 +283,7 @@ namespace HemisAudit.ViewModels
         public int RunId { get; set; }
         public int ClientId { get; set; }
         public bool IsCurrentRun { get; set; }
+        public bool IsWorkspaceSaved { get; set; }
         public string EngagementName { get; set; } = "";
         public string MaconomyNumber { get; set; } = "";
         public string SourceServer { get; set; } = "";
@@ -275,9 +294,31 @@ namespace HemisAudit.ViewModels
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff =>
             Signoffs.Any(s => ValidationRunAccessPolicy.IsSignoffOwnedByEngagementRole(s.SignoffRole, CurrentUserEngagementRole));
-        public bool CanCurrentUserSignOff => IsCurrentRun && ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole);
+        public bool CanCurrentUserSignOff =>
+            IsCurrentRun &&
+            IsWorkspaceSaved &&
+            ValidationRunAccessPolicy.CanCompleteReviewSignoff(null, CurrentUserEngagementRole, HasDataAnalystSignoff);
         public bool CanCurrentUserRemoveSignoff => IsCurrentRun && CurrentUserHasSignedOff;
         public bool CanCurrentUserDownload => ValidationRunAccessPolicy.CanAssignedUserDownload(CurrentUserEngagementRole);
+        public string? SignoffStatusMessage
+        {
+            get
+            {
+                if (!IsCurrentRun)
+                    return "History results are read-only. Signoff is only available on the current run.";
+
+                if (!ValidationRunAccessPolicy.CanAssignedUserSignOff(CurrentUserEngagementRole))
+                    return "Only the assigned data analyst, manager, or director can sign off this run.";
+
+                if (!IsWorkspaceSaved)
+                    return "The data analyst must save the workspace before signoff is available.";
+
+                if (!ValidationRunAccessPolicy.IsAssignedDataAnalyst(CurrentUserEngagementRole) && !HasDataAnalystSignoff)
+                    return "The assigned data analyst must sign off before this review can be completed.";
+
+                return null;
+            }
+        }
     }
 
     public class Rule12WorkspaceStateViewModel
@@ -299,6 +340,12 @@ namespace HemisAudit.ViewModels
         public string CresCourseCol   { get; set; } = "_030";
         public string CresStatusCol   { get; set; } = "_031";
         public string CresStatusFilter { get; set; } = "A";
+        public string CregExtra1Col    { get; set; } = "_064";
+        public string CregExtra2Col    { get; set; } = "_032";
+        public string CregFilterCol    { get; set; } = "_051";
+        public string CregFilterValues { get; set; } = "";
+        public string CregExtra3Col    { get; set; } = "_018";
+        public string CresExtra1Col    { get; set; } = "_058";
         public string CurrentUserEngagementRole { get; set; } = "";
         public bool HasDataAnalystSignoff { get; set; }
         public bool CurrentUserHasSignedOff { get; set; }

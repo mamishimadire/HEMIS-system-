@@ -565,8 +565,8 @@
 
             <article class="module-card">
                 <div class="module-card__eyebrow">Rule 38</div>
-                <h4 class="module-card__title">Enhanced QUAL -> CESM -> PQM Validation</h4>
-                <p class="module-card__text">Bridge approved qualifications through CESM using <code>QUAL._001 = CESM._001</code> and <code>CESM._006 = PQM.CESM_CODE1 or PQM.CESM_CODE</code>, then validate controls 5.1.1-5.1.6 against the matched PQM row.</p>
+                <h4 class="module-card__title">Enhanced QUAL -> PQM Validation</h4>
+                <p class="module-card__text">Validate approved QUAL records against PQM procedures 5.1.1-5.1.6 by aligning qualification name and qualification type to the same PQM row, then comparing the required control fields.</p>
                 <p class="module-card__text"><strong>Note 5.1:</strong> Select a sample of approved qualifications from the Qualification file (<code>QUAL</code>) and perform the following procedures after downloading the results.</p>
                 <p class="module-card__text">5.1.1 Obtain from The Registrar the approval documents from the Minister of Higher Education, Science and Innovation for state funding and inspect that <code>QUAL._004</code> Approval Status reflects <code>'A'</code>.</p>
                 <p class="module-card__text">5.1.2 Inspect that the correct qualification type has been allocated to <code>QUAL._005</code> Qualification Type and agree that the university has allocated the correct qualification type according to the PQM.</p>
@@ -655,7 +655,7 @@
             <article class="module-card">
                 <div class="module-card__eyebrow">Rule 51</div>
                 <h4 class="module-card__title">VALPAC Data in Production</h4>
-                <p class="module-card__text">Checks that every record in STUD VALPAC exists in STUD PRODUCTION using 4 mapped columns: _007↔IAGSTNO, _008↔IADIDNO, _001↔IAGQUAL, ColYear↔IAGCYR. PASS when all 4 columns match; FAIL when the record is missing from Production.</p>
+                <p class="module-card__text">Checks that every record in STUD VALPAC exists in STUD PRODUCTION using configurable mapped columns. Defaults: _007↔IAGSTNO, _008↔IADIDNO, _001↔IAGQUAL, ColYear↔IAGCYR. PASS when every selected column pair matches; FAIL when the record is missing from Production.</p>
                 <div class="module-card__actions">
                     <a href="/Rule51" class="btn btn-success">Open Rule 51</a>
                 </div>

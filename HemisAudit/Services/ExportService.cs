@@ -227,6 +227,11 @@ namespace HemisAudit.Services
             using var wb = new XLWorkbook();
 
             var hasBlock = !string.IsNullOrWhiteSpace(summary.BlockColumn);
+            var usesClientComparison =
+                !string.IsNullOrWhiteSpace(summary.ClientTableName) &&
+                !string.IsNullOrWhiteSpace(summary.ClientJoinColumn);
+            var censusHeaderLabel = usesClientComparison ? "Client Census Date" : "Stored Census Date";
+            var censusColumnLabel = usesClientComparison ? "Client Census Date Column" : "Census Date Column";
             var colCount = hasBlock ? 11 : 10;
 
             var wsResults = wb.Worksheets.Add("Validation Results");
@@ -236,7 +241,7 @@ namespace HemisAudit.Services
             {
                 "Validation Number",
                 "First Day", "Last Day", "c_Days", "c_Days_2",
-                "Prepared Census Date", "Actual Census Date", "Stored Census Date",
+                "Prepared Census Date", "Actual Census Date", censusHeaderLabel,
                 "Day Status", "Validation Status"
             };
             if (hasBlock) resultHeaderList.Insert(1, $"{summary.BlockColumn} (block)");
@@ -280,9 +285,12 @@ namespace HemisAudit.Services
             {
                 ("Database", summary.Database),
                 ("Source Table", summary.TableName),
+                ("Client Census Table", usesClientComparison ? summary.ClientTableName : "(not used)"),
                 ("First Day Column", summary.FirstDayColumn),
                 ("Last Day Column", summary.LastDayColumn),
-                ("Census Date Column", summary.CensusDateColumn),
+                (censusColumnLabel, summary.CensusDateColumn),
+                ("Source Block / Join Column", string.IsNullOrWhiteSpace(summary.BlockColumn) ? "(not selected)" : summary.BlockColumn),
+                ("Client Join Column", usesClientComparison ? summary.ClientJoinColumn : "(not used)"),
                 ("Holiday Years", summary.HolidayYearRange),
                 ("Validation Date", summary.Timestamp),
                 ("", ""),
@@ -614,6 +622,7 @@ namespace HemisAudit.Services
                 cell.Style.Font.Bold = true;
                 cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
                 cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.WrapText = true;
             }
 
             var sortedExceptions = exceptions
@@ -1699,7 +1708,7 @@ namespace HemisAudit.Services
             {
                 ("Database", summary.Database),
                 ("CREG Table", summary.CregTable),
-                ("CRSE Table", summary.CrseTable),
+                ("CRES Table", summary.CresTable),
                 ("Validation Date", summary.Timestamp),
                 ("Join Path", summary.TableLinkageText),
                 ("Validation Mode", summary.RuleModeText),
@@ -1764,17 +1773,9 @@ namespace HemisAudit.Services
                 wsControlSummary.Column(c).AdjustToContents();
 
             var wsAll = wb.Worksheets.Add("Dashboard Results");
-            StyleHeaderRow(wsAll, 1, "RULE 12 DASHBOARD RESULTS", 8);
 
             var criteriaText = summary.ControlSummaries.FirstOrDefault()?.CriteriaText
                 ?? "Active student qualification exists in QUAL.";
-
-            wsAll.Range(2, 1, 2, 8).Merge();
-            wsAll.Cell(2, 1).Value = $"CONTROL 1: {criteriaText}";
-            wsAll.Cell(2, 1).Style.Font.Bold = true;
-            wsAll.Cell(2, 1).Style.Font.FontColor = XLColor.FromHtml("#1F1F1F");
-            wsAll.Cell(2, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
-            wsAll.Cell(2, 1).Style.Alignment.WrapText = true;
 
             wsAll.Row(1).Height = 24;
             wsAll.Row(2).Height = 30;
@@ -1790,78 +1791,158 @@ namespace HemisAudit.Services
                 cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
             }
 
-            StyleGroupHeader(4, 1, 3, summary.CregTable, "#E8C3E8");
-            StyleGroupHeader(4, 4, 5, summary.QualTable, "#F8D1B5");
-            StyleGroupHeader(4, 6, 7, summary.CresTable, "#FFFFFF");
-            StyleGroupHeader(4, 8, 8, "Final Results", "#E7E2F5");
+            var r12HasExtra1 = !string.IsNullOrWhiteSpace(summary.CregExtra1Col);
+            var r12HasExtra2 = !string.IsNullOrWhiteSpace(summary.CregExtra2Col);
+            var r12HasFilter = !string.IsNullOrWhiteSpace(summary.CregFilterCol);
+            var r12HasExtra3 = !string.IsNullOrWhiteSpace(summary.CregExtra3Col);
+            var r12HasCresX1 = !string.IsNullOrWhiteSpace(summary.CresExtra1Col);
+            var r12CregCols  = 3 + (r12HasExtra1 ? 1 : 0) + (r12HasExtra2 ? 1 : 0) + (r12HasFilter ? 1 : 0) + (r12HasExtra3 ? 1 : 0);
+            var r12QualCols  = 2;
+            var r12CresCols  = 2 + (r12HasCresX1 ? 1 : 0);
+            var r12TotalCols = r12CregCols + r12QualCols + r12CresCols + 1;
+            var r12QualStart = r12CregCols + 1;
+            var r12CresStart = r12QualStart + r12QualCols;
+            var r12FinalCol  = r12CresStart + r12CresCols;
 
-            var columnHeaders = new[]
+            wsAll.Range(2, 1, 2, r12TotalCols).Merge();
+            wsAll.Cell(2, 1).Value = $"CONTROL 1: {criteriaText}";
+            wsAll.Cell(2, 1).Style.Font.Bold = true;
+            wsAll.Cell(2, 1).Style.Font.FontColor = XLColor.FromHtml("#1F1F1F");
+            wsAll.Cell(2, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+            wsAll.Cell(2, 1).Style.Alignment.WrapText = true;
+
+            StyleGroupHeader(4, 1, r12CregCols, summary.CregTable, "#E8C3E8");
+            StyleGroupHeader(4, r12QualStart, r12QualStart + r12QualCols - 1, summary.QualTable, "#F8D1B5");
+            StyleGroupHeader(4, r12CresStart, r12CresStart + r12CresCols - 1, summary.CresTable, "#FFFFFF");
+            StyleGroupHeader(4, r12FinalCol, r12FinalCol, "Final Results", "#E7E2F5");
+
+            var r12Headers = new List<(string label, string fill)>
             {
-                summary.CregStudentCol,
-                summary.CregQualCol,
-                summary.CregCourseCol,
-                summary.QualJoinCol,
-                summary.QualDescCol,
-                summary.CresCourseCol,
-                summary.CresStatusCol,
-                "pass/fail"
+                (summary.CregStudentCol, "#E8C3E8"),
+                (summary.CregQualCol,    "#E8C3E8"),
+                (summary.CregCourseCol,  "#E8C3E8")
             };
+            if (r12HasExtra1) r12Headers.Add((summary.CregExtra1Col!, "#E8C3E8"));
+            if (r12HasExtra2) r12Headers.Add((summary.CregExtra2Col!, "#E8C3E8"));
+            if (r12HasFilter) r12Headers.Add((summary.CregFilterCol!, "#E8C3E8"));
+            if (r12HasExtra3) r12Headers.Add((summary.CregExtra3Col!, "#E8C3E8"));
+            r12Headers.Add((summary.QualJoinCol,  "#F8D1B5"));
+            r12Headers.Add((summary.QualDescCol,  "#F8D1B5"));
+            r12Headers.Add((summary.CresCourseCol, "#FFFFFF"));
+            r12Headers.Add((summary.CresStatusCol, "#FFFFFF"));
+            if (r12HasCresX1) r12Headers.Add((summary.CresExtra1Col!, "#FFFFFF"));
+            r12Headers.Add(("pass/fail", "#E7E2F5"));
 
-            var headerFill = new[]
-            {
-                "#E8C3E8", "#E8C3E8", "#E8C3E8",
-                "#F8D1B5", "#F8D1B5",
-                "#FFFFFF", "#FFFFFF",
-                "#E7E2F5"
-            };
-
-            for (var i = 0; i < columnHeaders.Length; i++)
+            for (var i = 0; i < r12Headers.Count; i++)
             {
                 var cell = wsAll.Cell(5, i + 1);
-                cell.Value = columnHeaders[i];
+                cell.Value = r12Headers[i].label;
                 cell.Style.Font.Bold = true;
-                cell.Style.Fill.BackgroundColor = XLColor.FromHtml(headerFill[i]);
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml(r12Headers[i].fill);
                 cell.Style.Font.FontColor = XLColor.FromHtml("#1F1F1F");
                 cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
             }
 
-            var rowIndex = 6;
-            foreach (var row in summary.ReviewRows)
+            var rowsForExport = summary.ReviewRows.ToList();
+            const int rule12RichFormattingRowThreshold = 5000;
+
+            static string DisplayRule12Value(Rule12ValidationRowRecord row, string key)
+                => row.DisplayValues.TryGetValue(key, out var value) ? value ?? string.Empty : string.Empty;
+
+            IEnumerable<object?[]> BuildRule12ExportRows()
             {
-                string Display(string key) => row.DisplayValues.TryGetValue(key, out var value) ? value ?? string.Empty : string.Empty;
-                var finalMessage = Display("FINAL_RESULT_MESSAGE");
-                var finalText = string.IsNullOrWhiteSpace(finalMessage)
-                    ? row.ValidationExplanation
-                    : finalMessage;
-                var isFail = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase);
-                var rowFill = isFail ? "#FFF3F3" : "#F3FFF3";
+                foreach (var row in rowsForExport)
+                {
+                    var finalMessage = DisplayRule12Value(row, "FINAL_RESULT_MESSAGE");
+                    var finalText = string.IsNullOrWhiteSpace(finalMessage)
+                        ? row.ValidationExplanation
+                        : finalMessage;
 
-                wsAll.Cell(rowIndex, 1).Value = Display("CREG__007");
-                wsAll.Cell(rowIndex, 2).Value = Display("CREG__001");
-                wsAll.Cell(rowIndex, 3).Value = Display("CREG__030");
-                wsAll.Cell(rowIndex, 4).Value = Display("QUAL__001");
-                wsAll.Cell(rowIndex, 5).Value = Display("QUAL__003");
-                wsAll.Cell(rowIndex, 6).Value = Display("CRES__030");
-                wsAll.Cell(rowIndex, 7).Value = Display("CRES__031");
-                wsAll.Cell(rowIndex, 8).Value = $"{row.ValidationResult}{Environment.NewLine}{finalText}";
+                    var values = new List<object?>(r12TotalCols)
+                    {
+                        DisplayRule12Value(row, "CREG__007"),
+                        DisplayRule12Value(row, "CREG__001"),
+                        DisplayRule12Value(row, "CREG__030")
+                    };
 
-                wsAll.Range(rowIndex, 1, rowIndex, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8C3E8");
-                wsAll.Range(rowIndex, 4, rowIndex, 5).Style.Fill.BackgroundColor = XLColor.FromHtml("#F8D1B5");
-                wsAll.Range(rowIndex, 6, rowIndex, 7).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFFFFF");
-                wsAll.Cell(rowIndex, 8).Style.Fill.BackgroundColor = XLColor.FromHtml(rowFill);
-                wsAll.Range(rowIndex, 1, rowIndex, 8).Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
-                wsAll.Range(rowIndex, 1, rowIndex, 8).Style.Alignment.WrapText = true;
-                wsAll.Cell(rowIndex, 8).Style.Font.Bold = true;
-                wsAll.Cell(rowIndex, 8).Style.Font.FontColor = isFail
-                    ? XLColor.FromHtml("#B71C1C")
-                    : XLColor.FromHtml("#1B5E20");
+                    if (r12HasExtra1) values.Add(DisplayRule12Value(row, "CREG__EXTRA1"));
+                    if (r12HasExtra2) values.Add(DisplayRule12Value(row, "CREG__EXTRA2"));
+                    if (r12HasFilter) values.Add(DisplayRule12Value(row, "CREG__FILTER"));
+                    if (r12HasExtra3) values.Add(DisplayRule12Value(row, "CREG__EXTRA3"));
 
-                rowIndex++;
+                    values.Add(DisplayRule12Value(row, "QUAL__001"));
+                    values.Add(DisplayRule12Value(row, "QUAL__003"));
+                    values.Add(DisplayRule12Value(row, "CRES__030"));
+                    values.Add(DisplayRule12Value(row, "CRES__031"));
+
+                    if (r12HasCresX1) values.Add(DisplayRule12Value(row, "CRES__EXTRA1"));
+
+                    values.Add($"{row.ValidationResult}{Environment.NewLine}{finalText}");
+                    yield return values.ToArray();
+                }
             }
 
-            wsAll.Columns(1, 8).AdjustToContents();
-            wsAll.Column(5).Width = Math.Max(wsAll.Column(5).Width, 28);
-            wsAll.Column(8).Width = Math.Max(wsAll.Column(8).Width, 32);
+            if (rowsForExport.Count == 0)
+            {
+                wsAll.Range(6, 1, 6, r12TotalCols).Merge();
+                var noRowsCell = wsAll.Cell(6, 1);
+                var noExcCell = noRowsCell;
+                noExcCell.Value = $"No exceptions — all {summary.PassCount:N0} course selections were found in QUAL.";
+                noRowsCell.Style.Font.Italic = true;
+                noRowsCell.Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                wsAll.Columns(1, r12TotalCols).AdjustToContents();
+                using var msNoRows = new MemoryStream();
+                wb.SaveAs(msNoRows);
+                return msNoRows.ToArray();
+            }
+
+            wsAll.Cell(6, 1).InsertData(BuildRule12ExportRows());
+            wsAll.SheetView.FreezeRows(5);
+
+            var lastDataRow = 5 + rowsForExport.Count;
+            if (rowsForExport.Count <= rule12RichFormattingRowThreshold)
+            {
+                for (var rowOffset = 0; rowOffset < rowsForExport.Count; rowOffset++)
+                {
+                    var row = rowsForExport[rowOffset];
+                    var rowIndex = 6 + rowOffset;
+                    var isFail = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase);
+                    var rowFill = isFail ? "#FFF3F3" : "#F3FFF3";
+
+                    wsAll.Range(rowIndex, 1, rowIndex, r12CregCols).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8C3E8");
+                    wsAll.Range(rowIndex, r12QualStart, rowIndex, r12QualStart + r12QualCols - 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F8D1B5");
+                    wsAll.Range(rowIndex, r12CresStart, rowIndex, r12CresStart + r12CresCols - 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFFFFF");
+                    wsAll.Cell(rowIndex, r12FinalCol).Style.Fill.BackgroundColor = XLColor.FromHtml(rowFill);
+                    wsAll.Range(rowIndex, 1, rowIndex, r12TotalCols).Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
+                    wsAll.Range(rowIndex, 1, rowIndex, r12TotalCols).Style.Alignment.WrapText = true;
+                    wsAll.Cell(rowIndex, r12FinalCol).Style.Font.Bold = true;
+                    wsAll.Cell(rowIndex, r12FinalCol).Style.Font.FontColor = isFail
+                        ? XLColor.FromHtml("#B71C1C")
+                        : XLColor.FromHtml("#1B5E20");
+                }
+
+                wsAll.Columns(1, r12TotalCols).AdjustToContents();
+                wsAll.Column(r12QualStart + 1).Width = Math.Max(wsAll.Column(r12QualStart + 1).Width, 28);
+                wsAll.Column(r12FinalCol).Width = Math.Max(wsAll.Column(r12FinalCol).Width, 32);
+            }
+            else
+            {
+                wsAll.Range(6, 1, lastDataRow, r12TotalCols).Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
+                wsAll.Column(r12QualStart + 1).Style.Alignment.WrapText = true;
+                wsAll.Column(r12FinalCol).Style.Alignment.WrapText = true;
+                wsAll.Column(r12FinalCol).Style.Font.Bold = true;
+
+                for (var col = 1; col <= r12CregCols; col++)
+                    wsAll.Column(col).Width = 14;
+
+                wsAll.Column(r12QualStart).Width = 14;
+                wsAll.Column(r12QualStart + 1).Width = 30;
+
+                for (var col = r12CresStart; col < r12FinalCol; col++)
+                    wsAll.Column(col).Width = 16;
+
+                wsAll.Column(r12FinalCol).Width = 40;
+            }
 
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
@@ -1925,7 +2006,44 @@ namespace HemisAudit.Services
             }
             for (var c = 1; c <= 7; c++) wsRuleSummary.Column(c).AdjustToContents();
 
-            var detailKeys = summary.ReviewRows
+            var title = BuildIntegrityExportTitle(summary);
+
+            if (summary.RuleNumber == 9)
+            {
+                var allExceptions = summary.ReviewRows
+                    .Where(r => string.Equals(r.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                var blankRows = allExceptions
+                    .Where(r => r.DisplayValues.TryGetValue("Exception_Type", out var et) &&
+                                string.Equals(et, "Blank Student Number", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                var notInStudRows = allExceptions
+                    .Where(r => r.DisplayValues.TryGetValue("Exception_Type", out var et) &&
+                                string.Equals(et, "Student Not in STUD Table", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                WriteIntegrityResultSheet(wb, "Ghost Students", $"{title} - GHOST STUDENTS", summary, allExceptions);
+                WriteIntegrityResultSheet(wb, "Blank Student Number", $"{title} - BLANK STUDENT NUMBER", summary, blankRows);
+                WriteIntegrityResultSheet(wb, "Not in STUD Table", $"{title} - STUDENT NOT IN STUD TABLE", summary, notInStudRows);
+            }
+            else
+            {
+                WriteIntegrityResultSheet(wb, "Results", $"{title} - RESULTS", summary, summary.ReviewRows);
+            }
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        private static void WriteIntegrityResultSheet(
+            XLWorkbook wb,
+            string sheetName,
+            string sheetTitle,
+            Rule10ValidationSummary summary,
+            IReadOnlyList<Rule10ValidationRowRecord> rows)
+        {
+            var detailKeys = rows
                 .SelectMany(row => row.DisplayValues.Keys)
                 .Where(key => !string.Equals(key, "Validation_Result", StringComparison.OrdinalIgnoreCase) &&
                               !string.Equals(key, "Validation_Explanation", StringComparison.OrdinalIgnoreCase) &&
@@ -1935,13 +2053,13 @@ namespace HemisAudit.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var wsExceptions = wb.Worksheets.Add("Results");
-            StyleHeaderRow(wsExceptions, 1, $"{BuildIntegrityExportTitle(summary)} - RESULTS", detailKeys.Count + 3);
+            var ws = wb.Worksheets.Add(sheetName);
+            StyleHeaderRow(ws, 1, sheetTitle, detailKeys.Count + 3);
             var headers = new List<string> { "Rule", "Validation Result", "Validation Explanation" };
             headers.AddRange(detailKeys.Select(key => GetIntegrityDetailHeader(summary, key)));
             for (var i = 0; i < headers.Count; i++)
             {
-                var cell = wsExceptions.Cell(2, i + 1);
+                var cell = ws.Cell(2, i + 1);
                 cell.Value = headers[i];
                 cell.Style.Font.Bold = true;
                 cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
@@ -1949,22 +2067,18 @@ namespace HemisAudit.Services
             }
 
             var rowIndex = 3;
-            foreach (var row in summary.ReviewRows)
+            foreach (var row in rows)
             {
-                wsExceptions.Cell(rowIndex, 1).Value = row.RuleId;
-                wsExceptions.Cell(rowIndex, 2).Value = row.ValidationResult;
-                wsExceptions.Cell(rowIndex, 3).Value = row.ValidationExplanation;
+                ws.Cell(rowIndex, 1).Value = row.RuleId;
+                ws.Cell(rowIndex, 2).Value = row.ValidationResult;
+                ws.Cell(rowIndex, 3).Value = row.ValidationExplanation;
                 for (var i = 0; i < detailKeys.Count; i++)
                 {
-                    wsExceptions.Cell(rowIndex, i + 4).Value = row.DisplayValues.TryGetValue(detailKeys[i], out var value) ? value : "";
+                    ws.Cell(rowIndex, i + 4).Value = row.DisplayValues.TryGetValue(detailKeys[i], out var value) ? value : "";
                 }
                 rowIndex++;
             }
-            for (var c = 1; c <= headers.Count; c++) wsExceptions.Column(c).AdjustToContents();
-
-            using var ms = new MemoryStream();
-            wb.SaveAs(ms);
-            return ms.ToArray();
+            for (var c = 1; c <= headers.Count; c++) ws.Column(c).AdjustToContents();
         }
 
         private static string BuildIntegrityExportTitle(Rule10ValidationSummary summary)
@@ -2034,10 +2148,6 @@ namespace HemisAudit.Services
                     rows.Add(("STUD Table", summary.StudTable));
                     rows.Add(("CREG Student Number Column", summary.CregColumn));
                     rows.Add(("STUD Student Number Column", summary.StudColumn));
-                    if (parameters.TryGetValue("ContextColumn", out var rule9CregCourse) && !string.IsNullOrWhiteSpace(rule9CregCourse))
-                        rows.Add(("CREG Course Column", rule9CregCourse));
-                    if (parameters.TryGetValue("SecondaryContextColumn", out var rule9StudCourse) && !string.IsNullOrWhiteSpace(rule9StudCourse))
-                        rows.Add(("STUD Course Column", rule9StudCourse));
                     break;
                 case 10:
                     rows.Add(("Join Verification", summary.TableLinkageText));
@@ -2140,16 +2250,11 @@ namespace HemisAudit.Services
                 },
                 9 => normalized switch
                 {
-                    "LEFT_STUDENT_COLUMN_NAME" => "CREG Student Number Column",
-                    "LEFT_STUDENT_COLUMN_VALUE" => "CREG Student Number",
-                    "RIGHT_STUDENT_COLUMN_NAME" => "STUD Student Number Column",
-                    "RIGHT_STUDENT_COLUMN_VALUE" => "STUD Student Number",
-                    "LEFT_CONTEXT_TABLE_NAME" => "CREG Table",
-                    "LEFT_COLUMN_NAME" => "CREG Course Column",
-                    "LEFT_COLUMN_VALUE" => "CREG Course Value",
-                    "RIGHT_CONTEXT_TABLE_NAME" => "STUD Table",
-                    "RIGHT_COLUMN_NAME" => "STUD Course Column",
-                    "RIGHT_COLUMN_VALUE" => "STUD Course Value",
+                    "ROWNO" => "Row No",
+                    "STUDENTNO" => "Student No",
+                    "INSTCODE" => "Inst Code",
+                    "COLYEAR" => "Col Year",
+                    "EXCEPTION_TYPE" => "Reason",
                     _ => GetGenericIntegrityDetailHeader(key)
                 },
                 10 => normalized switch
@@ -2728,14 +2833,21 @@ namespace HemisAudit.Services
         public byte[] ExportRule37Excel(Rule37ValidationSummary summary)
         {
             using var wb = new XLWorkbook();
+            var reviewRow = XLColor.FromHtml("#FFF8E1");
+            var passRow = XLColor.FromHtml("#F3FFF3");
+            var failRow = XLColor.FromHtml("#FFF3F3");
+            var reviewFont = XLColor.FromHtml("#B45309");
+            var passFont = XLColor.FromHtml("#1B5E20");
+            var failFont = XLColor.FromHtml("#B71C1C");
 
             // Sheet 1: Full Validation Results
             var wsResults = wb.Worksheets.Add("Validation Results");
-            StyleHeaderRow(wsResults, 1, "RULE 37 — CESM vs PQM VALIDATION", 9);
+            StyleHeaderRow(wsResults, 1, "RULE 37 — CESM vs PQM VALIDATION", 11);
             var headers = new[]
             {
                 "#", "Record ID", "HEMIS CESM Code", "HEMIS Qual Name",
-                "PQM Code", "PQM Name", "Code Match", "Name Match", "Result"
+                "PQM Code", "PQM Name", "Code Match", "Name Match",
+                "Review Required", "Result", "Review Note / Exception Reason"
             };
             for (int i = 0; i < headers.Length; i++)
             {
@@ -2744,11 +2856,14 @@ namespace HemisAudit.Services
                 cell.Style.Font.Bold = true;
                 cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
                 cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.WrapText = true;
             }
 
             int rowIndex = 3;
             foreach (var row in summary.ValidationRows)
             {
+                var rowFill = row.NeedsReview ? reviewRow : row.ValidationResult == "PASS" ? passRow : failRow;
+                var resultFont = row.NeedsReview ? reviewFont : row.ValidationResult == "PASS" ? passFont : failFont;
                 wsResults.Cell(rowIndex, 1).Value = row.ValidationNumber;
                 wsResults.Cell(rowIndex, 2).Value = row.RecordId;
                 wsResults.Cell(rowIndex, 3).Value = row.HemisCesmCode;
@@ -2757,19 +2872,28 @@ namespace HemisAudit.Services
                 wsResults.Cell(rowIndex, 6).Value = row.PqmName ?? "";
                 wsResults.Cell(rowIndex, 7).Value = row.CodeMatch ? "YES" : "NO";
                 wsResults.Cell(rowIndex, 8).Value = row.NameMatch ? "YES" : "NO";
-                wsResults.Cell(rowIndex, 9).Value = row.ValidationResult;
-                wsResults.Range(rowIndex, 1, rowIndex, 9).Style.Fill.BackgroundColor =
-                    row.ValidationResult == "PASS" ? XLColor.FromHtml("#F3FFF3") : XLColor.FromHtml("#FFF3F3");
-                wsResults.Cell(rowIndex, 9).Style.Font.Bold = true;
-                wsResults.Cell(rowIndex, 9).Style.Font.FontColor =
-                    row.ValidationResult == "PASS" ? XLColor.FromHtml("#1B5E20") : XLColor.FromHtml("#B71C1C");
+                wsResults.Cell(rowIndex, 9).Value = row.NeedsReview ? "YES" : "NO";
+                wsResults.Cell(rowIndex, 10).Value = row.ValidationResult;
+                wsResults.Cell(rowIndex, 11).Value = row.ExceptionReason ?? "";
+                wsResults.Range(rowIndex, 1, rowIndex, 11).Style.Fill.BackgroundColor = rowFill;
+                wsResults.Cell(rowIndex, 10).Style.Font.Bold = true;
+                wsResults.Cell(rowIndex, 10).Style.Font.FontColor = resultFont;
+                wsResults.Cell(rowIndex, 11).Style.Font.FontColor = resultFont;
+                wsResults.Cell(rowIndex, 11).Style.Alignment.WrapText = true;
+                wsResults.Row(rowIndex).Height = string.IsNullOrWhiteSpace(row.ExceptionReason) ? 18 : 42;
                 rowIndex++;
             }
-            for (int c = 1; c <= 9; c++) wsResults.Column(c).AdjustToContents();
+            for (int c = 1; c <= 11; c++) wsResults.Column(c).AdjustToContents();
+            wsResults.Column(4).Width = Math.Max(wsResults.Column(4).Width, 28);
+            wsResults.Column(6).Width = Math.Max(wsResults.Column(6).Width, 32);
+            wsResults.Column(11).Width = Math.Max(wsResults.Column(11).Width, 70);
+            wsResults.Column(4).Style.Alignment.WrapText = true;
+            wsResults.Column(6).Style.Alignment.WrapText = true;
+            wsResults.Column(11).Style.Alignment.WrapText = true;
 
             // Sheet 2: Exceptions
             var wsEx = wb.Worksheets.Add("Exceptions");
-            StyleHeaderRow(wsEx, 1, "RULE 37 EXCEPTIONS — CESM vs PQM", 9);
+            StyleHeaderRow(wsEx, 1, "RULE 37 EXCEPTIONS — CESM vs PQM", 11);
             for (int i = 0; i < headers.Length; i++)
             {
                 var cell = wsEx.Cell(2, i + 1);
@@ -2777,11 +2901,14 @@ namespace HemisAudit.Services
                 cell.Style.Font.Bold = true;
                 cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
                 cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.WrapText = true;
             }
 
             int exRow = 3;
             foreach (var ex in summary.Exceptions)
             {
+                var rowFill = ex.NeedsReview ? reviewRow : ex.ValidationResult == "PASS" ? passRow : failRow;
+                var resultFont = ex.NeedsReview ? reviewFont : ex.ValidationResult == "PASS" ? passFont : failFont;
                 wsEx.Cell(exRow, 1).Value = ex.ValidationNumber;
                 wsEx.Cell(exRow, 2).Value = ex.RecordId;
                 wsEx.Cell(exRow, 3).Value = ex.HemisCesmCode;
@@ -2790,26 +2917,24 @@ namespace HemisAudit.Services
                 wsEx.Cell(exRow, 6).Value = ex.PqmName ?? "";
                 wsEx.Cell(exRow, 7).Value = ex.CodeMatch ? "YES" : "NO";
                 wsEx.Cell(exRow, 8).Value = ex.NameMatch ? "YES" : "NO";
-                wsEx.Cell(exRow, 9).Value = ex.ValidationResult;
-                wsEx.Range(exRow, 1, exRow, 9).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
-                wsEx.Cell(exRow, 9).Style.Font.FontColor = XLColor.FromHtml("#C62828");
-                wsEx.Cell(exRow, 9).Style.Font.Bold = true;
+                wsEx.Cell(exRow, 9).Value = ex.NeedsReview ? "YES" : "NO";
+                wsEx.Cell(exRow, 10).Value = ex.ValidationResult;
+                wsEx.Cell(exRow, 11).Value = ex.ExceptionReason;
+                wsEx.Range(exRow, 1, exRow, 11).Style.Fill.BackgroundColor = rowFill;
+                wsEx.Cell(exRow, 10).Style.Font.FontColor = resultFont;
+                wsEx.Cell(exRow, 10).Style.Font.Bold = true;
+                wsEx.Cell(exRow, 11).Style.Font.FontColor = resultFont;
+                wsEx.Cell(exRow, 11).Style.Alignment.WrapText = true;
+                wsEx.Row(exRow).Height = string.IsNullOrWhiteSpace(ex.ExceptionReason) ? 18 : 42;
                 exRow++;
             }
-            for (int c = 1; c <= 9; c++) wsEx.Column(c).AdjustToContents();
-
-            // Add an "Exception Reason" column for exceptions sheet
-            wsEx.Cell(2, 10).Value = "Exception Reason";
-            wsEx.Cell(2, 10).Style.Font.Bold = true;
-            wsEx.Cell(2, 10).Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
-            wsEx.Cell(2, 10).Style.Font.FontColor = XLColor.White;
-            int exReasonRow = 3;
-            foreach (var ex in summary.Exceptions)
-            {
-                wsEx.Cell(exReasonRow, 10).Value = ex.ExceptionReason;
-                exReasonRow++;
-            }
-            wsEx.Column(10).AdjustToContents();
+            for (int c = 1; c <= 11; c++) wsEx.Column(c).AdjustToContents();
+            wsEx.Column(4).Width = Math.Max(wsEx.Column(4).Width, 28);
+            wsEx.Column(6).Width = Math.Max(wsEx.Column(6).Width, 32);
+            wsEx.Column(11).Width = Math.Max(wsEx.Column(11).Width, 70);
+            wsEx.Column(4).Style.Alignment.WrapText = true;
+            wsEx.Column(6).Style.Alignment.WrapText = true;
+            wsEx.Column(11).Style.Alignment.WrapText = true;
 
             // Sheet 3: Summary
             var wsSummary = wb.Worksheets.Add("Summary");
@@ -2825,6 +2950,7 @@ namespace HemisAudit.Services
                 ("VALIDATION RESULTS",  ""),
                 ("Total Validated",     summary.TotalValidated.ToString("N0")),
                 ("PASS (Matched)",      summary.PassCount.ToString("N0")),
+                ("PASS (Review required)", summary.ReviewCount.ToString("N0")),
                 ("FAIL (Mismatch)",     summary.FailCount.ToString("N0")),
                 ("Exception Rate",      $"{summary.ExceptionRate:F2}%"),
                 ("Status",              summary.Status)
@@ -2850,7 +2976,11 @@ namespace HemisAudit.Services
                     wsSummary.Cell(summaryRow, 2).Value = value;
                     if (label == "Status")
                     {
-                        var color = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2");
+                        var color = value == "PASS"
+                            ? XLColor.FromHtml("#C8E6C9")
+                            : value == "PASS WITH REVIEW"
+                                ? XLColor.FromHtml("#FFF8E1")
+                                : XLColor.FromHtml("#FFCDD2");
                         wsSummary.Cell(summaryRow, 2).Style.Fill.BackgroundColor = color;
                         wsSummary.Cell(summaryRow, 2).Style.Font.Bold = true;
                     }
@@ -2927,7 +3057,7 @@ namespace HemisAudit.Services
             var failRow    = XLColor.FromHtml("#FFF3F3");
             var reviewRow  = XLColor.FromHtml("#FFF8E1");
             var manualBg   = XLColor.FromHtml("#FFFDE7");
-            const int totalCols = 28;
+            const int totalCols = 24;
 
             static void WpCell(IXLWorksheet ws, int r, int c, object? val,
                 XLColor? bg = null, bool bold = false, bool italic = false,
@@ -2983,30 +3113,25 @@ namespace HemisAudit.Services
                     halign: XLAlignmentHorizontalValues.Center);
                 ws.Cell(hRow, 2).Style.Font.FontColor = XLColor.White;
 
-                ws.Range(hRow, 11, hRow, 12).Merge();
-                WpCell(ws, hRow, 11, summary.CesmTable, cesmHdr, bold: true,
+                ws.Range(hRow, 11, hRow, 16).Merge();
+                WpCell(ws, hRow, 11, summary.PqmTable, pqmHdr, bold: true,
                     halign: XLAlignmentHorizontalValues.Center);
                 ws.Cell(hRow, 11).Style.Font.FontColor = XLColor.White;
 
-                ws.Range(hRow, 13, hRow, 20).Merge();
-                WpCell(ws, hRow, 13, summary.PqmTable, pqmHdr, bold: true,
+                ws.Range(hRow, 17, hRow, 22).Merge();
+                WpCell(ws, hRow, 17, "Rule 38 Controls", ctrlHdr, bold: true,
                     halign: XLAlignmentHorizontalValues.Center);
-                ws.Cell(hRow, 13).Style.Font.FontColor = XLColor.White;
+                ws.Cell(hRow, 17).Style.Font.FontColor = XLColor.White;
 
-                ws.Range(hRow, 21, hRow, 26).Merge();
-                WpCell(ws, hRow, 21, "Rule 38 Controls", ctrlHdr, bold: true,
+                ws.Range(hRow, 23, hRow + 1, 23).Merge();
+                WpCell(ws, hRow, 23, "Result", resultHdr, bold: true,
                     halign: XLAlignmentHorizontalValues.Center);
-                ws.Cell(hRow, 21).Style.Font.FontColor = XLColor.White;
+                ws.Cell(hRow, 23).Style.Font.FontColor = XLColor.White;
 
-                ws.Range(hRow, 27, hRow + 1, 27).Merge();
-                WpCell(ws, hRow, 27, "Result", resultHdr, bold: true,
+                ws.Range(hRow, 24, hRow + 1, 24).Merge();
+                WpCell(ws, hRow, 24, "Reason", reasonHdr, bold: true,
                     halign: XLAlignmentHorizontalValues.Center);
-                ws.Cell(hRow, 27).Style.Font.FontColor = XLColor.White;
-
-                ws.Range(hRow, 28, hRow + 1, 28).Merge();
-                WpCell(ws, hRow, 28, "Reason", reasonHdr, bold: true,
-                    halign: XLAlignmentHorizontalValues.Center);
-                ws.Cell(hRow, 28).Style.Font.FontColor = XLColor.White;
+                ws.Cell(hRow, 24).Style.Font.FontColor = XLColor.White;
 
                 foreach (var (col, lbl, bg) in new (int, string, XLColor)[]
                 {
@@ -3019,22 +3144,18 @@ namespace HemisAudit.Services
                     (8, summary.QualHeqfCol, qualSub),
                     (9, summary.QualTotalSubsidyCol, qualSub),
                     (10, "Population Type", qualSub),
-                    (11, summary.CesmIdCol, cesmSub),
-                    (12, summary.CesmCodeCol, cesmSub),
-                    (13, summary.PqmNameCol, pqmSub),
-                    (14, summary.PqmQualTypeCol, pqmSub),
-                    (15, summary.PqmCesmCodeCol, pqmSub),
-                    (16, summary.PqmCesmCode1Col, pqmSub),
-                    (17, summary.PqmMinTimeTotalCol, pqmSub),
-                    (18, summary.PqmWilCol, pqmSub),
-                    (19, summary.PqmAccreditationCol, pqmSub),
-                    (20, summary.PqmTotalSubsidyCol, pqmSub),
-                    (21, "Review", ctrlSub),
-                    (22, "C2", ctrlSub),
-                    (23, "C3", ctrlSub),
-                    (24, "C4", ctrlSub),
-                    (25, "C5", ctrlSub),
-                    (26, "C6", ctrlSub)
+                    (11, summary.PqmNameCol, pqmSub),
+                    (12, summary.PqmQualTypeCol, pqmSub),
+                    (13, summary.PqmMinTimeTotalCol, pqmSub),
+                    (14, summary.PqmWilCol, pqmSub),
+                    (15, summary.PqmAccreditationCol, pqmSub),
+                    (16, summary.PqmTotalSubsidyCol, pqmSub),
+                    (17, "Review", ctrlSub),
+                    (18, "C2", ctrlSub),
+                    (19, "C3", ctrlSub),
+                    (20, "C4", ctrlSub),
+                    (21, "C5", ctrlSub),
+                    (22, "C6", ctrlSub)
                 })
                 {
                     WpCell(ws, hRow + 1, col, lbl, bg, bold: true, wrapText: true,
@@ -3057,24 +3178,20 @@ namespace HemisAudit.Services
                 ws.Column(8).Width = 14;
                 ws.Column(9).Width = 14;
                 ws.Column(10).Width = 18;
-                ws.Column(11).Width = 14;
-                ws.Column(12).Width = 14;
-                ws.Column(13).Width = 42;
-                ws.Column(14).Width = 18;
-                ws.Column(15).Width = 14;
+                ws.Column(11).Width = 42;
+                ws.Column(12).Width = 18;
+                ws.Column(13).Width = 14;
+                ws.Column(14).Width = 14;
+                ws.Column(15).Width = 24;
                 ws.Column(16).Width = 14;
-                ws.Column(17).Width = 14;
-                ws.Column(18).Width = 14;
-                ws.Column(19).Width = 24;
-                ws.Column(20).Width = 14;
-                ws.Column(21).Width = 10;
+                ws.Column(17).Width = 10;
+                ws.Column(18).Width = 8;
+                ws.Column(19).Width = 8;
+                ws.Column(20).Width = 8;
+                ws.Column(21).Width = 8;
                 ws.Column(22).Width = 8;
-                ws.Column(23).Width = 8;
-                ws.Column(24).Width = 8;
-                ws.Column(25).Width = 8;
-                ws.Column(26).Width = 8;
-                ws.Column(27).Width = 10;
-                ws.Column(28).Width = 85;
+                ws.Column(23).Width = 10;
+                ws.Column(24).Width = 85;
             }
 
             void WriteDataRow(IXLWorksheet ws, int r, Rule38ValidationRow row, bool exceptionSheet)
@@ -3092,38 +3209,34 @@ namespace HemisAudit.Services
                 WpCell(ws, r, 8, row.HeqfIndicator ?? "", rowBg);
                 WpCell(ws, r, 9, row.TotalSubsidy ?? "", rowBg);
                 WpCell(ws, r, 10, row.PopulationType, rowBg);
-                WpCell(ws, r, 11, row.QualCode, rowBg);
-                WpCell(ws, r, 12, row.CesmCode ?? "", rowBg);
-                WpCell(ws, r, 13, ResolvePqmName(row), string.IsNullOrWhiteSpace(row.PqmName) ? manualBg : rowBg, wrapText: true);
-                WpCell(ws, r, 14, row.PqmQualType ?? "", string.IsNullOrWhiteSpace(row.PqmQualType) ? manualBg : rowBg);
-                WpCell(ws, r, 15, row.PqmCesmCode ?? "", string.IsNullOrWhiteSpace(row.PqmCesmCode) ? manualBg : rowBg);
-                WpCell(ws, r, 16, row.PqmCesmCode1 ?? "", string.IsNullOrWhiteSpace(row.PqmCesmCode1) ? manualBg : rowBg);
-                WpCell(ws, r, 17, row.PqmMinTimeTotal ?? "", string.IsNullOrWhiteSpace(row.PqmMinTimeTotal) ? manualBg : rowBg);
-                WpCell(ws, r, 18, row.PqmWIL ?? "", string.IsNullOrWhiteSpace(row.PqmWIL) ? manualBg : rowBg);
-                WpCell(ws, r, 19, row.PqmAccreditation ?? "N/A", string.IsNullOrWhiteSpace(row.PqmAccreditation) ? manualBg : rowBg, wrapText: true);
-                WpCell(ws, r, 20, row.PqmTotalSubsidy ?? "", string.IsNullOrWhiteSpace(row.PqmTotalSubsidy) ? manualBg : rowBg);
-                WpCell(ws, r, 21, row.NeedsReview ? "YES" : "NO", rowBg, bold: row.NeedsReview, halign: XLAlignmentHorizontalValues.Center);
-                WpCell(ws, r, 22, row.C2_TypeMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
-                WpCell(ws, r, 23, row.C3_MinTimeMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
-                WpCell(ws, r, 24, row.C4_WILMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
-                WpCell(ws, r, 25, row.C5_HeqfMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
-                WpCell(ws, r, 26, row.C6_SubsidyMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
-                WpCell(ws, r, 27, row.ValidationResult, rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
-                WpCell(ws, r, 28, reason, rowBg, wrapText: true);
+                WpCell(ws, r, 11, ResolvePqmName(row), string.IsNullOrWhiteSpace(row.PqmName) ? manualBg : rowBg, wrapText: true);
+                WpCell(ws, r, 12, row.PqmQualType ?? "", string.IsNullOrWhiteSpace(row.PqmQualType) ? manualBg : rowBg);
+                WpCell(ws, r, 13, row.PqmMinTimeTotal ?? "", string.IsNullOrWhiteSpace(row.PqmMinTimeTotal) ? manualBg : rowBg);
+                WpCell(ws, r, 14, row.PqmWIL ?? "", string.IsNullOrWhiteSpace(row.PqmWIL) ? manualBg : rowBg);
+                WpCell(ws, r, 15, row.PqmAccreditation ?? "N/A", string.IsNullOrWhiteSpace(row.PqmAccreditation) ? manualBg : rowBg, wrapText: true);
+                WpCell(ws, r, 16, row.PqmTotalSubsidy ?? "", string.IsNullOrWhiteSpace(row.PqmTotalSubsidy) ? manualBg : rowBg);
+                WpCell(ws, r, 17, row.NeedsReview ? "YES" : "NO", rowBg, bold: row.NeedsReview, halign: XLAlignmentHorizontalValues.Center);
+                WpCell(ws, r, 18, row.C2_TypeMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
+                WpCell(ws, r, 19, row.C3_MinTimeMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
+                WpCell(ws, r, 20, row.C4_WILMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
+                WpCell(ws, r, 21, row.C5_HeqfMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
+                WpCell(ws, r, 22, row.C6_SubsidyMatch ? "P" : "F", rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
+                WpCell(ws, r, 23, row.ValidationResult, rowBg, bold: true, halign: XLAlignmentHorizontalValues.Center);
+                WpCell(ws, r, 24, reason, rowBg, wrapText: true);
 
-                ws.Cell(r, 27).Style.Font.FontColor =
+                ws.Cell(r, 23).Style.Font.FontColor =
                     row.NeedsReview ? XLColor.FromHtml("#B45309")
                     : row.ValidationResult == "PASS" ? XLColor.FromHtml("#1B5E20")
                     : XLColor.FromHtml("#B71C1C");
 
                 if (exceptionSheet)
-                    ws.Cell(r, 28).Style.Font.FontColor = XLColor.FromHtml("#991B1B");
+                    ws.Cell(r, 24).Style.Font.FontColor = XLColor.FromHtml("#991B1B");
                 else if (row.NeedsReview)
-                    ws.Cell(r, 28).Style.Font.FontColor = XLColor.FromHtml("#92400E");
+                    ws.Cell(r, 24).Style.Font.FontColor = XLColor.FromHtml("#92400E");
                 else if (row.ValidationResult == "PASS")
-                    ws.Cell(r, 28).Style.Font.FontColor = XLColor.FromHtml("#166534");
+                    ws.Cell(r, 24).Style.Font.FontColor = XLColor.FromHtml("#166534");
                 else
-                    ws.Cell(r, 28).Style.Font.FontColor = XLColor.FromHtml("#991B1B");
+                    ws.Cell(r, 24).Style.Font.FontColor = XLColor.FromHtml("#991B1B");
 
                 ws.Row(r).Height = string.IsNullOrWhiteSpace(reason) ? 18 : 42;
             }
@@ -3135,13 +3248,13 @@ namespace HemisAudit.Services
                 row++;
                 ws.Range(row, 1, row, totalCols).Merge();
                 WpCell(ws, row, 1,
-                    "Rule 38 follows QUAL._001 = CESM._001, then CESM._006 may match PQM.CESM_CODE1 or PQM.CESM_CODE, while QUAL._003 is reviewed against PQM Authorised_Qualification_Name.",
+                    "Rule 38 validates approved QUAL records directly against PQM using QUAL._003 = Authorised_Qualification_Name, QUAL._005 = HEQF_Qual_Type, QUAL._053 = Total2, QUAL._054 = WIL_EL2, and QUAL._090 = Total2 before evaluating controls 5.1.2-5.1.6.",
                     XLColor.FromHtml("#F3E5F5"), wrapText: true);
                 ws.Row(row).Height = 22;
                 row++;
                 ws.Range(row, 1, row, totalCols).Merge();
                 WpCell(ws, row, 1,
-                    "C2 = Qualification Type, C3 = Minimum Time Total, C4 = Minimum Time WIL, C5 = HEQF Indicator, C6 = Total Subsidy. Review = matched on Rule 11 CESM review logic.",
+                    "C2 = Qualification Type, C3 = Minimum Time Total, C4 = Minimum Time WIL, C5 = HEQF Indicator, C6 = Total Subsidy. Review = manual follow-up flag when a matched row needs extra analyst attention.",
                     XLColor.FromHtml("#F3E5F5"), wrapText: true);
                 ws.Row(row).Height = 22;
             }
@@ -3149,7 +3262,7 @@ namespace HemisAudit.Services
             // Sheet 1: Dashboard-style validation results
             var wsAll = wb.Worksheets.Add("Validation Results");
             wsAll.Range(1, 1, 1, totalCols).Merge();
-            WpCell(wsAll, 1, 1, "HEMIS RULE 38 - QUAL vs CESM vs PQM VALIDATION",
+            WpCell(wsAll, 1, 1, "HEMIS RULE 38 - QUAL vs PQM VALIDATION",
                 XLColor.FromHtml("#1A237E"), bold: true, halign: XLAlignmentHorizontalValues.Center);
             wsAll.Cell(1, 1).Style.Font.FontColor = XLColor.White;
             wsAll.Cell(1, 1).Style.Font.FontSize = 13;
@@ -3168,7 +3281,7 @@ namespace HemisAudit.Services
             // Sheet 2: Dashboard-style exceptions
             var wsEx = wb.Worksheets.Add("Exceptions");
             wsEx.Range(1, 1, 1, totalCols).Merge();
-            WpCell(wsEx, 1, 1, "HEMIS RULE 38 - EXCEPTIONS (QUAL vs CESM vs PQM)",
+            WpCell(wsEx, 1, 1, "HEMIS RULE 38 - EXCEPTIONS (QUAL vs PQM)",
                 XLColor.FromHtml("#B71C1C"), bold: true, halign: XLAlignmentHorizontalValues.Center);
             wsEx.Cell(1, 1).Style.Font.FontColor = XLColor.White;
             wsEx.Cell(1, 1).Style.Font.FontSize = 13;
@@ -3214,13 +3327,12 @@ namespace HemisAudit.Services
 
             // Sheet 4: Summary stats
             var wsSummary = wb.Worksheets.Add("Summary");
-            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 38: ENHANCED QUAL -> CESM -> PQM VALIDATION", 2);
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 38: QUAL -> PQM VALIDATION", 2);
             var summaryData = new[]
             {
                 ("Database",          summary.Database),
                 ("QUAL Table",        $"{summary.QualTable} (ID: {summary.QualIdCol}, Name: {summary.QualNameCol})"),
-                ("CESM Table",        $"{summary.CesmTable} (ID: {summary.CesmIdCol}, Code: {summary.CesmCodeCol})"),
-                ("PQM Table",         $"{summary.PqmTable} (Name: {summary.PqmNameCol}, CESM: {summary.PqmCesmCodeCol}, CESM1: {summary.PqmCesmCode1Col})"),
+                ("PQM Table",         $"{summary.PqmTable} (Name: {summary.PqmNameCol}, Type: {summary.PqmQualTypeCol}, Total: {summary.PqmMinTimeTotalCol}, WIL: {summary.PqmWilCol}, Subsidy: {summary.PqmTotalSubsidyCol})"),
                 ("Population Split",  summary.UseMPrefixPopulationSplit
                     ? "Postgraduate = configured _005 codes or M_____ qualification codes; all other approved rows = Undergraduate."
                     : "Postgraduate = configured _005 codes; all other approved rows = Undergraduate."),
@@ -3278,7 +3390,7 @@ namespace HemisAudit.Services
         public byte[] ExportRule38Csv(Rule38ValidationSummary summary, bool exceptionsOnly = false)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Validation_Number,Qual_Code,Qual_Name,Approval,Qual_Type,Population_Type,Qual_Min_Time,Qual_WIL,Qual_HEQF,Qual_Subsidy,CESM_Code,PQM_Match,Review_Required,Match_Note,Authorised_Qualification_Name,PQM_Type,PQM_CESM_Code,PQM_CESM_Code1,PQM_Min_Time,PQM_WIL,PQM_Accreditation,PQM_Subsidy,C2_Type,C3_Time,C4_WIL,C5_HEQF,C5_Expected,C6_Subsidy,Failed_Controls,Result");
+            sb.AppendLine("Validation_Number,Qual_Code,Qual_Name,Approval,Qual_Type,Population_Type,Qual_Min_Time,Qual_WIL,Qual_HEQF,Qual_Subsidy,PQM_Match,Review_Required,Match_Note,Authorised_Qualification_Name,PQM_Type,PQM_Min_Time,PQM_WIL,PQM_Accreditation,PQM_Subsidy,C2_Type,C3_Time,C4_WIL,C5_HEQF,C5_Expected,C6_Subsidy,Failed_Controls,Result");
             var rows = exceptionsOnly
                 ? summary.ValidationRows.Where(r => r.ValidationResult == "FAIL")
                 : summary.ValidationRows.AsEnumerable();
@@ -3295,14 +3407,11 @@ namespace HemisAudit.Services
                     CsvEscape(row.MinTimeWIL),
                     CsvEscape(row.HeqfIndicator),
                     CsvEscape(row.TotalSubsidy),
-                    CsvEscape(row.CesmCode),
                     row.HasPqmMatch ? "YES" : "NO",
                     row.NeedsReview ? "YES" : "NO",
                     CsvEscape(row.MatchNote),
                     CsvEscape(row.PqmName),
                     CsvEscape(row.PqmQualType),
-                    CsvEscape(row.PqmCesmCode),
-                    CsvEscape(row.PqmCesmCode1),
                     CsvEscape(row.PqmMinTimeTotal),
                     CsvEscape(row.PqmWIL),
                     CsvEscape(row.PqmAccreditation),
@@ -3322,7 +3431,11 @@ namespace HemisAudit.Services
         public byte[] ExportCsv(Rule34ValidationSummary summary, bool exceptionsOnly = false)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Validation_Number,First_Day,Last_Day,c_Days,c_Days_2,Prepared_Census_Date,Actual_Census_Date,Stored_Census_Date,Day_Status,Validation_Status");
+            var censusHeader = !string.IsNullOrWhiteSpace(summary.ClientTableName) &&
+                               !string.IsNullOrWhiteSpace(summary.ClientJoinColumn)
+                ? "Client_Census_Date"
+                : "Stored_Census_Date";
+            sb.AppendLine($"Validation_Number,First_Day,Last_Day,c_Days,c_Days_2,Prepared_Census_Date,Actual_Census_Date,{censusHeader},Day_Status,Validation_Status");
 
             var rows = exceptionsOnly ? summary.Exceptions : summary.ValidationRows;
             foreach (var row in rows)
@@ -3583,21 +3696,51 @@ namespace HemisAudit.Services
 
         public byte[] ExportCsv(Rule12ValidationSummary summary)
         {
+            var r12CsvX1 = !string.IsNullOrWhiteSpace(summary.CregExtra1Col);
+            var r12CsvX2 = !string.IsNullOrWhiteSpace(summary.CregExtra2Col);
+            var r12CsvXF = !string.IsNullOrWhiteSpace(summary.CregFilterCol);
+            var r12CsvX3 = !string.IsNullOrWhiteSpace(summary.CregExtra3Col);
+            var r12CsvCX = !string.IsNullOrWhiteSpace(summary.CresExtra1Col);
             var sb = new StringBuilder();
-            sb.AppendLine("Validation Number,CREG._030,CRSE._030,Validation Result,Validation Explanation");
+            var headerParts = new List<string>
+            {
+                summary.CregStudentCol, summary.CregQualCol, summary.CregCourseCol
+            };
+            if (r12CsvX1) headerParts.Add(summary.CregExtra1Col!);
+            if (r12CsvX2) headerParts.Add(summary.CregExtra2Col!);
+            if (r12CsvXF) headerParts.Add(summary.CregFilterCol!);
+            if (r12CsvX3) headerParts.Add(summary.CregExtra3Col!);
+            headerParts.Add(summary.QualJoinCol);
+            headerParts.Add(summary.QualDescCol);
+            headerParts.Add(summary.CresCourseCol);
+            headerParts.Add(summary.CresStatusCol);
+            if (r12CsvCX) headerParts.Add(summary.CresExtra1Col!);
+            headerParts.Add("Validation Result");
+            headerParts.Add("Validation Explanation");
+            sb.AppendLine(string.Join(",", headerParts.Select(CsvEscape)));
 
+            // CSV exports ALL rows — CSV is plain text and handles large datasets efficiently.
             foreach (var row in summary.ReviewRows)
             {
-                var creg = row.DisplayValues.TryGetValue("CREG__030", out var cregValue) ? cregValue : null;
-                var crse = row.DisplayValues.TryGetValue("CRSE__030", out var crseValue) ? crseValue : null;
-                sb.AppendLine(string.Join(",", new[]
+                string Display(string key) => row.DisplayValues.TryGetValue(key, out var v) ? v ?? "" : "";
+                var values = new List<string>
                 {
-                    CsvEscape(row.ValidationNumber.ToString()),
-                    CsvEscape(creg),
-                    CsvEscape(crse),
-                    CsvEscape(row.ValidationResult),
-                    CsvEscape(row.ValidationExplanation)
-                }));
+                    CsvEscape(Display("CREG__007")),
+                    CsvEscape(Display("CREG__001")),
+                    CsvEscape(Display("CREG__030"))
+                };
+                if (r12CsvX1) values.Add(CsvEscape(Display("CREG__EXTRA1")));
+                if (r12CsvX2) values.Add(CsvEscape(Display("CREG__EXTRA2")));
+                if (r12CsvXF) values.Add(CsvEscape(Display("CREG__FILTER")));
+                if (r12CsvX3) values.Add(CsvEscape(Display("CREG__EXTRA3")));
+                values.Add(CsvEscape(Display("QUAL__001")));
+                values.Add(CsvEscape(Display("QUAL__003")));
+                values.Add(CsvEscape(Display("CRES__030")));
+                values.Add(CsvEscape(Display("CRES__031")));
+                if (r12CsvCX) values.Add(CsvEscape(Display("CRES__EXTRA1")));
+                values.Add(CsvEscape(row.ValidationResult));
+                values.Add(CsvEscape(row.ValidationExplanation));
+                sb.AppendLine(string.Join(",", values));
             }
 
             return Encoding.UTF8.GetBytes(sb.ToString());
@@ -5240,18 +5383,67 @@ namespace HemisAudit.Services
             return postgraduateTypeCodes.Contains(heqfType) ? "Postgraduate" : "Undergraduate";
         }
 
+        private static List<Rule51ColumnMapping> GetRule51Mappings(Rule51ValidationSummary summary)
+        {
+            var mappings = summary.ColumnMappings?
+                .Where(m => !string.IsNullOrWhiteSpace(m.ValpacColumn) && !string.IsNullOrWhiteSpace(m.ProdColumn))
+                .Select(m => new Rule51ColumnMapping
+                {
+                    ValpacColumn = m.ValpacColumn,
+                    ProdColumn = m.ProdColumn,
+                    Label = m.Label
+                })
+                .ToList() ?? new List<Rule51ColumnMapping>();
+
+            if (mappings.Count > 0)
+                return mappings;
+
+            return new List<Rule51ColumnMapping>
+            {
+                new() { ValpacColumn = summary.ValpacCol007 ?? "_007", ProdColumn = summary.ProdColStNo ?? "IAGSTNO", Label = "Student No" },
+                new() { ValpacColumn = summary.ValpacCol008 ?? "_008", ProdColumn = summary.ProdColIdNo ?? "IADIDNO", Label = "ID No" },
+                new() { ValpacColumn = summary.ValpacCol001 ?? "_001", ProdColumn = summary.ProdColQual ?? "IAGQUAL", Label = "Qualification" },
+                new() { ValpacColumn = summary.ValpacColYear ?? "ColYear", ProdColumn = summary.ProdColYear ?? "IAGCYR", Label = "Year" }
+            };
+        }
+
+        private static string Rule51ValpacAlias(int index) => $"VALPAC_COL_{index + 1}";
+        private static string Rule51ProdAlias(int index) => $"PROD_COL_{index + 1}";
+
+        private static string Rule51MappingHeader(Rule51ColumnMapping mapping, bool useProdColumn)
+        {
+            var column = useProdColumn ? mapping.ProdColumn : mapping.ValpacColumn;
+            return string.IsNullOrWhiteSpace(mapping.Label) || string.Equals(mapping.Label, column, StringComparison.OrdinalIgnoreCase)
+                ? column
+                : $"{mapping.Label} [{column}]";
+        }
+
         public byte[] ExportRule51Excel(Rule51ValidationSummary summary)
         {
+            var mappings = GetRule51Mappings(summary);
+            var col049Name = summary.ValpacCol049 ?? "_049";
+            var has049 = !string.IsNullOrWhiteSpace(summary.ValpacCol049);
+            var headerList = new List<string> { "Validation #" };
+            headerList.AddRange(mappings.Select(m => $"VALPAC {Rule51MappingHeader(m, useProdColumn: false)}"));
+            if (has049) headerList.Add($"VALPAC {col049Name} (Citizen/Res.)");
+            headerList.AddRange(mappings.Select(m => $"PROD {Rule51MappingHeader(m, useProdColumn: true)}"));
+            headerList.Add("Result");
+            headerList.Add("Exception Reason");
+            var headers = headerList.ToArray();
+
+            // Column index of _049 (1-based) — used for purple styling
+            var col049ColNum = has049 ? mappings.Count + 2 : -1; // after Validation# + VALPAC cols
+
             using var wb = new XLWorkbook();
 
             var wsResults = wb.Worksheets.Add("Validation Results");
-            StyleHeaderRow(wsResults, 1, "RULE 51 VALIDATION RESULTS — VALPAC IN PRODUCTION", 9);
-            var headers = new[] { "Validation #", "STUD VALPAC _007", "STUD VALPAC _008", "STUD VALPAC _001", "STUD VALPAC ColYear", "PROD IAGSTNO", "PROD IADIDNO", "PROD IAGQUAL", "PROD IAGCYR", "Result" };
+            StyleHeaderRow(wsResults, 1, "RULE 51 VALIDATION RESULTS — VALPAC IN PRODUCTION", headers.Length);
             for (int i = 0; i < headers.Length; i++)
             {
                 var cell = wsResults.Cell(2, i + 1);
                 cell.Value = headers[i]; cell.Style.Font.Bold = true;
-                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                var isCol049Header = has049 && (i + 1) == col049ColNum;
+                cell.Style.Fill.BackgroundColor = isCol049Header ? XLColor.FromHtml("#6A1B9A") : XLColor.FromHtml("#8B0000");
                 cell.Style.Font.FontColor = XLColor.White;
             }
 
@@ -5260,20 +5452,37 @@ namespace HemisAudit.Services
             {
                 var v = row.DisplayValues;
                 wsResults.Cell(rowIndex, 1).Value = row.ValidationNumber;
-                wsResults.Cell(rowIndex, 2).Value = v.TryGetValue("VALPAC__007", out var v7) ? v7 ?? "" : "";
-                wsResults.Cell(rowIndex, 3).Value = v.TryGetValue("VALPAC__008", out var v8) ? v8 ?? "" : "";
-                wsResults.Cell(rowIndex, 4).Value = v.TryGetValue("VALPAC__001", out var v1) ? v1 ?? "" : "";
-                wsResults.Cell(rowIndex, 5).Value = v.TryGetValue("VALPAC_COLYEAR", out var vy) ? vy ?? "" : "";
-                wsResults.Cell(rowIndex, 6).Value = v.TryGetValue("PROD_IAGSTNO", out var ps) ? ps ?? "" : "";
-                wsResults.Cell(rowIndex, 7).Value = v.TryGetValue("PROD_IADIDNO", out var pi) ? pi ?? "" : "";
-                wsResults.Cell(rowIndex, 8).Value = v.TryGetValue("PROD_IAGQUAL", out var pq) ? pq ?? "" : "";
-                wsResults.Cell(rowIndex, 9).Value = v.TryGetValue("PROD_IAGCYR", out var pc) ? pc ?? "" : "";
-                wsResults.Cell(rowIndex, 10).Value = row.ValidationResult;
-                var fill = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase) ? XLColor.FromHtml("#FFF3F3") : XLColor.FromHtml("#F3FFF3");
-                wsResults.Range(rowIndex, 1, rowIndex, 10).Style.Fill.BackgroundColor = fill;
+                var columnIndex = 2;
+                for (int i = 0; i < mappings.Count; i++)
+                    wsResults.Cell(rowIndex, columnIndex++).Value = v.TryGetValue(Rule51ValpacAlias(i), out var valpacValue) ? valpacValue ?? "" : "";
+                if (has049)
+                {
+                    var c049 = wsResults.Cell(rowIndex, columnIndex++);
+                    c049.Value = v.TryGetValue("VALPAC_049_DISP", out var v049Val) ? v049Val ?? "" : "";
+                    c049.Style.Font.FontColor = XLColor.FromHtml("#6A1B9A");
+                }
+                for (int i = 0; i < mappings.Count; i++)
+                    wsResults.Cell(rowIndex, columnIndex++).Value = v.TryGetValue(Rule51ProdAlias(i), out var prodValue) ? prodValue ?? "" : "";
+                var isPassReview = string.Equals(row.ValidationResult, "PASS_REVIEW", StringComparison.OrdinalIgnoreCase);
+                wsResults.Cell(rowIndex, columnIndex++).Value = isPassReview ? "PASS (Review)" : row.ValidationResult;
+                wsResults.Cell(rowIndex, columnIndex).Value = row.ValidationExplanation ?? "";
+                var isFail = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase);
+                var fill = isFail ? XLColor.FromHtml("#FFF3F3") : isPassReview ? XLColor.FromHtml("#FFF8E1") : XLColor.FromHtml("#F3FFF3");
+                wsResults.Range(rowIndex, 1, rowIndex, headers.Length).Style.Fill.BackgroundColor = fill;
+                if (isFail && !string.IsNullOrEmpty(row.ValidationExplanation))
+                {
+                    wsResults.Cell(rowIndex, columnIndex).Style.Font.FontColor = XLColor.FromHtml("#8B0000");
+                    wsResults.Cell(rowIndex, columnIndex).Style.Alignment.WrapText = true;
+                }
+                else if (isPassReview && !string.IsNullOrEmpty(row.ValidationExplanation))
+                {
+                    wsResults.Cell(rowIndex, columnIndex).Style.Font.FontColor = XLColor.FromHtml("#E65100");
+                    wsResults.Cell(rowIndex, columnIndex).Style.Alignment.WrapText = true;
+                }
                 rowIndex++;
             }
-            for (int c = 1; c <= 10; c++) wsResults.Column(c).AdjustToContents();
+            for (int c = 1; c < headers.Length; c++) wsResults.Column(c).AdjustToContents();
+            wsResults.Column(headers.Length).Width = 60;
 
             var wsSummary = wb.Worksheets.Add("Summary");
             StyleHeaderRow(wsSummary, 1, "HEMIS RULE 51: VALPAC DATA IN PRODUCTION", 2);
@@ -5282,7 +5491,10 @@ namespace HemisAudit.Services
                 ("Database", summary.Database), ("VALPAC Table", summary.ValpacTable), ("PRODUCTION Table", summary.ProdTable),
                 ("Column Mapping", summary.TableLinkageText), ("Validation Date", summary.Timestamp), ("", ""),
                 ("VALIDATION RESULTS", ""), ("Total Tested", summary.TotalValidated.ToString("N0")),
-                ("PASS (found in Production)", summary.PassCount.ToString("N0")), ("FAIL (not in Production)", summary.FailCount.ToString("N0")),
+                ("PASS (found in Production)", (summary.PassCount - summary.PassWithReviewCount).ToString("N0")),
+                ("Pass With Review Note (not an exception)", summary.PassWithReviewCount > 0 ? summary.PassWithReviewCount.ToString("N0") : "0"),
+                ("FAIL (not in Production)", summary.FailCount.ToString("N0")),
+                ("Foreign National Exempt", summary.ForeignNationalExemptCount > 0 ? summary.ForeignNationalExemptCount.ToString("N0") : "0"),
                 ("Exception Rate", $"{summary.ExceptionRate:F2}%"), ("Status", summary.Status)
             };
             int sRow = 2;
@@ -5295,33 +5507,117 @@ namespace HemisAudit.Services
                     wsSummary.Cell(sRow, 1).Value = label; wsSummary.Cell(sRow, 1).Style.Font.Bold = true; wsSummary.Cell(sRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
                     wsSummary.Cell(sRow, 2).Value = value;
                     if (label == "Status") { wsSummary.Cell(sRow, 2).Style.Fill.BackgroundColor = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2"); wsSummary.Cell(sRow, 2).Style.Font.Bold = true; }
+                    else if (label.StartsWith("Pass With Review")) { wsSummary.Cell(sRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3E0"); wsSummary.Cell(sRow, 1).Style.Font.FontColor = XLColor.FromHtml("#E65100"); wsSummary.Cell(sRow, 2).Style.Font.FontColor = XLColor.FromHtml("#E65100"); wsSummary.Cell(sRow, 2).Style.Font.Bold = true; }
                 }
                 sRow++;
             }
             wsSummary.Column(1).Width = 32; wsSummary.Column(2).Width = 70;
 
+            // Exception breakdown sheet — shows why each category of exception occurred
+            if (summary.ExceptionCategories.Count > 0)
+            {
+                var wsBreak = wb.Worksheets.Add("Exception Breakdown");
+                StyleHeaderRow(wsBreak, 1, "RULE 51 EXCEPTION BREAKDOWN — CATEGORIES", 3);
+                var brkHeaders = new[] { "Exception Category", "Description", "Count" };
+                for (int i = 0; i < brkHeaders.Length; i++)
+                {
+                    var c = wsBreak.Cell(2, i + 1);
+                    c.Value = brkHeaders[i]; c.Style.Font.Bold = true;
+                    c.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                    c.Style.Font.FontColor = XLColor.White;
+                }
+                int bRow = 3;
+                foreach (var cat in summary.ExceptionCategories)
+                {
+                    wsBreak.Cell(bRow, 1).Value = cat.Category;
+                    wsBreak.Cell(bRow, 2).Value = cat.Description;
+                    var countCell = wsBreak.Cell(bRow, 3);
+                    countCell.Value = cat.Count;
+                    countCell.Style.Font.Bold = true;
+                    countCell.Style.Font.FontColor = XLColor.FromHtml("#8B0000");
+                    wsBreak.Range(bRow, 1, bRow, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
+                    bRow++;
+                }
+                wsBreak.Column(1).Width = 30; wsBreak.Column(2).Width = 55; wsBreak.Column(3).Width = 12;
+            }
+
             var failRows = summary.ReviewRows.Where(r => string.Equals(r.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase)).ToList();
             if (failRows.Any())
             {
                 var wsEx = wb.Worksheets.Add("Exceptions");
-                StyleHeaderRow(wsEx, 1, "RULE 51 EXCEPTIONS — VALPAC NOT IN PRODUCTION", 10);
+                StyleHeaderRow(wsEx, 1, "RULE 51 EXCEPTIONS — VALPAC NOT IN PRODUCTION", headers.Length);
                 for (int i = 0; i < headers.Length; i++)
-                { var c = wsEx.Cell(2, i + 1); c.Value = headers[i]; c.Style.Font.Bold = true; c.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000"); c.Style.Font.FontColor = XLColor.White; }
+                {
+                    var c = wsEx.Cell(2, i + 1); c.Value = headers[i]; c.Style.Font.Bold = true;
+                    var isCol049Header = has049 && (i + 1) == col049ColNum;
+                    c.Style.Fill.BackgroundColor = isCol049Header ? XLColor.FromHtml("#6A1B9A") : XLColor.FromHtml("#8B0000");
+                    c.Style.Font.FontColor = XLColor.White;
+                }
                 int exRow = 3;
                 foreach (var row in failRows)
                 {
                     var v = row.DisplayValues;
                     wsEx.Cell(exRow, 1).Value = row.ValidationNumber;
-                    wsEx.Cell(exRow, 2).Value = v.TryGetValue("VALPAC__007", out var a) ? a ?? "" : "";
-                    wsEx.Cell(exRow, 3).Value = v.TryGetValue("VALPAC__008", out var b) ? b ?? "" : "";
-                    wsEx.Cell(exRow, 4).Value = v.TryGetValue("VALPAC__001", out var c2) ? c2 ?? "" : "";
-                    wsEx.Cell(exRow, 5).Value = v.TryGetValue("VALPAC_COLYEAR", out var d) ? d ?? "" : "";
-                    wsEx.Cell(exRow, 6).Value = ""; wsEx.Cell(exRow, 7).Value = ""; wsEx.Cell(exRow, 8).Value = ""; wsEx.Cell(exRow, 9).Value = "";
-                    wsEx.Cell(exRow, 10).Value = "FAIL";
-                    wsEx.Range(exRow, 1, exRow, 10).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
+                    var columnIndex = 2;
+                    for (int i = 0; i < mappings.Count; i++)
+                        wsEx.Cell(exRow, columnIndex++).Value = v.TryGetValue(Rule51ValpacAlias(i), out var valpacValue) ? valpacValue ?? "" : "";
+                    if (has049)
+                    {
+                        var c049 = wsEx.Cell(exRow, columnIndex++);
+                        c049.Value = v.TryGetValue("VALPAC_049_DISP", out var v049Val) ? v049Val ?? "" : "";
+                        c049.Style.Font.FontColor = XLColor.FromHtml("#6A1B9A");
+                    }
+                    for (int i = 0; i < mappings.Count; i++)
+                        wsEx.Cell(exRow, columnIndex++).Value = v.TryGetValue(Rule51ProdAlias(i), out var prodValue) ? prodValue ?? "" : "";
+                    wsEx.Cell(exRow, columnIndex++).Value = "FAIL";
+                    wsEx.Cell(exRow, columnIndex).Value = row.ValidationExplanation ?? "";
+                    wsEx.Cell(exRow, columnIndex).Style.Font.FontColor = XLColor.FromHtml("#8B0000");
+                    wsEx.Cell(exRow, columnIndex).Style.Alignment.WrapText = true;
+                    wsEx.Range(exRow, 1, exRow, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF3F3");
                     exRow++;
                 }
-                for (int c = 1; c <= 10; c++) wsEx.Column(c).AdjustToContents();
+                for (int c = 1; c < headers.Length; c++) wsEx.Column(c).AdjustToContents();
+                wsEx.Column(headers.Length).Width = 60;
+            }
+
+            var passReviewRows = summary.ReviewRows.Where(r => string.Equals(r.ValidationResult, "PASS_REVIEW", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (passReviewRows.Any())
+            {
+                var wsRev = wb.Worksheets.Add("Pass With Review");
+                StyleHeaderRow(wsRev, 1, "RULE 51 — PASS WITH REVIEW NOTE (primary qualification matched, not an exception)", headers.Length);
+                for (int i = 0; i < headers.Length; i++)
+                {
+                    var c = wsRev.Cell(2, i + 1); c.Value = headers[i]; c.Style.Font.Bold = true;
+                    var isCol049Header = has049 && (i + 1) == col049ColNum;
+                    c.Style.Fill.BackgroundColor = isCol049Header ? XLColor.FromHtml("#6A1B9A") : XLColor.FromHtml("#E65100");
+                    c.Style.Font.FontColor = XLColor.White;
+                }
+                int revRow = 3;
+                foreach (var row in passReviewRows)
+                {
+                    var v = row.DisplayValues;
+                    wsRev.Cell(revRow, 1).Value = row.ValidationNumber;
+                    var columnIndex = 2;
+                    for (int i = 0; i < mappings.Count; i++)
+                        wsRev.Cell(revRow, columnIndex++).Value = v.TryGetValue(Rule51ValpacAlias(i), out var valpacValue) ? valpacValue ?? "" : "";
+                    if (has049)
+                    {
+                        var c049 = wsRev.Cell(revRow, columnIndex++);
+                        c049.Value = v.TryGetValue("VALPAC_049_DISP", out var v049Val) ? v049Val ?? "" : "";
+                        c049.Style.Font.FontColor = XLColor.FromHtml("#6A1B9A");
+                    }
+                    for (int i = 0; i < mappings.Count; i++)
+                        wsRev.Cell(revRow, columnIndex++).Value = v.TryGetValue(Rule51ProdAlias(i), out var prodValue) ? prodValue ?? "" : "";
+                    wsRev.Cell(revRow, columnIndex++).Value = "PASS (Review)";
+                    var noteCell = wsRev.Cell(revRow, columnIndex);
+                    noteCell.Value = row.ValidationExplanation ?? "";
+                    noteCell.Style.Font.FontColor = XLColor.FromHtml("#E65100");
+                    noteCell.Style.Alignment.WrapText = true;
+                    wsRev.Range(revRow, 1, revRow, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF8E1");
+                    revRow++;
+                }
+                for (int c = 1; c < headers.Length; c++) wsRev.Column(c).AdjustToContents();
+                wsRev.Column(headers.Length).Width = 60;
             }
 
             using var ms = new MemoryStream();
@@ -5331,24 +5627,32 @@ namespace HemisAudit.Services
 
         public byte[] ExportRule51Csv(Rule51ValidationSummary summary)
         {
+            var mappings = GetRule51Mappings(summary);
+            var col049Name = summary.ValpacCol049 ?? "_049";
+            var has049Csv = !string.IsNullOrWhiteSpace(summary.ValpacCol049);
+            var headers = new List<string> { "Validation_Number" };
+            headers.AddRange(mappings.Select(m => $"VALPAC_{Rule51MappingHeader(m, useProdColumn: false)}"));
+            if (has049Csv) headers.Add($"VALPAC_{col049Name}_CitizenRes");
+            headers.AddRange(mappings.Select(m => $"PROD_{Rule51MappingHeader(m, useProdColumn: true)}"));
+            headers.Add("Validation_Result");
+            headers.Add("Exception_Reason");
+
             var sb = new StringBuilder();
-            sb.AppendLine("Validation_Number,VALPAC__007,VALPAC__008,VALPAC__001,VALPAC_COLYEAR,PROD_IAGSTNO,PROD_IADIDNO,PROD_IAGQUAL,PROD_IAGCYR,Validation_Result");
+            sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
             foreach (var row in summary.ReviewRows)
             {
                 var v = row.DisplayValues;
-                sb.AppendLine(string.Join(",", new[]
-                {
-                    CsvEscape(row.ValidationNumber.ToString()),
-                    CsvEscape(v.TryGetValue("VALPAC__007", out var a) ? a : ""),
-                    CsvEscape(v.TryGetValue("VALPAC__008", out var b) ? b : ""),
-                    CsvEscape(v.TryGetValue("VALPAC__001", out var c) ? c : ""),
-                    CsvEscape(v.TryGetValue("VALPAC_COLYEAR", out var d) ? d : ""),
-                    CsvEscape(v.TryGetValue("PROD_IAGSTNO", out var e) ? e : ""),
-                    CsvEscape(v.TryGetValue("PROD_IADIDNO", out var f) ? f : ""),
-                    CsvEscape(v.TryGetValue("PROD_IAGQUAL", out var g) ? g : ""),
-                    CsvEscape(v.TryGetValue("PROD_IAGCYR", out var h) ? h : ""),
-                    CsvEscape(row.ValidationResult)
-                }));
+                var cells = new List<string> { CsvEscape(row.ValidationNumber.ToString()) };
+                for (int i = 0; i < mappings.Count; i++)
+                    cells.Add(CsvEscape(v.TryGetValue(Rule51ValpacAlias(i), out var valpacValue) ? valpacValue : ""));
+                if (has049Csv)
+                    cells.Add(CsvEscape(v.TryGetValue("VALPAC_049_DISP", out var v049Csv) ? v049Csv : ""));
+                for (int i = 0; i < mappings.Count; i++)
+                    cells.Add(CsvEscape(v.TryGetValue(Rule51ProdAlias(i), out var prodValue) ? prodValue : ""));
+                var csvResult = string.Equals(row.ValidationResult, "PASS_REVIEW", StringComparison.OrdinalIgnoreCase) ? "PASS (Review)" : row.ValidationResult;
+                cells.Add(CsvEscape(csvResult));
+                cells.Add(CsvEscape(row.ValidationExplanation ?? ""));
+                sb.AppendLine(string.Join(",", cells));
             }
             return System.Text.Encoding.UTF8.GetBytes(sb.ToString());
         }

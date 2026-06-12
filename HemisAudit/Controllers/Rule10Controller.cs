@@ -462,6 +462,21 @@ namespace HemisAudit.Controllers
                     Sql = await _rule10.GenerateSqlAsync(request)
                 }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule10ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule10SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule10SqlResult
+            {
+                Success = true,
+                Sql = Rule10RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule10")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule10RunSignoffInputModel model)
@@ -600,7 +615,7 @@ namespace HemisAudit.Controllers
             });
 
             var bytes = _export.ExportExcel(exportSummary);
-            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule10_Integrity_Check_Run_{runId}.xlsx");
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule{review.RuleNumber}_Integrity_Check_Run_{runId}.xlsx");
         }
 
         [HttpGet]
@@ -631,7 +646,7 @@ namespace HemisAudit.Controllers
             });
 
             var bytes = _export.ExportCsv(exportSummary);
-            return File(bytes, "text/csv", $"Rule10_Integrity_Check_Run_{runId}.csv");
+            return File(bytes, "text/csv", $"Rule{review.RuleNumber}_Integrity_Check_Run_{runId}.csv");
         }
 
         [HttpGet]
@@ -660,7 +675,7 @@ namespace HemisAudit.Controllers
             };
 
             var bytes = _export.ExportSql(await _rule10.GenerateSqlAsync(request));
-            return File(bytes, "application/sql", $"Rule10_Integrity_Check_{runId}.sql");
+            return File(bytes, "application/sql", $"Rule{review.RuleNumber}_Integrity_Check_{runId}.sql");
         }
 
         [HttpPost]
@@ -668,7 +683,7 @@ namespace HemisAudit.Controllers
         {
             summary = await ResolveExportSummaryAsync(summary);
             var bytes = _export.ExportExcel(summary);
-            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule10_Integrity_Check_{Ts()}.xlsx");
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule{summary.RuleNumber}_Integrity_Check_{Ts()}.xlsx");
         }
 
         [HttpPost]
@@ -676,7 +691,7 @@ namespace HemisAudit.Controllers
         {
             summary = await ResolveExportSummaryAsync(summary);
             var bytes = _export.ExportCsv(summary);
-            return File(bytes, "text/csv", $"Rule10_Integrity_Check_{Ts()}.csv");
+            return File(bytes, "text/csv", $"Rule{summary.RuleNumber}_Integrity_Check_{Ts()}.csv");
         }
 
         [HttpPost]

@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 55 - Graduate W-Code Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -93,7 +93,7 @@
             </button>
             <div class="accordion-body" id="body-tables" style="display:none">
                 <div class="info-box info-box--red">
-                    <strong>Rule 55 Requirement:</strong> Rule 55 identifies all students where Element 025='W' (certificate withheld) in <code>dbo_STUD</code> and validates their qualification is approved in <code>dbo_QUAL</code> (<code>_004</code> = configurable approval value). Per DHET §1.5, W-coded students must be treated identically to 'F' graduates for Teaching and Research Output. PASS = qualification found AND <code>_004</code> = configurable approval value.
+                    <strong>Rule 55 Requirement:</strong> Rule 55 identifies all students where Element 025='W' (certificate withheld) in <code>dbo_STUD</code> and validates their qualification is approved in <code>dbo_QUAL</code> (<code>_004</code> = configurable approval value). Per DHET Ã‚Â§1.5, W-coded students must be treated identically to 'F' graduates for Teaching and Research Output. PASS = qualification found AND <code>_004</code> = configurable approval value.
                 </div>
                 <div class="info-box info-box--blue">
                     <strong>Configurable Filters:</strong> Update the STUD fulfilled value and QUAL approval value below if the source codes change.
@@ -112,9 +112,9 @@
                         </select>
                     </div>
                     <div class="field-group">
-                        <label>PQM Table <span class="auto-tag" id="pqmAutoTag" style="display:none">auto-detected</span> <small style="font-weight:normal;color:#888">(optional — enables name &amp; HEQF type matching)</small></label>
+                        <label>PQM Table <span class="auto-tag" id="pqmAutoTag" style="display:none">auto-detected</span> <small style="font-weight:normal;color:#888">(optional — enables name &amp; HEQF type matching)</small></label>
                         <select id="pqmTableSelect" onchange="onTableChange('pqm')">
-                            <option value="">Select table (e.g. PQM) — optional</option>
+                            <option value="">Select table (e.g. PQM) — optional</option>
                         </select>
                     </div>
                 </div>
@@ -132,20 +132,20 @@
             <div class="accordion-body" id="body-columns" style="display:none">
                 <div class="info-box info-box--dark">
                     <strong>Matching Logic:</strong>
-                    PASS requires: (1) student's <code>_001</code> qualification code exists in <code>dbo_QUAL</code>; (2) <code>QUAL._004</code> matches the approval filter value; (3) if PQM is configured — <code>QUAL._003</code> = <code>PQM.AUTHORISED_QUALIFICATION_NAME</code> <strong>AND</strong> <code>QUAL._005</code> = <code>PQM.HEQF_QUAL_TYPE</code> on the same PQM row.
+                    PASS requires: (1) student's <code>_001</code> qualification code exists in <code>dbo_QUAL</code>; (2) <code>QUAL._004</code> matches the approval filter value; (3) if PQM is configured — <code>QUAL._003</code> = <code>PQM.AUTHORISED_QUALIFICATION_NAME</code> <strong>AND</strong> <code>QUAL._005</code> = <code>PQM.HEQF_QUAL_TYPE</code> on the same PQM row.
                     The <strong>Filter Value</strong> below controls which value in the fulfilled status column defines this rule's population (default: <code>W</code>).
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
-                        <label>STUD — Student ID Column <span class="auto-tag" id="studIdAutoTag" style="display:none">auto-selected</span></label>
+                        <label>STUD — Student ID Column <span class="auto-tag" id="studIdAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studIdColSelect"><option value="">Select column (_007)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>STUD — Qualification Code Column <span class="auto-tag" id="studQualCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>STUD — Qualification Code Column <span class="auto-tag" id="studQualCodeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studQualCodeColSelect"><option value="">Select column (_001)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>STUD — Fulfilled Status Column <span class="auto-tag" id="studFulfilledAutoTag" style="display:none">auto-selected</span></label>
+                        <label>STUD — Fulfilled Status Column <span class="auto-tag" id="studFulfilledAutoTag" style="display:none">auto-selected</span></label>
                         <select id="studFulfilledColSelect"><option value="">Select column (_025)</option></select>
                     </div>
                     <div class="field-group">
@@ -165,23 +165,23 @@
                         </small>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — Qualification Code Column <span class="auto-tag" id="qualCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — Qualification Code Column <span class="auto-tag" id="qualCodeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualCodeColSelect"><option value="">Select column (_001)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — Qualification Name Column <span class="auto-tag" id="qualNameAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — Qualification Name Column <span class="auto-tag" id="qualNameAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualNameColSelect"><option value="">Select column (_003)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — Qualification Type Column <span class="auto-tag" id="qualTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — Qualification Type Column <span class="auto-tag" id="qualTypeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualTypeColSelect"><option value="">Select column (_005)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — Approval Status Column <span class="auto-tag" id="qualApprovalAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — Approval Status Column <span class="auto-tag" id="qualApprovalAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualApprovalColSelect"><option value="">Select column (_004)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — Approval Filter Value <small style="font-weight:normal">(default A)</small></label>
+                        <label>QUAL — Approval Filter Value <small style="font-weight:normal">(default A)</small></label>
                         <input id="qualApprovalFilterValueInput" type="text" value="A" maxlength="10"
                                style="text-transform:uppercase;width:120px;font-family:monospace;font-size:15px;font-weight:bold"
                                oninput="this.value=this.value.toUpperCase();state.qualApprovalFilterValue=this.value.trim() || 'A';"
@@ -192,11 +192,11 @@
                     <div style="font-weight:600;margin-bottom:8px;color:#6A1B9A">PQM Column Mapping <small style="font-weight:normal;color:#888">(populated when PQM table is selected)</small></div>
                     <div class="form-grid">
                         <div class="field-group">
-                            <label>PQM — Qual Name Column <span class="auto-tag" id="pqmQualNameAutoTag" style="display:none">auto-selected</span></label>
+                            <label>PQM — Qual Name Column <span class="auto-tag" id="pqmQualNameAutoTag" style="display:none">auto-selected</span></label>
                             <select id="pqmQualNameColSelect"><option value="">Select column (AUTHORISED_QUALIFICATION_NAME)</option></select>
                         </div>
                         <div class="field-group">
-                            <label>PQM — HEQF Type Column <span class="auto-tag" id="pqmQualTypeAutoTag" style="display:none">auto-selected</span></label>
+                            <label>PQM — HEQF Type Column <span class="auto-tag" id="pqmQualTypeAutoTag" style="display:none">auto-selected</span></label>
                             <select id="pqmQualTypeColSelect"><option value="">Select column (HEQF_QUAL_TYPE)</option></select>
                         </div>
                     </div>
@@ -252,6 +252,7 @@
         <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
         <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
         <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+<button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -262,6 +263,7 @@
             <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+<button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
@@ -276,6 +278,9 @@
         </div>
         <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
             <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-rscript" data-tab-panel="rscript">
+            <div id="rContent" class="empty-state"><p>Click "Generate R Script" to generate the R script.</p></div>
         </div>
         <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or individual download buttons.</p></div>
@@ -468,7 +473,7 @@ function resetWorkspaceState(clearClient = false) {
     ['studTableSelect','qualTableSelect','pqmTableSelect'].forEach(id => {
         document.getElementById(id).innerHTML = '<option value="">Select table</option>';
     });
-    document.getElementById('pqmTableSelect').options[0].text = 'Select table (e.g. PQM) — optional';
+    document.getElementById('pqmTableSelect').options[0].text = 'Select table (e.g. PQM) — optional';
     ['studIdColSelect','studQualCodeColSelect','studFulfilledColSelect',
      'qualCodeColSelect','qualNameColSelect','qualTypeColSelect','qualApprovalColSelect',
      'pqmQualNameColSelect','pqmQualTypeColSelect'].forEach(id => {
@@ -518,6 +523,7 @@ function renderWorkspaceState() {
     const showDisabledArchivedSignoff = archived && !!state.currentRunId;
     const runValidationBtn = document.getElementById('runValidationBtn');
     const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const generateRScriptBtn = document.getElementById('generateRScriptBtn');
     const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
     const signOffBtn = document.getElementById('signOffBtn');
     const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
@@ -533,6 +539,7 @@ function renderWorkspaceState() {
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn,   show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateRScriptBtn,   show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
         { target: signoffComment,   disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
@@ -740,7 +747,7 @@ async function loadTables(options = {}) {
     ['studTableSelect','qualTableSelect','pqmTableSelect'].forEach(id => {
         const sel = document.getElementById(id);
         sel.innerHTML = id === 'pqmTableSelect'
-            ? '<option value="">Select table (e.g. PQM) — optional</option>'
+            ? '<option value="">Select table (e.g. PQM) — optional</option>'
             : '<option value="">Select table</option>';
         result.tables.forEach(t => sel.appendChild(new Option(t, t)));
     });
@@ -1002,8 +1009,8 @@ function renderValidationResults(r) {
                             ${r.pqmTable ? `
                             <th style="background:#CE93D8;font-size:10px">PQM Name</th>
                             <th style="background:#CE93D8;font-size:10px">PQM HEQF Type</th>
-                            <th style="background:#CE93D8;font-size:10px">Name ✓</th>
-                            <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">Type ✓</th>` : ''}
+                            <th style="background:#CE93D8;font-size:10px">Name Ã¢Å“â€œ</th>
+                            <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">Type Ã¢Å“â€œ</th>` : ''}
                         </tr>
                     </thead>
                     <tbody>
@@ -1017,10 +1024,10 @@ function renderValidationResults(r) {
                             <td>${row.qualType !== null && row.qualType !== undefined ? escapeHtml(row.qualType) : nullCell(null)}</td>
                             <td>${row.qualApprovalStatus !== null && row.qualApprovalStatus !== undefined ? escapeHtml(row.qualApprovalStatus) : nullCell(null)}</td>
                             ${r.pqmTable ? `
-                            <td style="${!row.nameMatch ? 'background:#fff3e0' : ''}">${row.pqmQualName ? escapeHtml(row.pqmQualName) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
-                            <td style="${!row.typeMatch ? 'background:#fff3e0' : ''}">${row.pqmQualType ? escapeHtml(row.pqmQualType) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
-                            <td style="text-align:center">${row.nameMatch ? '✓' : '<span style="color:#b91c1c">✗</span>'}</td>
-                            <td style="text-align:center">${row.typeMatch ? '✓' : '<span style="color:#b91c1c">✗</span>'}</td>` : ''}
+                            <td style="${!row.nameMatch ? 'background:#fff3e0' : ''}">${row.pqmQualName ? escapeHtml(row.pqmQualName) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
+                            <td style="${!row.typeMatch ? 'background:#fff3e0' : ''}">${row.pqmQualType ? escapeHtml(row.pqmQualType) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
+                            <td style="text-align:center">${row.nameMatch ? 'Ã¢Å“â€œ' : '<span style="color:#b91c1c">Ã¢Å“—</span>'}</td>
+                            <td style="text-align:center">${row.typeMatch ? 'Ã¢Å“â€œ' : '<span style="color:#b91c1c">Ã¢Å“—</span>'}</td>` : ''}
                             <td style="text-align:center"><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
                             <td></td>
                         </tr>`).join('')}
@@ -1046,8 +1053,8 @@ function renderValidationResults(r) {
         </div>
         <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
             ${r.status === 'PASS'
-                ? `VALIDATION PASSED — All ${escapeHtml(state.studFulfilledFilterValue)}-coded students have an approved qualification in dbo_QUAL (_004=${escapeHtml(state.qualApprovalFilterValue)})`
-                : `VALIDATION FAILED — ${r.failCount.toLocaleString()} ${escapeHtml(state.studFulfilledFilterValue)}-coded student(s) failed qualification approval check`}
+                ? `VALIDATION PASSED — All ${escapeHtml(state.studFulfilledFilterValue)}-coded students have an approved qualification in dbo_QUAL (_004=${escapeHtml(state.qualApprovalFilterValue)})`
+                : `VALIDATION FAILED — ${r.failCount.toLocaleString()} ${escapeHtml(state.studFulfilledFilterValue)}-coded student(s) failed qualification approval check`}
         </div>
         <div class="results-table-panel">
             <div class="panel-title-row">
@@ -1079,7 +1086,7 @@ function renderExceptions(r) {
     el.classList.remove('empty-state');
     if (r.failCount === 0) {
         el.innerHTML = `${renderSectionHeader('Rule 55 Exceptions', 'Filtered students with missing or unapproved qualifications', 'Exceptions: 0')}
-            <div class="alert alert--success">No exceptions — all ${escapeHtml(state.studFulfilledFilterValue)}-coded students have an approved qualification (_004=${escapeHtml(state.qualApprovalFilterValue)}) in dbo_QUAL.</div>`;
+            <div class="alert alert--success">No exceptions — all ${escapeHtml(state.studFulfilledFilterValue)}-coded students have an approved qualification (_004=${escapeHtml(state.qualApprovalFilterValue)}) in dbo_QUAL.</div>`;
         return;
     }
     const exRows = (r.exceptions || []).slice(0, 10).map((ex, i) => `
@@ -1092,10 +1099,10 @@ function renderExceptions(r) {
             <td>${ex.qualType !== null && ex.qualType !== undefined ? escapeHtml(ex.qualType) : nullCell(null)}</td>
             <td>${ex.qualApprovalStatus !== null && ex.qualApprovalStatus !== undefined ? escapeHtml(ex.qualApprovalStatus) : nullCell(null)}</td>
             ${r.pqmTable ? `
-            <td style="${!ex.nameMatch ? 'background:#fff3e0' : ''}">${ex.pqmQualName ? escapeHtml(ex.pqmQualName) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
-            <td style="${!ex.typeMatch ? 'background:#fff3e0' : ''}">${ex.pqmQualType ? escapeHtml(ex.pqmQualType) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
-            <td style="text-align:center">${ex.nameMatch ? '✓' : '<span style="color:#b91c1c">✗</span>'}</td>
-            <td style="text-align:center">${ex.typeMatch ? '✓' : '<span style="color:#b91c1c">✗</span>'}</td>` : ''}
+            <td style="${!ex.nameMatch ? 'background:#fff3e0' : ''}">${ex.pqmQualName ? escapeHtml(ex.pqmQualName) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
+            <td style="${!ex.typeMatch ? 'background:#fff3e0' : ''}">${ex.pqmQualType ? escapeHtml(ex.pqmQualType) : '<span style="color:#9e9e9e;font-style:italic;font-size:11px">—</span>'}</td>
+            <td style="text-align:center">${ex.nameMatch ? 'Ã¢Å“â€œ' : '<span style="color:#b91c1c">Ã¢Å“—</span>'}</td>
+            <td style="text-align:center">${ex.typeMatch ? 'Ã¢Å“â€œ' : '<span style="color:#b91c1c">Ã¢Å“—</span>'}</td>` : ''}
             <td style="text-align:center"><span class="badge badge--fail">${escapeHtml(ex.validationResult)}</span></td>
             <td style="font-size:11px">${escapeHtml(ex.exceptionReason)}</td>
             <td></td>
@@ -1127,8 +1134,8 @@ function renderExceptions(r) {
                             ${r.pqmTable ? `
                             <th style="background:#CE93D8;font-size:10px">PQM Name</th>
                             <th style="background:#CE93D8;font-size:10px">PQM HEQF Type</th>
-                            <th style="background:#CE93D8;font-size:10px">Name ✓</th>
-                            <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">Type ✓</th>` : ''}
+                            <th style="background:#CE93D8;font-size:10px">Name Ã¢Å“â€œ</th>
+                            <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">Type Ã¢Å“â€œ</th>` : ''}
                         </tr>
                     </thead>
                     <tbody>${exRows}</tbody>
@@ -1225,6 +1232,28 @@ async function generateSql() {
         switchTab('sql');
     } finally { hideSpinner(); }
 }
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule55/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">`+escapeHtml(result.sql)+`</pre></div>`;
+        switchTab('rscript');
+    } finally {
+        hideSpinner();
+    }
+}
+
 
 function setValidationFilter(filter) {
     state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
@@ -1412,8 +1441,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderWorkspaceState();
     if (state.clientId > 0) await loadWorkspaceState();
 });
+    const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 </script>
-
-
-
-

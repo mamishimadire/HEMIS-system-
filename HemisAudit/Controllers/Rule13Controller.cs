@@ -358,6 +358,21 @@ namespace HemisAudit.Controllers
                     Sql = await _rule13.GenerateSqlAsync(request)
                 }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule13ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule13SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule13SqlResult
+            {
+                Success = true,
+                Sql = Rule13RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule13")
+            }));
+        }
 
         [HttpPost]
         public async Task<IActionResult> SignOffWorkspace([FromBody] Rule13WorkspaceSignoffInputModel model)

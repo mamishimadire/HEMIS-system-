@@ -279,44 +279,12 @@ namespace HemisAudit.Services
                     "No PQM type match");
             }
 
-            var exactMatch = typeRows
-                .Select(p => new { Row = p, MatchColumn = GetExactCesmMatchColumn(qual.CesmCode, p) })
-                .FirstOrDefault(match => match.MatchColumn != null);
-
-            if (exactMatch != null)
-            {
-                return new PqmMatchResult(
-                    true,
-                    exactMatch.Row,
-                    false,
-                    $"Matched PQM on qualification name, qualification type, and CESM._006 = {exactMatch.MatchColumn}.",
-                    "");
-            }
-
-            var reviewMatch = typeRows
-                .Select(p =>
-                {
-                    var review = GetCesmReviewMatch(qual.CesmCode, p);
-                    return new { Row = p, review.Reason, review.MatchColumn };
-                })
-                .FirstOrDefault(match => match.Reason != null);
-
-            if (reviewMatch != null)
-            {
-                return new PqmMatchResult(
-                    true,
-                    reviewMatch.Row,
-                    true,
-                    $"Matched PQM using Rule 11 CESM review logic because {reviewMatch.Reason} against {reviewMatch.MatchColumn}.",
-                    "");
-            }
-
             return new PqmMatchResult(
-                false,
+                true,
                 typeRows[0],
                 false,
-                "Qualification name and qualification type matched in PQM, but CESM._006 did not align to PQM.CESM_CODE1 or PQM.CESM_CODE.",
-                "No PQM CESM match");
+                "Matched PQM on qualification name and qualification type. Rule 38 no longer depends on PQM CESM columns.",
+                "");
         }
 
         private static Rule38ValidationRow ValidateQualification(
@@ -572,8 +540,6 @@ namespace HemisAudit.Services
                     Tables = tables,
                     AutoQualTable = tables.FirstOrDefault(t =>
                         t.Equals("dbo_QUAL", StringComparison.OrdinalIgnoreCase)),
-                    AutoCesmTable = tables.FirstOrDefault(t =>
-                        t.Equals("dbo_CESM", StringComparison.OrdinalIgnoreCase)),
                     AutoPqmTable = tables.FirstOrDefault(t =>
                         t.Equals("PQM", StringComparison.OrdinalIgnoreCase) ||
                         t.Contains("PQM", StringComparison.OrdinalIgnoreCase))
@@ -613,8 +579,7 @@ namespace HemisAudit.Services
                     "qual_054"      => columns.FirstOrDefault(c => c.Equals("_054", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
                     "qual_084"      => columns.FirstOrDefault(c => c.Equals("_084", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
                     "qual_090"      => columns.FirstOrDefault(c => c.Equals("_090", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
-                    "cesm_id"       => columns.FirstOrDefault(c => c.Equals("_001", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
-                    "cesm_code"     => columns.FirstOrDefault(c => c.Equals("_006", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
+                    "qual_cesm"     => columns.FirstOrDefault(c => c.Equals("_006", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
                     "pqm_name"      => columns.FirstOrDefault(c => c.Contains("Authorised", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
                     "pqm_type"      => columns.FirstOrDefault(c => c.Contains("HEQF_Qual", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
                     "pqm_cesm"      => columns.FirstOrDefault(c => c.Equals("CESM_CODE", StringComparison.OrdinalIgnoreCase)) ?? columns.FirstOrDefault(),
@@ -642,21 +607,14 @@ namespace HemisAudit.Services
                 await conn.OpenAsync();
 
                 var qt = Sanitise(request.QualTable);
-                var ct = Sanitise(request.CesmTable);
                 var pt = Sanitise(request.PqmTable);
-                var qi = Sanitise(request.QualIdCol);
-                var ci = Sanitise(request.CesmIdCol);
                 var qa = Sanitise(request.QualApprovalCol);
                 var av = (request.QualApprovalValue ?? "A").Replace("'", "''").Trim().ToUpperInvariant();
 
                 var sql = $@"
 SELECT
     (SELECT COUNT(*) FROM [{qt}]) AS QualTotal,
-    (SELECT COUNT(*) FROM [{ct}]) AS CesmTotal,
     (SELECT COUNT(*) FROM [{qt}] Q WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{qa}])))) = '{av}') AS ApprovedCount,
-    (SELECT COUNT(*) FROM [{qt}] Q
-        LEFT JOIN [{ct}] C ON UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), Q.[{qi}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{ci}]))))
-      WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{qa}])))) = '{av}') AS MergedTotal,
     (SELECT COUNT(*) FROM [{pt}]) AS PqmTotal";
 
                 using var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout();
@@ -667,10 +625,8 @@ SELECT
                     {
                         Success = true,
                         QualTotal = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0)),
-                        CesmTotal = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1)),
-                        ApprovedCount = reader.IsDBNull(2) ? 0 : Convert.ToInt32(reader.GetValue(2)),
-                        MergedTotal = reader.IsDBNull(3) ? 0 : Convert.ToInt32(reader.GetValue(3)),
-                        PqmTotal = reader.IsDBNull(4) ? 0 : Convert.ToInt32(reader.GetValue(4))
+                        ApprovedCount = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1)),
+                        PqmTotal = reader.IsDBNull(2) ? 0 : Convert.ToInt32(reader.GetValue(2))
                     };
                 }
                 return new Rule38VerifyResult { Success = false, Error = "No data returned." };
@@ -691,7 +647,6 @@ SELECT
                 await conn.OpenAsync();
 
                 var qt  = Sanitise(request.QualTable);
-                var ct  = Sanitise(request.CesmTable);
                 var pt  = Sanitise(request.PqmTable);
                 var qi  = Sanitise(request.QualIdCol);
                 var qn  = Sanitise(request.QualNameCol);
@@ -701,8 +656,7 @@ SELECT
                 var q54 = Sanitise(request.QualMinTimeWilCol);
                 var q84 = Sanitise(request.QualHeqfCol);
                 var q90 = Sanitise(request.QualTotalSubsidyCol);
-                var ci  = Sanitise(request.CesmIdCol);
-                var cc  = Sanitise(request.CesmCodeCol);
+                var qcc = Sanitise(!string.IsNullOrWhiteSpace(request.QualCesmCodeCol) ? request.QualCesmCodeCol : "_006");
                 var pn  = Sanitise(request.PqmNameCol);
                 var pt5 = Sanitise(request.PqmQualTypeCol);
                 var pc  = Sanitise(request.PqmCesmCodeCol);
@@ -730,7 +684,7 @@ SELECT
                     if (await r.NextResultAsync() && await r.ReadAsync()) approvedCount = r.IsDBNull(0) ? 0 : Convert.ToInt32(r.GetValue(0));
                 }
 
-                // Load approved QUAL rows with their CESM codes
+                // Load approved QUAL rows (CESM code read directly from QUAL)
                 var qualSql = $@"
 SELECT
     UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), Q.[{qi}])))) AS QualCode,
@@ -741,10 +695,8 @@ SELECT
     LTRIM(RTRIM(CONVERT(nvarchar(50),  Q.[{q54}]))) AS MinTimeWIL,
     UPPER(LTRIM(RTRIM(CONVERT(nvarchar(10),  Q.[{q84}])))) AS HeqfIndicator,
     LTRIM(RTRIM(CONVERT(nvarchar(50),  Q.[{q90}]))) AS TotalSubsidy,
-    LTRIM(RTRIM(CONVERT(nvarchar(100), C.[{cc}]))) AS CesmCode
+    LTRIM(RTRIM(CONVERT(nvarchar(100), Q.[{qcc}]))) AS CesmCode
 FROM [{qt}] Q
-LEFT JOIN [{ct}] C
-    ON UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), Q.[{qi}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{ci}]))))
 WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{qa}])))) = '{av}'
 ORDER BY Q.[{qi}]";
 
@@ -752,8 +704,8 @@ ORDER BY Q.[{qi}]";
 SELECT
     LTRIM(RTRIM(CONVERT(nvarchar(500), P.[{pn}]))) AS PqmName,
     LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pt5}]))) AS PqmQualType,
-    LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pc}]))) AS PqmCesmCode,
-    LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pc1}]))) AS PqmCesmCode1,
+    CAST(NULL AS nvarchar(100)) AS PqmCesmCode,
+    CAST(NULL AS nvarchar(100)) AS PqmCesmCode1,
     LTRIM(RTRIM(CONVERT(nvarchar(50),  P.[{p53}]))) AS PqmMinTimeTotal,
     LTRIM(RTRIM(CONVERT(nvarchar(50),  P.[{p54}]))) AS PqmWIL,
     LTRIM(RTRIM(CONVERT(nvarchar(500), P.[{p84}]))) AS PqmAccreditation,
@@ -860,9 +812,7 @@ FROM [{pt}] P;";
                     QualMinTimeWilCol    = request.QualMinTimeWilCol,
                     QualHeqfCol          = request.QualHeqfCol,
                     QualTotalSubsidyCol  = request.QualTotalSubsidyCol,
-                    CesmTable            = request.CesmTable,
-                    CesmIdCol            = request.CesmIdCol,
-                    CesmCodeCol          = request.CesmCodeCol,
+                    QualCesmCodeCol      = request.QualCesmCodeCol,
                     PqmTable             = request.PqmTable,
                     PqmNameCol           = request.PqmNameCol,
                     PqmQualTypeCol       = request.PqmQualTypeCol,
@@ -1011,9 +961,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 QualMinTimeWilCol      = deserializedSummary?.QualMinTimeWilCol ?? "_054",
                 QualHeqfCol            = deserializedSummary?.QualHeqfCol ?? "_084",
                 QualTotalSubsidyCol    = deserializedSummary?.QualTotalSubsidyCol ?? "_090",
-                CesmTable              = deserializedSummary?.CesmTable ?? "dbo_CESM",
-                CesmIdCol              = deserializedSummary?.CesmIdCol ?? "_001",
-                CesmCodeCol            = deserializedSummary?.CesmCodeCol ?? "_006",
+                QualCesmCodeCol        = deserializedSummary?.QualCesmCodeCol ?? "_006",
                 PqmTable               = deserializedSummary?.PqmTable ?? "PQM",
                 PqmNameCol             = deserializedSummary?.PqmNameCol ?? "Authorised_Qualification_Name",
                 PqmQualTypeCol         = deserializedSummary?.PqmQualTypeCol ?? "HEQF_Qual_Type",
@@ -1113,9 +1061,7 @@ WHERE vr.RunID = @RunID AND vr.RuleNumber = 38;";
                     QualMinTimeWilCol   = summary.QualMinTimeWilCol,
                     QualHeqfCol         = summary.QualHeqfCol,
                     QualTotalSubsidyCol = summary.QualTotalSubsidyCol,
-                    CesmTable           = summary.CesmTable,
-                    CesmIdCol           = summary.CesmIdCol,
-                    CesmCodeCol         = summary.CesmCodeCol,
+                    QualCesmCodeCol     = summary.QualCesmCodeCol,
                     PqmTable            = summary.PqmTable,
                     PqmNameCol          = summary.PqmNameCol,
                     PqmQualTypeCol      = summary.PqmQualTypeCol,
@@ -1334,7 +1280,6 @@ END";
         public string GenerateSql(Rule38ValidationRequest request)
         {
             var qt  = Sanitise(request.QualTable);
-            var ct  = Sanitise(request.CesmTable);
             var pt  = Sanitise(request.PqmTable);
             var qi  = Sanitise(request.QualIdCol);
             var qn  = Sanitise(request.QualNameCol);
@@ -1344,12 +1289,8 @@ END";
             var q54 = Sanitise(request.QualMinTimeWilCol);
             var q84 = Sanitise(request.QualHeqfCol);
             var q90 = Sanitise(request.QualTotalSubsidyCol);
-            var ci  = Sanitise(request.CesmIdCol);
-            var cc  = Sanitise(request.CesmCodeCol);
             var pn  = Sanitise(request.PqmNameCol);
             var pt5 = Sanitise(request.PqmQualTypeCol);
-            var pc  = Sanitise(request.PqmCesmCodeCol);
-            var pc1 = Sanitise(request.PqmCesmCode1Col);
             var p53 = Sanitise(request.PqmMinTimeTotalCol);
             var p54 = Sanitise(request.PqmWilCol);
             var p84 = Sanitise(request.PqmAccreditationCol);
@@ -1368,8 +1309,8 @@ END";
                 ? $"CASE WHEN UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), Q.[{qi}])))) LIKE 'M_____' OR UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), Q.[{qt5}])))) IN ({postgraduateTypeCodeSql}) THEN 'Postgraduate' ELSE 'Undergraduate' END"
                 : $"CASE WHEN UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), Q.[{qt5}])))) IN ({postgraduateTypeCodeSql}) THEN 'Postgraduate' ELSE 'Undergraduate' END";
 
-            return $@"-- HEMIS Rule 38: Enhanced QUAL -> CESM -> PQM Validation
--- Join path: QUAL.[{qi}] = CESM.[{ci}] then CESM.[{cc}] is matched to PQM.[{pc1}] or PQM.[{pc}] using the same leading-digit review logic as Rule 11.
+            return $@"-- HEMIS Rule 38: QUAL -> PQM Validation
+-- Rule 38 matches approved QUAL rows to PQM on qualification name and qualification type.
 -- Population split: approved QUAL rows remain in scope. Rows are tagged Postgraduate when QUAL.[{qt5}] is in the configured postgraduate list{(useMPrefixPopulationSplit ? " or QUAL code matches M_____" : "")}; all other approved rows are tagged Undergraduate.
 -- 5.1.2  Qualification type: [{qt5}] vs PQM.[{pt5}]
 -- 5.1.3  Minimum Time Total: [{q53}] vs PQM.[{p53}]
@@ -1387,11 +1328,8 @@ WITH ApprovedQual AS (
         LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{q53}]))) AS MinTimeTotal,
         LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{q54}]))) AS MinTimeWIL,
         UPPER(LTRIM(RTRIM(CONVERT(nvarchar(10), Q.[{q84}])))) AS HeqfIndicator,
-        LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{q90}]))) AS TotalSubsidy,
-        LTRIM(RTRIM(CONVERT(nvarchar(100), C.[{cc}]))) AS CesmCode
+        LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{q90}]))) AS TotalSubsidy
     FROM [{qt}] Q
-    LEFT JOIN [{ct}] C
-        ON UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), Q.[{qi}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{ci}]))))
     WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(50), Q.[{qa}])))) = '{av}'
 )
 SELECT
@@ -1400,9 +1338,6 @@ SELECT
     AQ.ApprovalStatus,
     AQ.QualType,
     AQ.PopulationType,
-    AQ.CesmCode,
-    PQM.[{pc}] AS PQM_CESM_CODE,
-    PQM.[{pc1}] AS PQM_CESM_CODE1,
     PQM.[{pt5}] AS PQM_QualType,
     PQM.[{p53}] AS PQM_MinTimeTotal,
     PQM.[{p54}] AS PQM_WIL,
@@ -1410,9 +1345,7 @@ SELECT
     PQM.[{p90}] AS PQM_TotalSubsidy,
     CASE
         WHEN PQM.[{pn}] IS NULL THEN 'FAIL'
-        WHEN UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), PQM.[{pc1}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.CesmCode))))
-          OR UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), PQM.[{pc}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.CesmCode)))) THEN 'PASS'
-        ELSE 'PASS - REVIEW'
+        ELSE 'PASS'
     END AS PQM_MatchStatus,
     CASE WHEN UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.QualType)))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), PQM.[{pt5}])))) THEN 'PASS' ELSE 'FAIL' END AS C2_TypeMatch,
     CASE WHEN TRY_CONVERT(decimal(18,4), NULLIF(AQ.MinTimeTotal, N'')) = TRY_CONVERT(decimal(18,4), NULLIF(CONVERT(nvarchar(50), PQM.[{p53}]), N'')) THEN 'PASS' ELSE 'FAIL' END AS C3_MinTimeMatch,
@@ -1425,19 +1358,7 @@ OUTER APPLY (
     FROM [{pt}] P
     WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(500), P.[{pn}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(500), AQ.QualName))))
       AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pt5}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.QualType))))
-      AND (
-            UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pc1}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.CesmCode))))
-         OR UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pc}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.CesmCode))))
-         OR LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), P.[{pc1}]), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 4) = LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), AQ.CesmCode), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 4)
-         OR LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), P.[{pc1}]), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 3) = LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), AQ.CesmCode), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 3)
-         OR LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), P.[{pc}]), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 4) = LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), AQ.CesmCode), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 4)
-         OR LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), P.[{pc}]), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 3) = LEFT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(nvarchar(100), AQ.CesmCode), '-', ''), '/', ''), ' ', ''), '.', ''), '0', '0'), 3)
-      )
-    ORDER BY CASE
-        WHEN UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pc1}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.CesmCode)))) THEN 0
-        WHEN UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), P.[{pc}])))) = UPPER(LTRIM(RTRIM(CONVERT(nvarchar(100), AQ.CesmCode)))) THEN 1
-        ELSE 2
-    END
+    ORDER BY P.[{pn}]
 ) PQM
 ORDER BY AQ.QualCode;".Trim();
         }
@@ -1522,7 +1443,7 @@ INSERT INTO dbo.ValidationRuns
      Status, IsCurrent, ExceptionsJSON, ResultsJSON, RecordHash)
 OUTPUT INSERTED.RunID
 VALUES
-    (@ClientID, @UserID, 38, 'Enhanced QUAL -> CESM -> PQM Validation', @UserName,
+    (@ClientID, @UserID, 38, 'Enhanced QUAL -> PQM Validation', @UserName,
      @HemisServer, @AuditDatabase, @QualTable, @PqmTable, @HeqfCodes,
      @TotalCount, @PassCount, @FailCount, @ExceptionRate,
      @Status, 1, '[]', '{}', @RecordHash);";
@@ -1681,4 +1602,3 @@ SELECT CASE WHEN EXISTS (
         }
     }
 }
-

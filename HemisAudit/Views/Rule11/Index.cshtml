@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 11 - QUAL vs CESM vs PQM Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -135,45 +135,45 @@
                 <div class="info-box info-box--dark">
                     <strong>Matching Logic:</strong>
                     QUAL <code>[_003]</code> (case-insensitive, whitespace-normalised) matches PQM <code>Authorised_Qualification_Name</code>,
-                    <strong>AND</strong> QUAL <code>[_005]</code> matches PQM <code>HEQF_Qual_Type</code> — both on the <em>same</em> PQM row.
-                    <code>CESM._006</code> is captured for display. EL §5.1.2: Inspect E005 Qualification Type and agree correct type has been allocated per PQM.
+                    <strong>AND</strong> QUAL <code>[_005]</code> matches PQM <code>HEQF_Qual_Type</code> — both on the <em>same</em> PQM row.
+                    <code>CESM._006</code> is captured for display. EL Ã‚Â§5.1.2: Inspect E005 Qualification Type and agree correct type has been allocated per PQM.
                     The approval filter applies to the full QUAL population. The type codes below are used to classify rows as Postgraduate or Undergraduate.
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
-                        <label>QUAL — Qualification Code (_001) <span class="auto-tag" id="qualIdAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — Qualification Code (_001) <span class="auto-tag" id="qualIdAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualIdColSelect"><option value="">Select column (_001)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — Qualification Name (_003) <span class="auto-tag" id="qualNameAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — Qualification Name (_003) <span class="auto-tag" id="qualNameAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualNameColSelect"><option value="">Select column (_003)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — Approval Status (_004) <span class="auto-tag" id="qualApprovalAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — Approval Status (_004) <span class="auto-tag" id="qualApprovalAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualApprovalColSelect"><option value="">Select column (_004)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>QUAL — HEQF Type Column (_005) <span class="auto-tag" id="qualHeqfTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>QUAL — HEQF Type Column (_005) <span class="auto-tag" id="qualHeqfTypeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="qualHeqfTypeColSelect"><option value="">Select column (_005)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>CESM — Qualification Code (_001) <span class="auto-tag" id="cesmIdAutoTag" style="display:none">auto-selected</span></label>
+                        <label>CESM — Qualification Code (_001) <span class="auto-tag" id="cesmIdAutoTag" style="display:none">auto-selected</span></label>
                         <select id="cesmIdColSelect"><option value="">Select column (_001)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>CESM — CESM Code Column (_006) <span class="auto-tag" id="cesmCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>CESM — CESM Code Column (_006) <span class="auto-tag" id="cesmCodeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="cesmCodeColSelect"><option value="">Select column (_006)</option></select>
                     </div>
                     <div class="field-group">
-                        <label>PQM — Authorised Qualification Name <span class="auto-tag" id="pqmNameAutoTag" style="display:none">auto-selected</span></label>
+                        <label>PQM — Authorised Qualification Name <span class="auto-tag" id="pqmNameAutoTag" style="display:none">auto-selected</span></label>
                         <select id="pqmNameColSelect"><option value="">Select column</option></select>
                     </div>
                     <div class="field-group">
-                        <label>PQM — HEQF_Qual_Type Column <span class="auto-tag" id="pqmHeqfTypeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>PQM — HEQF_Qual_Type Column <span class="auto-tag" id="pqmHeqfTypeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="pqmHeqfTypeColSelect"><option value="">Select column</option></select>
                     </div>
                     <div class="field-group">
-                        <label>PQM — Code Column (CESM_Code) <span class="auto-tag" id="pqmCodeAutoTag" style="display:none">auto-selected</span></label>
+                        <label>PQM — Code Column (CESM_Code) <span class="auto-tag" id="pqmCodeAutoTag" style="display:none">auto-selected</span></label>
                         <select id="pqmCodeColSelect"><option value="">Select column (CESM_Code)</option></select>
                     </div>
                 </div>
@@ -182,7 +182,7 @@
                 </div>
                 <div class="form-grid" style="margin-top:12px">
                     <div class="field-group">
-                        <label>QUAL — Approval Filter Value</label>
+                        <label>QUAL — Approval Filter Value</label>
                         <input type="text" id="qualApprovalFilterValueInput"
                                value="A"
                                placeholder="e.g. A"
@@ -194,7 +194,7 @@
                         </small>
                     </div>
                     <div class="field-group" style="grid-column:1 / -1">
-                        <label for="qualTypeCodesTextInput">QUAL — Postgraduate Type Codes</label>
+                        <label for="qualTypeCodesTextInput">QUAL — Postgraduate Type Codes</label>
                         <textarea id="qualTypeCodesTextInput" rows="3"
                                   style="width:100%;font-family:monospace;font-size:13px"
                                   oninput="state.qualTypeCodesText=this.value.trim() || '07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75';markWorkspaceDirty();">07, 27, 28, 49, 72, 73, 08, 30, 50, 74, 75</textarea>
@@ -254,6 +254,7 @@
         <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
         <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
         <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+<button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -264,6 +265,7 @@
             <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+<button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
@@ -278,6 +280,9 @@
         </div>
         <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
             <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-rscript" data-tab-panel="rscript">
+            <div id="rContent" class="empty-state"><p>Click "Generate R Script" to generate the R script.</p></div>
         </div>
         <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or individual download buttons.</p></div>
@@ -531,6 +536,7 @@ function renderWorkspaceState() {
     const showDisabledArchivedSignoff = archived && !!state.currentRunId;
     const runValidationBtn = document.getElementById('runValidationBtn');
     const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const generateRScriptBtn = document.getElementById('generateRScriptBtn');
     const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
     const signOffBtn = document.getElementById('signOffBtn');
     const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
@@ -546,6 +552,7 @@ function renderWorkspaceState() {
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn,   show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateRScriptBtn,   show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
         { target: signoffComment,   disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
@@ -1042,9 +1049,9 @@ function renderValidationResults(r) {
         <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
             ${r.status === 'PASS'
                 ? (reviewCount > 0
-                    ? 'VALIDATION PASSED — ' + reviewCount.toLocaleString() + ' record(s) passed on CESM leading-digit alignment and still need manual review'
-                    : 'VALIDATION PASSED — All qualification names, HEQF types, and CESM codes matched the PQM register')
-                : 'VALIDATION FAILED — ' + r.failCount.toLocaleString() + ' record(s) could not be matched' + (reviewCount > 0 ? '; ' + reviewCount.toLocaleString() + ' pass row(s) also need manual review' : '')}
+                    ? 'VALIDATION PASSED — ' + reviewCount.toLocaleString() + ' record(s) passed on CESM leading-digit alignment and still need manual review'
+                    : 'VALIDATION PASSED — All qualification names, HEQF types, and CESM codes matched the PQM register')
+                : 'VALIDATION FAILED — ' + r.failCount.toLocaleString() + ' record(s) could not be matched' + (reviewCount > 0 ? '; ' + reviewCount.toLocaleString() + ' pass row(s) also need manual review' : '')}
         </div>
         <div class="results-table-panel">
             <div class="panel-title-row">
@@ -1076,7 +1083,7 @@ function renderExceptions(r) {
     el.classList.remove('empty-state');
     if (r.failCount === 0) {
         el.innerHTML = renderSectionHeader('Rule 11 Exceptions', 'QUAL/CESM vs PQM mismatches', 'Exceptions: 0') +
-            '<div class="alert alert--success">No exceptions — all records matched the PQM register successfully.</div>';
+            '<div class="alert alert--success">No exceptions — all records matched the PQM register successfully.</div>';
         return;
     }
     const exRows = (r.exceptions || []).slice(0, 10).map((ex, i) => `
@@ -1226,6 +1233,28 @@ async function generateSql() {
         switchTab('sql');
     } finally { hideSpinner(); }
 }
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule11/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">`+escapeHtml(result.sql)+`</pre></div>`;
+        switchTab('rscript');
+    } finally {
+        hideSpinner();
+    }
+}
+
 
 function setValidationFilter(filter) {
     state.validationView = state.validationView || { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
@@ -1414,4 +1443,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderWorkspaceState();
     if (state.clientId > 0) await loadWorkspaceState();
 });
+    const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 </script>

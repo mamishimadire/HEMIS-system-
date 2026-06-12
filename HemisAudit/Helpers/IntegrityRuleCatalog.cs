@@ -56,7 +56,7 @@ namespace HemisAudit.Helpers
                     ["CREG", "CRSE"]),
                 [9] = new(9, "Rule 9", "Course registrations for ghost students",
                     "Check CREG to STUD student linkage.",
-                    "Verify whether any course registration in dbo_CREG references a blank or invalid student in dbo_STUD.",
+                    "The below filter was applied on dbo_STUD and dbo_CREG to check if there are any student course registrations for ghost students.",
                     "ISBLANK(dbo_CREG._007) OR dbo_CREG._007 <> dbo_STUD._007",
                     ["CREG", "STUD"]),
                 [10] = new(10, "Rule 10", "Joining Rules",

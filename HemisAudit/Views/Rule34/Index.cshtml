@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 34 - Census Date Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -44,7 +44,7 @@
         <div class="rule-header__icon">R34</div>
         <div>
             <h1 class="rule-header__title">HEMIS RULE 34: Census Date Validation</h1>
-            <p class="rule-header__sub">Prepared midpoint vs stored census date | Dynamic South African holidays</p>
+            <p class="rule-header__sub">Prepared midpoint from source census dates vs client census table | Dynamic South African holidays</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
@@ -124,6 +124,12 @@
                         </select>
                     </div>
                     <div class="field-group">
+                        <label>Client Census Table</label>
+                        <select id="clientTableSelect">
+                            <option value="">Select table</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
                         <label>First Day Column</label>
                         <select id="firstDaySelect">
                             <option value="">Select column</option>
@@ -136,15 +142,21 @@
                         </select>
                     </div>
                     <div class="field-group">
-                        <label>Census Date Column</label>
+                        <label>Client Census Date Column</label>
                         <select id="censusDateSelect">
                             <option value="">Select column</option>
                         </select>
                     </div>
                     <div class="field-group">
-                        <label>Block Column <small style="font-weight:normal">(optional — filter excluded values)</small></label>
+                        <label>Source Block / Join Column <small style="font-weight:normal">(used for join and excluded values)</small></label>
                         <select id="blockColumnSelect">
-                            <option value="">None (no block filter)</option>
+                            <option value="">Select column</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>Client Join Column</label>
+                        <select id="clientJoinColumnSelect">
+                            <option value="">Select column</option>
                         </select>
                     </div>
                 </div>
@@ -201,8 +213,9 @@
 
     <div class="action-bar">
         <button class="btn btn-info" onclick="verifyTable()">Verify Table</button>
-        <button class="btn btn-success" onclick="runValidation()">Run Validation</button>
-        <button class="btn btn-primary" onclick="generateSql()">Generate SQL</button>
+        <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
+        <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+<button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -212,6 +225,7 @@
             <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+<button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
@@ -226,6 +240,9 @@
         </div>
         <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
             <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-rscript" data-tab-panel="rscript">
+            <div id="rContent" class="empty-state"><p>Click "Generate R Script" to generate the R script.</p></div>
         </div>
         <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or the individual download buttons.</p></div>
@@ -250,9 +267,11 @@ const state = {
     database: '',
     driver: 'ODBC Driver 17 for SQL Server',
     tableName: '',
+    clientTableName: '',
     firstDayColumn: '',
     lastDayColumn: '',
     censusDateColumn: '',
+    clientJoinColumn: '',
     startYear: parseInt(document.getElementById('startYearInput').value || '0') || new Date().getFullYear(),
     endYear: parseInt(document.getElementById('endYearInput').value || '0') || new Date().getFullYear(),
     blockColumn: '',
@@ -276,6 +295,23 @@ const state = {
         columns: {}
     }
 };
+
+function usesClientComparison(data) {
+    return !!(data?.clientTableName && data?.clientJoinColumn);
+}
+
+function getRule34CensusValueLabel(data) {
+    return usesClientComparison(data) ? 'Client Census Date' : 'Stored Census Date';
+}
+
+function getRule34CensusColumnLabel(data) {
+    return usesClientComparison(data) ? 'Client Census Date Column' : 'Census Date Column';
+}
+
+function findPreferredRule34Table(tables, preferredNames) {
+    const normalizedPreferred = (preferredNames || []).map(name => String(name || '').trim().toUpperCase());
+    return (tables || []).find(table => normalizedPreferred.includes(String(table || '').trim().toUpperCase())) || '';
+}
 
 function toggleAccordion(name) {
     const body = document.getElementById(`body-${name}`);
@@ -373,9 +409,11 @@ function resetWorkspaceState(clearClient) {
     state.database = '';
     state.driver = 'ODBC Driver 17 for SQL Server';
     state.tableName = '';
+    state.clientTableName = '';
     state.firstDayColumn = '';
     state.lastDayColumn = '';
     state.censusDateColumn = '';
+    state.clientJoinColumn = '';
     state.currentRunId = null;
     state.validationResult = null;
     state.currentUserEngagementRole = '';
@@ -392,10 +430,12 @@ function resetWorkspaceState(clearClient) {
     document.getElementById('driverSelect').value = 'ODBC Driver 17 for SQL Server';
     document.getElementById('databaseSelect').innerHTML = '<option value="">Select database</option>';
     document.getElementById('tableSelect').innerHTML = '<option value="">Select table</option>';
+    document.getElementById('clientTableSelect').innerHTML = '<option value="">Select table</option>';
     document.getElementById('firstDaySelect').innerHTML = '<option value="">Select column</option>';
     document.getElementById('lastDaySelect').innerHTML = '<option value="">Select column</option>';
     document.getElementById('censusDateSelect').innerHTML = '<option value="">Select column</option>';
-    document.getElementById('blockColumnSelect').innerHTML = '<option value="">None (no block filter)</option>';
+    document.getElementById('blockColumnSelect').innerHTML = '<option value="">Select column</option>';
+    document.getElementById('clientJoinColumnSelect').innerHTML = '<option value="">Select column</option>';
     document.getElementById('blockExcludeInput').value = '5, 5F, 8F, 8G, R0, R1, R2';
     document.getElementById('dbFieldGroup').style.display = 'none';
     document.getElementById('signoffComment').value = '';
@@ -520,9 +560,11 @@ function applyWorkspace(workspace, preserveMessage) {
     state.database = workspace.database || '';
     state.driver = workspace.driver || 'ODBC Driver 17 for SQL Server';
     state.tableName = workspace.tableName || '';
+    state.clientTableName = workspace.clientTableName || '';
     state.firstDayColumn = workspace.firstDayColumn || '';
     state.lastDayColumn = workspace.lastDayColumn || '';
     state.censusDateColumn = workspace.censusDateColumn || '';
+    state.clientJoinColumn = workspace.clientJoinColumn || '';
     state.startYear = workspace.startYear || state.startYear;
     state.endYear = workspace.endYear || state.endYear;
     state.blockColumn = workspace.blockColumn || '';
@@ -558,6 +600,10 @@ function applyWorkspace(workspace, preserveMessage) {
         document.getElementById('tableSelect').innerHTML = `<option value="${escapeHtml(state.tableName)}">${escapeHtml(state.tableName)}</option>`;
         document.getElementById('tableSelect').value = state.tableName;
     }
+    if (state.clientTableName) {
+        document.getElementById('clientTableSelect').innerHTML = `<option value="${escapeHtml(state.clientTableName)}">${escapeHtml(state.clientTableName)}</option>`;
+        document.getElementById('clientTableSelect').value = state.clientTableName;
+    }
     if (state.firstDayColumn) {
         document.getElementById('firstDaySelect').innerHTML = `<option value="${escapeHtml(state.firstDayColumn)}">${escapeHtml(state.firstDayColumn)}</option>`;
         document.getElementById('firstDaySelect').value = state.firstDayColumn;
@@ -569,6 +615,10 @@ function applyWorkspace(workspace, preserveMessage) {
     if (state.censusDateColumn) {
         document.getElementById('censusDateSelect').innerHTML = `<option value="${escapeHtml(state.censusDateColumn)}">${escapeHtml(state.censusDateColumn)}</option>`;
         document.getElementById('censusDateSelect').value = state.censusDateColumn;
+    }
+    if (state.clientJoinColumn) {
+        document.getElementById('clientJoinColumnSelect').innerHTML = `<option value="${escapeHtml(state.clientJoinColumn)}">${escapeHtml(state.clientJoinColumn)}</option>`;
+        document.getElementById('clientJoinColumnSelect').value = state.clientJoinColumn;
     }
 
     if (workspace.summary) {
@@ -593,9 +643,11 @@ function applyWorkspaceReviewState(workspace) {
     state.database = workspace.database || state.database;
     state.driver = workspace.driver || state.driver;
     state.tableName = workspace.tableName || state.tableName;
+    state.clientTableName = workspace.clientTableName || state.clientTableName;
     state.firstDayColumn = workspace.firstDayColumn || state.firstDayColumn;
     state.lastDayColumn = workspace.lastDayColumn || state.lastDayColumn;
     state.censusDateColumn = workspace.censusDateColumn || state.censusDateColumn;
+    state.clientJoinColumn = workspace.clientJoinColumn || state.clientJoinColumn;
     state.startYear = workspace.startYear || state.startYear;
     state.endYear = workspace.endYear || state.endYear;
     state.blockColumn = workspace.blockColumn || state.blockColumn;
@@ -627,6 +679,10 @@ function applyWorkspaceReviewState(workspace) {
         document.getElementById('tableSelect').innerHTML = `<option value="${escapeHtml(state.tableName)}">${escapeHtml(state.tableName)}</option>`;
         document.getElementById('tableSelect').value = state.tableName;
     }
+    if (state.clientTableName) {
+        document.getElementById('clientTableSelect').innerHTML = `<option value="${escapeHtml(state.clientTableName)}">${escapeHtml(state.clientTableName)}</option>`;
+        document.getElementById('clientTableSelect').value = state.clientTableName;
+    }
     if (state.firstDayColumn) {
         document.getElementById('firstDaySelect').innerHTML = `<option value="${escapeHtml(state.firstDayColumn)}">${escapeHtml(state.firstDayColumn)}</option>`;
         document.getElementById('firstDaySelect').value = state.firstDayColumn;
@@ -638,6 +694,10 @@ function applyWorkspaceReviewState(workspace) {
     if (state.censusDateColumn) {
         document.getElementById('censusDateSelect').innerHTML = `<option value="${escapeHtml(state.censusDateColumn)}">${escapeHtml(state.censusDateColumn)}</option>`;
         document.getElementById('censusDateSelect').value = state.censusDateColumn;
+    }
+    if (state.clientJoinColumn) {
+        document.getElementById('clientJoinColumnSelect').innerHTML = `<option value="${escapeHtml(state.clientJoinColumn)}">${escapeHtml(state.clientJoinColumn)}</option>`;
+        document.getElementById('clientJoinColumnSelect').value = state.clientJoinColumn;
     }
     document.getElementById('signoffComment').value = workspace.currentUserSignoffComment || '';
 
@@ -742,14 +802,9 @@ async function loadTables() {
     const cacheKey = `${state.server}|${state.driver}|${state.database}`;
     if (state.cache.tables[cacheKey]) {
         const cached = state.cache.tables[cacheKey];
-        const select = document.getElementById('tableSelect');
-        select.innerHTML = '<option value="">Select table</option>' +
-            cached.tables.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-        if (cached.autoStudTable) {
-            select.value = cached.autoStudTable;
-            state.tableName = cached.autoStudTable;
-            await loadColumns();
-        }
+        populateRule34TableSelects(cached.tables || [], cached.autoStudTable || '');
+        if (state.tableName) await loadColumns();
+        if (state.clientTableName) await loadClientColumns();
         return;
     }
 
@@ -765,16 +820,37 @@ async function loadTables() {
             tables: result.tables || [],
             autoStudTable: result.autoStudTable || ''
         };
-        const select = document.getElementById('tableSelect');
-        select.innerHTML = '<option value="">Select table</option>' +
-            (result.tables || []).map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-        if (result.autoStudTable) {
-            select.value = result.autoStudTable;
-            state.tableName = result.autoStudTable;
-            await loadColumns();
-        }
+        populateRule34TableSelects(result.tables || [], result.autoStudTable || '');
+        if (state.tableName) await loadColumns();
+        if (state.clientTableName) await loadClientColumns();
     } finally {
         hideSpinner();
+    }
+}
+
+function populateRule34TableSelects(tables, autoSourceTable) {
+    const options = '<option value="">Select table</option>' +
+        (tables || []).map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    const sourceSelect = document.getElementById('tableSelect');
+    const clientSelect = document.getElementById('clientTableSelect');
+    sourceSelect.innerHTML = options;
+    clientSelect.innerHTML = options;
+
+    const preferredSource = state.tableName || autoSourceTable || '';
+    const preferredClient = state.clientTableName || findPreferredRule34Table(tables, ['CENSUS_LIST_CLIENT']) || '';
+
+    if (preferredSource && [...sourceSelect.options].some(o => o.value === preferredSource)) {
+        sourceSelect.value = preferredSource;
+        state.tableName = preferredSource;
+    } else {
+        state.tableName = '';
+    }
+
+    if (preferredClient && [...clientSelect.options].some(o => o.value === preferredClient)) {
+        clientSelect.value = preferredClient;
+        state.clientTableName = preferredClient;
+    } else {
+        state.clientTableName = '';
     }
 }
 
@@ -782,7 +858,7 @@ async function loadColumns() {
     if (!state.tableName) return;
     const cacheKey = `${state.server}|${state.driver}|${state.database}|${state.tableName}`;
     if (state.cache.columns[cacheKey]) {
-        populateRule34ColumnSelects(state.cache.columns[cacheKey]);
+        populateRule34SourceColumnSelects(state.cache.columns[cacheKey]);
         return;
     }
 
@@ -801,44 +877,111 @@ async function loadColumns() {
         }
 
         state.cache.columns[cacheKey] = result;
-        populateRule34ColumnSelects(result);
-        setStatus('configStatus', 'Columns loaded. Review the auto-selected date fields before running validation.', 'success');
+        populateRule34SourceColumnSelects(result);
+        setStatus('configStatus', 'Source columns loaded. Review the auto-selected date fields before running validation.', 'success');
     } finally {
         hideSpinner();
     }
 }
 
-function populateRule34ColumnSelects(result) {
+async function loadClientColumns() {
+    if (!state.clientTableName) return;
+    const cacheKey = `${state.server}|${state.driver}|${state.database}|${state.clientTableName}`;
+    if (state.cache.columns[cacheKey]) {
+        populateRule34ClientColumnSelects(state.cache.columns[cacheKey]);
+        return;
+    }
+
+    showSpinner('Loading client census columns...');
+    try {
+        const result = await post('/Rule34/GetColumns', {
+            server: state.server,
+            database: state.database,
+            driver: state.driver,
+            tableName: state.clientTableName
+        });
+
+        if (!result.success) {
+            setStatus('configStatus', escapeHtml(result.error || 'Failed to load client table columns.'), 'error');
+            return;
+        }
+
+        state.cache.columns[cacheKey] = result;
+        populateRule34ClientColumnSelects(result);
+        setStatus('configStatus', 'Client census columns loaded. Review the join and census-date fields before running validation.', 'success');
+    } finally {
+        hideSpinner();
+    }
+}
+
+function populateRule34SourceColumnSelects(result) {
     const options = '<option value="">Select column</option>' +
         (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-    const blockOptions = '<option value="">None (no block filter)</option>' +
-        (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-    document.getElementById('firstDaySelect').innerHTML = options;
-    document.getElementById('lastDaySelect').innerHTML = options;
-    document.getElementById('censusDateSelect').innerHTML = options;
-    document.getElementById('blockColumnSelect').innerHTML = blockOptions;
+    const firstDaySelect = document.getElementById('firstDaySelect');
+    const lastDaySelect = document.getElementById('lastDaySelect');
+    const blockSelect = document.getElementById('blockColumnSelect');
+    firstDaySelect.innerHTML = options;
+    lastDaySelect.innerHTML = options;
+    blockSelect.innerHTML = options;
 
-    if (result.autoFirstDayColumn) {
-        document.getElementById('firstDaySelect').value = result.autoFirstDayColumn;
+    if (state.firstDayColumn && [...firstDaySelect.options].some(o => o.value === state.firstDayColumn)) {
+        firstDaySelect.value = state.firstDayColumn;
+    } else if (result.autoFirstDayColumn) {
+        firstDaySelect.value = result.autoFirstDayColumn;
         state.firstDayColumn = result.autoFirstDayColumn;
+    } else {
+        state.firstDayColumn = '';
     }
-    if (result.autoLastDayColumn) {
-        document.getElementById('lastDaySelect').value = result.autoLastDayColumn;
+
+    if (state.lastDayColumn && [...lastDaySelect.options].some(o => o.value === state.lastDayColumn)) {
+        lastDaySelect.value = state.lastDayColumn;
+    } else if (result.autoLastDayColumn) {
+        lastDaySelect.value = result.autoLastDayColumn;
         state.lastDayColumn = result.autoLastDayColumn;
+    } else {
+        state.lastDayColumn = '';
     }
-    if (result.autoCensusDateColumn) {
-        document.getElementById('censusDateSelect').value = result.autoCensusDateColumn;
-        state.censusDateColumn = result.autoCensusDateColumn;
-    }
-    if (result.autoBlockColumn) {
-        document.getElementById('blockColumnSelect').value = result.autoBlockColumn;
+
+    if (state.blockColumn && [...blockSelect.options].some(o => o.value === state.blockColumn)) {
+        blockSelect.value = state.blockColumn;
+    } else if (result.autoBlockColumn) {
+        blockSelect.value = result.autoBlockColumn;
         state.blockColumn = result.autoBlockColumn;
+    } else {
+        state.blockColumn = '';
+    }
+}
+
+function populateRule34ClientColumnSelects(result) {
+    const options = '<option value="">Select column</option>' +
+        (result.columns || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    const censusSelect = document.getElementById('censusDateSelect');
+    const clientJoinSelect = document.getElementById('clientJoinColumnSelect');
+    censusSelect.innerHTML = options;
+    clientJoinSelect.innerHTML = options;
+
+    if (state.censusDateColumn && [...censusSelect.options].some(o => o.value === state.censusDateColumn)) {
+        censusSelect.value = state.censusDateColumn;
+    } else if (result.autoCensusDateColumn) {
+        censusSelect.value = result.autoCensusDateColumn;
+        state.censusDateColumn = result.autoCensusDateColumn;
+    } else {
+        state.censusDateColumn = '';
+    }
+
+    if (state.clientJoinColumn && [...clientJoinSelect.options].some(o => o.value === state.clientJoinColumn)) {
+        clientJoinSelect.value = state.clientJoinColumn;
+    } else if (result.autoBlockColumn) {
+        clientJoinSelect.value = result.autoBlockColumn;
+        state.clientJoinColumn = result.autoBlockColumn;
+    } else {
+        state.clientJoinColumn = '';
     }
 }
 
 async function verifyTable() {
-    if (!state.server || !state.database || !state.tableName || !state.firstDayColumn || !state.lastDayColumn || !state.censusDateColumn) {
-        setStatus('configStatus', 'Select the server, database, table, and census-date columns first.', 'warning');
+    if (!state.server || !state.database || !state.tableName || !state.clientTableName || !state.firstDayColumn || !state.lastDayColumn || !state.censusDateColumn || !state.blockColumn || !state.clientJoinColumn) {
+        setStatus('configStatus', 'Select the server, database, source table, client table, date columns, and join columns first.', 'warning');
         return;
     }
 
@@ -849,9 +992,11 @@ async function verifyTable() {
             database: state.database,
             driver: state.driver,
             tableName: state.tableName,
+            clientTableName: state.clientTableName,
             firstDayColumn: state.firstDayColumn,
             lastDayColumn: state.lastDayColumn,
             censusDateColumn: state.censusDateColumn,
+            clientJoinColumn: state.clientJoinColumn,
             blockColumn: state.blockColumn || ''
         });
 
@@ -882,7 +1027,7 @@ async function verifyTable() {
                         <tr>
                             <th>${escapeHtml(state.firstDayColumn)}</th>
                             <th>${escapeHtml(state.lastDayColumn)}</th>
-                            <th>${escapeHtml(state.censusDateColumn)}</th>
+                            <th>${escapeHtml(getRule34CensusValueLabel(state))} (${escapeHtml(state.censusDateColumn)})</th>
                             ${blockColActive ? `<th>${escapeHtml(blockColActive)} (block)</th>` : ''}
                         </tr>
                     </thead>
@@ -899,10 +1044,13 @@ function validateConfig() {
     if (!state.clientId) missing.push('engagement');
     if (!state.server) missing.push('server');
     if (!state.database) missing.push('database');
-    if (!state.tableName) missing.push('table');
+    if (!state.tableName) missing.push('source table');
+    if (!state.clientTableName) missing.push('client census table');
     if (!state.firstDayColumn) missing.push('first day column');
     if (!state.lastDayColumn) missing.push('last day column');
-    if (!state.censusDateColumn) missing.push('census date column');
+    if (!state.censusDateColumn) missing.push('client census date column');
+    if (!state.blockColumn) missing.push('source block / join column');
+    if (!state.clientJoinColumn) missing.push('client join column');
     if (!state.startYear || !state.endYear) missing.push('holiday year range');
 
     if (missing.length) {
@@ -925,9 +1073,11 @@ function buildRequest() {
         database: state.database,
         driver: state.driver,
         tableName: state.tableName,
+        clientTableName: state.clientTableName,
         firstDayColumn: state.firstDayColumn,
         lastDayColumn: state.lastDayColumn,
         censusDateColumn: state.censusDateColumn,
+        clientJoinColumn: state.clientJoinColumn,
         startYear: state.startYear,
         endYear: state.endYear,
         blockColumn: state.blockColumn || '',
@@ -982,6 +1132,7 @@ function applyValidationResult(result, switchToValidationTab, options = {}) {
 function renderValidationResults(r) {
     const blockCol = r.blockColumn || '';
     const excludedVals = r.blockExcludeValues || '';
+    const censusValueLabel = getRule34CensusValueLabel(r);
     const rows = (r.validationRows || []).slice(0, 10).map(row => {
         const isExcludedBlock = blockCol && excludedVals.split(',').map(v => v.trim().toUpperCase()).includes((row.blockValue||'').trim().toUpperCase());
         return `
@@ -1014,6 +1165,7 @@ function renderValidationResults(r) {
             <strong>Holiday Years:</strong> ${escapeHtml(r.holidayYearRange)}<br>
             <strong>Computed Holidays:</strong> ${r.holidayCount.toLocaleString()}<br>
             <strong>Computed Weekends:</strong> ${r.weekendCount.toLocaleString()}
+            ${r.clientTableName ? `<br><strong>Client Census Table:</strong> ${escapeHtml(r.clientTableName)} &nbsp;|&nbsp; <strong>Client Join Column:</strong> ${escapeHtml(r.clientJoinColumn || '')}` : ''}
             ${r.blockColumn ? `<br><strong>Block Filter Column:</strong> ${escapeHtml(r.blockColumn)} &nbsp;|&nbsp; <strong>Excluded Values:</strong> ${escapeHtml(r.blockExcludeValues)} &nbsp;|&nbsp; <strong>Rows Excluded:</strong> ${(r.excludedRowCount||0).toLocaleString()}` : ''}
         </div>
         <div class="table-wrapper">
@@ -1028,7 +1180,7 @@ function renderValidationResults(r) {
                         <th>c_Days_2</th>
                         <th>Prepared Census Date</th>
                         <th>Actual Census Date</th>
-                        <th>Stored Census Date</th>
+                        <th>${escapeHtml(censusValueLabel)}</th>
                         <th>Day Status</th>
                         <th>Validation Status</th>
                     </tr>
@@ -1042,6 +1194,7 @@ function renderValidationResults(r) {
 function renderExceptions(r) {
     const blockCol = r.blockColumn || '';
     const colSpan = blockCol ? 11 : 10;
+    const censusValueLabel = getRule34CensusValueLabel(r);
     const rows = (r.exceptions || []).map(row => `
         <tr>
             <td>${row.validationNumber}</td>
@@ -1063,6 +1216,7 @@ function renderExceptions(r) {
         <div class="card" style="padding:18px;margin-bottom:18px">
             <strong>Exceptions:</strong> ${r.failCount.toLocaleString()}<br>
             <strong>Completed:</strong> ${escapeHtml(r.timestamp)}
+            ${r.clientTableName ? `<br><strong>Client Census Table:</strong> ${escapeHtml(r.clientTableName)} &nbsp;|&nbsp; <strong>Client Join Column:</strong> ${escapeHtml(r.clientJoinColumn || '')}` : ''}
             ${blockCol ? `<br><strong>Block column:</strong> ${escapeHtml(blockCol)} &nbsp;|&nbsp; <strong>Excluded values:</strong> ${escapeHtml(r.blockExcludeValues||'')} &nbsp;|&nbsp; <strong>Rows excluded from validation:</strong> ${(r.excludedRowCount||0).toLocaleString()}` : ''}
         </div>
         <div class="table-wrapper">
@@ -1077,7 +1231,7 @@ function renderExceptions(r) {
                         <th>c_Days_2</th>
                         <th>Prepared Census Date</th>
                         <th>Actual Census Date</th>
-                        <th>Stored Census Date</th>
+                        <th>${escapeHtml(censusValueLabel)}</th>
                         <th>Day Status</th>
                         <th>Validation Status</th>
                     </tr>
@@ -1187,6 +1341,28 @@ async function generateSql() {
         hideSpinner();
     }
 }
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule34/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">`+escapeHtml(result.sql)+`</pre></div>`;
+        switchTab('rscript');
+    } finally {
+        hideSpinner();
+    }
+}
+
 
 async function saveWorkspace() {
     if (currentSystemRole !== 'DataAnalyst') {
@@ -1373,6 +1549,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadColumns();
     });
 
+    document.getElementById('clientTableSelect').addEventListener('change', async e => {
+        state.clientTableName = e.target.value;
+        await markWorkspaceDirty();
+        await loadClientColumns();
+    });
+
     document.getElementById('firstDaySelect').addEventListener('change', async e => {
         state.firstDayColumn = e.target.value;
         await markWorkspaceDirty();
@@ -1385,6 +1567,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('censusDateSelect').addEventListener('change', async e => {
         state.censusDateColumn = e.target.value;
+        await markWorkspaceDirty();
+    });
+
+    document.getElementById('clientJoinColumnSelect').addEventListener('change', async e => {
+        state.clientJoinColumn = e.target.value;
         await markWorkspaceDirty();
     });
 
@@ -1411,5 +1598,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderWorkspaceState();
     if (state.clientId > 0) await loadWorkspaceState();
 });
+    const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 </script>
-

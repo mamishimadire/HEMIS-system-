@@ -167,9 +167,13 @@ namespace HemisAudit.Controllers
                     Database = review.Summary.Database,
                     Driver = "ODBC Driver 17 for SQL Server",
                     TableName = review.Summary.TableName,
+                    ClientTableName = review.Summary.ClientTableName,
                     FirstDayColumn = review.Summary.FirstDayColumn,
                     LastDayColumn = review.Summary.LastDayColumn,
                     CensusDateColumn = review.Summary.CensusDateColumn,
+                    ClientJoinColumn = review.Summary.ClientJoinColumn,
+                    BlockColumn = review.Summary.BlockColumn,
+                    BlockExcludeValues = review.Summary.BlockExcludeValues,
                     StartYear = review.Summary.StartYear,
                     EndYear = review.Summary.EndYear
                 });
@@ -536,6 +540,21 @@ namespace HemisAudit.Controllers
                     Sql = await _rule34.GenerateSqlAsync(request)
                 }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule34ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule34SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule34SqlResult
+            {
+                Success = true,
+                Sql = Rule34RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule34")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule34RunSignoffInputModel model)
@@ -691,11 +710,17 @@ namespace HemisAudit.Controllers
             var request = new Rule34ValidationRequest
             {
                 ClientId = review.ClientId,
+                Server = review.SourceServer,
                 Database = review.Summary.Database,
+                Driver = "ODBC Driver 17 for SQL Server",
                 TableName = review.Summary.TableName,
+                ClientTableName = review.Summary.ClientTableName,
                 FirstDayColumn = review.Summary.FirstDayColumn,
                 LastDayColumn = review.Summary.LastDayColumn,
                 CensusDateColumn = review.Summary.CensusDateColumn,
+                ClientJoinColumn = review.Summary.ClientJoinColumn,
+                BlockColumn = review.Summary.BlockColumn,
+                BlockExcludeValues = review.Summary.BlockExcludeValues,
                 StartYear = review.Summary.StartYear,
                 EndYear = review.Summary.EndYear
             };

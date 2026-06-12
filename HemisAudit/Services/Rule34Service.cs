@@ -124,10 +124,12 @@ ORDER BY ORDINAL_POSITION;", conn)
                     new[] { "last_day", "lastday", "last_class", "lastdayclass" });
                 var autoCensus = FindFirst(columns, dateColumns,
                     AutoColumnPrioritySets.Select(s => s.CensusDate).ToArray(),
-                    new[] { "midpoint_census", "census_date", "censusdate", "midpoint" });
+                    new[] { "current_census", "midpoint_census", "census_date", "censusdate", "midpoint" });
 
                 var autoBlock = columns.FirstOrDefault(c =>
                     c.Equals("Block", StringComparison.OrdinalIgnoreCase) ||
+                    c.Equals("BLOCK_CODE", StringComparison.OrdinalIgnoreCase) ||
+                    c.Equals("BLOCK_CODE_2", StringComparison.OrdinalIgnoreCase) ||
                     c.Equals("BlockCode", StringComparison.OrdinalIgnoreCase) ||
                     c.Contains("block", StringComparison.OrdinalIgnoreCase));
 
@@ -152,26 +154,41 @@ ORDER BY ORDINAL_POSITION;", conn)
             try
             {
                 var table = Sanitise(request.TableName);
+                var clientTable = Sanitise(request.ClientTableName);
                 var firstDay = Sanitise(request.FirstDayColumn);
                 var lastDay = Sanitise(request.LastDayColumn);
                 var census = Sanitise(request.CensusDateColumn);
+                var clientJoin = Sanitise(request.ClientJoinColumn);
+                var useClientComparison = UsesClientComparison(request.ClientTableName, request.ClientJoinColumn, request.BlockColumn);
 
                 var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
                 using var conn = new SqlConnection(connStr);
                 await conn.OpenAsync();
 
                 var blockCol = !string.IsNullOrWhiteSpace(request.BlockColumn) ? Sanitise(request.BlockColumn) : "";
-                var sampleColumns = new[] { firstDay, lastDay, census, blockCol }
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
 
                 var totalCommand = new SqlCommand($"SELECT COUNT(*) FROM [{table}];", conn)
                     .WithLargeDataTimeout();
                 var totalRecords = Convert.ToInt32(await totalCommand.ExecuteScalarAsync());
 
-                var sampleSql = $@"SELECT TOP 5 {string.Join(", ", sampleColumns.Select(c => $"[{c}]"))}
-FROM [{table}];";
+                var cteSql = useClientComparison
+                    ? $"WITH {BuildClientComparisonCte(clientTable, clientJoin, census)}\n"
+                    : "";
+                var joinSql = useClientComparison
+                    ? $"\n{BuildClientComparisonJoin(blockCol, clientJoin)}"
+                    : "";
+                var censusSourceSql = useClientComparison
+                    ? $"cmp.[{census}] AS CensusDateValue"
+                    : $"src.[{census}] AS CensusDateValue";
+                var blockSourceSql = !string.IsNullOrWhiteSpace(blockCol)
+                    ? $",\n    src.[{blockCol}] AS BlockValue"
+                    : "";
+
+                var sampleSql = $@"{cteSql}SELECT TOP 5
+    src.[{firstDay}] AS FirstDayValue,
+    src.[{lastDay}] AS LastDayValue,
+    {censusSourceSql}{blockSourceSql}
+FROM [{table}] src{joinSql};";
 
                 using var sampleCommand = new SqlCommand(sampleSql, conn)
                     .WithLargeDataTimeout();
@@ -180,12 +197,11 @@ FROM [{table}];";
                 while (await reader.ReadAsync())
                 {
                     var row = new Rule34SampleRowViewModel();
-                    foreach (var column in sampleColumns)
-                    {
-                        row.Values[column] = reader[column] == DBNull.Value
-                            ? null
-                            : FormatValue(reader[column]);
-                    }
+                    row.Values[firstDay] = reader["FirstDayValue"] == DBNull.Value ? null : FormatValue(reader["FirstDayValue"]);
+                    row.Values[lastDay] = reader["LastDayValue"] == DBNull.Value ? null : FormatValue(reader["LastDayValue"]);
+                    row.Values[census] = reader["CensusDateValue"] == DBNull.Value ? null : FormatValue(reader["CensusDateValue"]);
+                    if (!string.IsNullOrWhiteSpace(blockCol))
+                        row.Values[blockCol] = reader["BlockValue"] == DBNull.Value ? null : FormatValue(reader["BlockValue"]);
                     rows.Add(row);
                 }
 
@@ -248,9 +264,13 @@ FROM [{table}];";
                 ValidateRequest(request);
 
                 var safeTable = Sanitise(request.TableName);
+                var safeClientTable = Sanitise(request.ClientTableName);
                 var safeFirst = Sanitise(request.FirstDayColumn);
                 var safeLast = Sanitise(request.LastDayColumn);
                 var safeCensus = Sanitise(request.CensusDateColumn);
+                var safeClientJoin = Sanitise(request.ClientJoinColumn);
+                var safeBlock = !string.IsNullOrWhiteSpace(request.BlockColumn) ? Sanitise(request.BlockColumn) : "";
+                var useClientComparison = UsesClientComparison(request);
 
                 var holidays = await FetchHolidaysAsync(request.StartYear, request.EndYear);
                 var holidayLookup = holidays
@@ -263,30 +283,38 @@ FROM [{table}];";
                 var optionalColumns = await GetOptionalCurrentDayColumnsAsync(conn, safeTable);
                 var selectedColumns = new List<string>
                 {
-                    $"[{safeFirst}] AS FirstDayValue",
-                    $"[{safeLast}] AS LastDayValue",
-                    $"[{safeCensus}] AS CensusDateValue"
+                    $"src.[{safeFirst}] AS FirstDayValue",
+                    $"src.[{safeLast}] AS LastDayValue",
+                    useClientComparison
+                        ? $"cmp.[{safeCensus}] AS CensusDateValue"
+                        : $"src.[{safeCensus}] AS CensusDateValue"
                 };
 
                 if (!string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysColumn))
-                    selectedColumns.Add($"[{optionalColumns.CurrentDaysColumn}] AS CurrentDaysValue");
+                    selectedColumns.Add($"src.[{optionalColumns.CurrentDaysColumn}] AS CurrentDaysValue");
 
                 if (!string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysHalfColumn))
-                    selectedColumns.Add($"[{optionalColumns.CurrentDaysHalfColumn}] AS CurrentDaysHalfValue");
+                    selectedColumns.Add($"src.[{optionalColumns.CurrentDaysHalfColumn}] AS CurrentDaysHalfValue");
 
                 if (!string.IsNullOrWhiteSpace(request.BlockColumn))
-                    selectedColumns.Add($"[{Sanitise(request.BlockColumn)}] AS BlockValue");
+                    selectedColumns.Add($"src.[{safeBlock}] AS BlockValue");
 
-                var whereClause = BuildBlockExcludeWhere(request.BlockColumn, request.BlockExcludeValues);
+                var whereClause = BuildBlockExcludeWhere(request.BlockColumn, request.BlockExcludeValues, "src");
 
                 // Count excluded rows before opening the main reader to avoid "open DataReader" conflict
                 var excludedRowCount = await GetExcludedRowCountAsync(conn, safeTable, request.BlockColumn, request.BlockExcludeValues);
 
-                var sql = $@"
-SELECT
+                var cteSql = useClientComparison
+                    ? $"WITH {BuildClientComparisonCte(safeClientTable, safeClientJoin, safeCensus)}\n"
+                    : "";
+                var joinSql = useClientComparison
+                    ? $"\n{BuildClientComparisonJoin(safeBlock, safeClientJoin)}"
+                    : "";
+
+                var sql = $@"{cteSql}SELECT
     ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
     {string.Join(",\n    ", selectedColumns)}
-FROM [{safeTable}]{(string.IsNullOrWhiteSpace(whereClause) ? "" : $"\n{whereClause}")};";
+FROM [{safeTable}] src{joinSql}{(string.IsNullOrWhiteSpace(whereClause) ? "" : $"\n{whereClause}")};";
 
                 var rows = new List<Rule34ValidationRowRecord>();
                 using (var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout())
@@ -355,9 +383,11 @@ FROM [{safeTable}]{(string.IsNullOrWhiteSpace(whereClause) ? "" : $"\n{whereClau
                     Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     Database = request.Database,
                     TableName = request.TableName,
+                    ClientTableName = useClientComparison ? request.ClientTableName : "",
                     FirstDayColumn = request.FirstDayColumn,
                     LastDayColumn = request.LastDayColumn,
                     CensusDateColumn = request.CensusDateColumn,
+                    ClientJoinColumn = useClientComparison ? request.ClientJoinColumn : "",
                     StartYear = request.StartYear,
                     EndYear = request.EndYear,
                     HolidayYearRange = $"{request.StartYear}-{request.EndYear}",
@@ -477,9 +507,11 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
                 Database = reader.GetString(3),
                 Driver = "ODBC Driver 17 for SQL Server",
                 TableName = reader.GetString(4),
+                ClientTableName = summary?.ClientTableName ?? "",
                 FirstDayColumn = reader.GetString(5),
                 LastDayColumn = reader.GetString(6),
                 CensusDateColumn = reader.GetString(7),
+                ClientJoinColumn = summary?.ClientJoinColumn ?? "",
                 StartYear = summary?.StartYear ?? DateTime.Now.Year,
                 EndYear = summary?.EndYear ?? DateTime.Now.Year,
                 BlockColumn = summary?.BlockColumn ?? "",
@@ -634,7 +666,7 @@ WHERE RunID = @RunID
                 command.Parameters.AddWithValue("@DeceasedColumn", request.LastDayColumn);
                 command.Parameters.AddWithValue("@LastEditedByUserName", (object?)reviewerName ?? DBNull.Value);
                 command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
-                command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule34|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.TableName}|{request.FirstDayColumn}|{request.LastDayColumn}|{request.CensusDateColumn}|{request.StartYear}|{request.EndYear}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
+                command.Parameters.AddWithValue("@RecordHash", ComputeHash($@"WorkspaceSave|Rule34|{request.RunId.Value}|{request.ClientId}|{request.Server}|{request.Database}|{request.TableName}|{request.ClientTableName}|{request.FirstDayColumn}|{request.LastDayColumn}|{request.CensusDateColumn}|{request.ClientJoinColumn}|{request.BlockColumn}|{request.StartYear}|{request.EndYear}|{(reviewerName ?? reviewerEmail)}|{DateTime.UtcNow:o}|{previousHash}"));
                 await command.ExecuteNonQueryAsync();
 
                 var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
@@ -817,42 +849,63 @@ END";
                 ? string.Join(",\n", holidays.Select(h => $"    (CAST('{h.Date}' AS date), N'{EscapeSqlString(h.Name)}')"))
                 : "    (CAST('1900-01-01' AS date), N'No Holiday Data')";
 
-                var table = request.TableName;
-                var firstDay = request.FirstDayColumn;
-                var lastDay = request.LastDayColumn;
-                var censusDate = request.CensusDateColumn;
-                var firstDaySql = BuildNotebookSqlDateParseExpression(firstDay);
-                var lastDaySql = BuildNotebookSqlDateParseExpression(lastDay);
-                var censusDateSql = BuildNotebookSqlDateParseExpression(censusDate);
-                var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
-                using var conn = new SqlConnection(connStr);
-                await conn.OpenAsync();
-                var optionalColumns = await GetOptionalCurrentDayColumnsAsync(conn, Sanitise(table));
-                var currentDaysSql = !string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysColumn)
-                    ? BuildSqlIntParseExpression(optionalColumns.CurrentDaysColumn!)
-                    : null;
-                var currentDaysHalfSql = !string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysHalfColumn)
-                    ? BuildSqlDecimalParseExpression(optionalColumns.CurrentDaysHalfColumn!)
-                    : null;
+            var useClientComparison = UsesClientComparison(request);
+            var table = Sanitise(request.TableName);
+            var clientTable = Sanitise(request.ClientTableName);
+            var firstDay = Sanitise(request.FirstDayColumn);
+            var lastDay = Sanitise(request.LastDayColumn);
+            var censusDate = Sanitise(request.CensusDateColumn);
+            var clientJoin = Sanitise(request.ClientJoinColumn);
+            var blockColumn = Sanitise(request.BlockColumn);
+            var firstDaySql = BuildNotebookSqlDateParseExpression(firstDay, "src");
+            var lastDaySql = BuildNotebookSqlDateParseExpression(lastDay, "src");
+            var censusDateSql = useClientComparison
+                ? BuildNotebookSqlDateParseExpression(censusDate, "cmp")
+                : BuildNotebookSqlDateParseExpression(censusDate, "src");
+            var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+            using var conn = new SqlConnection(connStr);
+            await conn.OpenAsync();
+            var optionalColumns = await GetOptionalCurrentDayColumnsAsync(conn, table);
+            var currentDaysSql = !string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysColumn)
+                ? BuildSqlIntParseExpression(optionalColumns.CurrentDaysColumn!, "src")
+                : null;
+            var currentDaysHalfSql = !string.IsNullOrWhiteSpace(optionalColumns.CurrentDaysHalfColumn)
+                ? BuildSqlDecimalParseExpression(optionalColumns.CurrentDaysHalfColumn!, "src")
+                : null;
 
-            var blockWhere = BuildBlockExcludeWhere(request.BlockColumn, request.BlockExcludeValues);
+            var blockWhere = BuildBlockExcludeWhere(request.BlockColumn, request.BlockExcludeValues, "src");
             var blockNote = string.IsNullOrWhiteSpace(blockWhere) ? "" :
                 $"\n-- Block filter: rows where [{request.BlockColumn}] IN ({request.BlockExcludeValues}) are excluded";
+            var comparisonNote = useClientComparison
+                ? $"\n-- Comparison table: [{request.ClientTableName}]\n-- Join: source [{request.BlockColumn}] -> client [{request.ClientJoinColumn}]\n-- Client census date column: [{request.CensusDateColumn}]"
+                : "";
+            var comparisonPurpose = useClientComparison
+                ? "client CURRENT_CENSUS date"
+                : "stored census date";
+            var comparisonResultLabel = useClientComparison
+                ? "Client_CURRENT_CENSUS"
+                : "Stored_CENSUS_DATE";
+            var comparisonCte = useClientComparison
+                ? $"{BuildClientComparisonCte(clientTable, clientJoin, censusDate)},\n"
+                : "";
+            var comparisonJoinSql = useClientComparison
+                ? $"\n{BuildClientComparisonJoin(blockColumn, clientJoin)}"
+                : "";
 
             return $@"-- ============================================================================
 -- HEMIS 2025 - RULE 34: CENSUS DATE VALIDATION
 -- ============================================================================
--- Purpose: Compare the adjusted actual census date against the stored census date.
+-- Purpose: Compare the adjusted actual census date against the {comparisonPurpose}.
 -- NOTEBOOK FORMULA:
 --   c_Days = (Last_Day_Class - First_Day_Class).dt.days
 --   c_Days_2 = c_Days / 2
 --   c_Census_Date_Prep = First_Day_Class + timedelta(days=c_Days_2)
 --   c_ACTUAL_CENSUS_DATE = next working day when the prepared date falls on
 --                          a weekend or South African public holiday
---   Comparison_Result = c_ACTUAL_CENSUS_DATE <> Midpoint_CENSUS_DATE
+--   Comparison_Result = c_ACTUAL_CENSUS_DATE <> {comparisonResultLabel}
 -- PASS: FALSE (dates match)
 -- FAIL: TRUE (dates mismatch)
--- Dynamic holiday year range: {request.StartYear} - {request.EndYear}{blockNote}
+-- Dynamic holiday year range: {request.StartYear} - {request.EndYear}{blockNote}{comparisonNote}
 -- ============================================================================
 
 IF OBJECT_ID('tempdb..#Rule34Holidays') IS NOT NULL DROP TABLE #Rule34Holidays;
@@ -868,14 +921,14 @@ INSERT INTO #Rule34Holidays (HolidayDate, HolidayName)
 VALUES
 {holidayValues};
 
-WITH BaseData AS
+WITH {comparisonCte}BaseData AS
 (
     SELECT
         ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
         {firstDaySql} AS First_Day_Class,
         {lastDaySql} AS Last_Day_Class,
         {censusDateSql} AS Midpoint_CENSUS_DATE
-    FROM [{table}]{(string.IsNullOrWhiteSpace(blockWhere) ? "" : $"\n    {blockWhere}")}
+    FROM [{table}] src{comparisonJoinSql}{(string.IsNullOrWhiteSpace(blockWhere) ? "" : $"\n{blockWhere}")}
 ),
 Prepared AS
 (
@@ -972,7 +1025,7 @@ SELECT
     c_Days_2 AS Current_days_2,
     c_Census_Date_Prep,
     c_ACTUAL_CENSUS_DATE,
-    Midpoint_CENSUS_DATE,
+    Midpoint_CENSUS_DATE AS [{comparisonResultLabel}],
     CASE
         WHEN c_Census_Date_Prep IS NULL THEN 'NULL Date'
         WHEN EXISTS (
@@ -1039,12 +1092,11 @@ DROP TABLE #Rule34Holidays;
 ";
         }
 
-        private static string BuildBlockExcludeWhere(string? blockColumn, string? blockExcludeValues)
+        private static string BuildBlockExcludeWhere(string? blockColumn, string? blockExcludeValues, string? tableAlias = null)
         {
             if (string.IsNullOrWhiteSpace(blockColumn) || string.IsNullOrWhiteSpace(blockExcludeValues))
                 return "";
 
-            var safeCol = Sanitise(blockColumn);
             var values = blockExcludeValues
                 .Split(',')
                 .Select(v => v.Trim().Replace("'", "''"))
@@ -1055,7 +1107,7 @@ DROP TABLE #Rule34Holidays;
             if (!values.Any()) return "";
 
             var inList = string.Join(", ", values.Select(v => $"'{v.ToUpperInvariant()}'"));
-            return $"WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), [{safeCol}])))) NOT IN ({inList})";
+            return $"WHERE {BuildNormalizedTextSql(blockColumn, tableAlias)} NOT IN ({inList})";
         }
 
         private async Task<int> GetExcludedRowCountAsync(SqlConnection conn, string safeTable, string? blockColumn, string? blockExcludeValues)
@@ -1063,7 +1115,6 @@ DROP TABLE #Rule34Holidays;
             if (string.IsNullOrWhiteSpace(blockColumn) || string.IsNullOrWhiteSpace(blockExcludeValues))
                 return 0;
 
-            var safeCol = Sanitise(blockColumn);
             var values = blockExcludeValues
                 .Split(',')
                 .Select(v => v.Trim().Replace("'", "''"))
@@ -1074,7 +1125,7 @@ DROP TABLE #Rule34Holidays;
             if (!values.Any()) return 0;
 
             var inList = string.Join(", ", values.Select(v => $"'{v.ToUpperInvariant()}'"));
-            var sql = $"SELECT COUNT(*) FROM [{safeTable}] WHERE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), [{safeCol}])))) IN ({inList});";
+            var sql = $"SELECT COUNT(*) FROM [{safeTable}] WHERE {BuildNormalizedTextSql(blockColumn)} IN ({inList});";
             using var cmd = new SqlCommand(sql, conn).WithLargeDataTimeout();
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         }
@@ -1126,7 +1177,7 @@ UPDATE dbo.ValidationRuns
 SET RecordHash = @RecordHash
 WHERE RunID = @RunID;";
             hashCommand.Parameters.AddWithValue("@RunID", runId);
-            hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash($@"ValidationRun|Rule34|{runId}|{request.ClientId}|{systemUserId}|{summary.Status}|{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{summary.ExceptionRate}|{summary.Timestamp}|{previousHash}"));
+            hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash($@"ValidationRun|Rule34|{runId}|{request.ClientId}|{systemUserId}|{summary.Status}|{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{summary.ExceptionRate}|{summary.Timestamp}|{request.TableName}|{request.ClientTableName}|{request.BlockColumn}|{request.ClientJoinColumn}|{request.CensusDateColumn}|{previousHash}"));
             await hashCommand.ExecuteNonQueryAsync();
             return runId;
         }
@@ -1215,6 +1266,16 @@ WHERE RunID = @RunID;";
                 throw new InvalidOperationException("Last day column is required.");
             if (string.IsNullOrWhiteSpace(request.CensusDateColumn))
                 throw new InvalidOperationException("Census date column is required.");
+            if (!string.IsNullOrWhiteSpace(request.ClientTableName) ||
+                !string.IsNullOrWhiteSpace(request.ClientJoinColumn))
+            {
+                if (string.IsNullOrWhiteSpace(request.ClientTableName))
+                    throw new InvalidOperationException("Client census table is required.");
+                if (string.IsNullOrWhiteSpace(request.ClientJoinColumn))
+                    throw new InvalidOperationException("Client join column is required.");
+                if (string.IsNullOrWhiteSpace(request.BlockColumn))
+                    throw new InvalidOperationException("Source block/join column is required for the client census comparison.");
+            }
             if (request.StartYear <= 0 || request.EndYear <= 0 || request.StartYear > request.EndYear)
                 throw new InvalidOperationException("Select a valid holiday year range.");
         }
@@ -1288,9 +1349,23 @@ WHERE RunID = @RunID;";
             return normalized;
         }
 
-        private static string BuildNotebookSqlDateParseExpression(string columnName)
+        private static string BuildSqlIdentifier(string columnName, string? tableAlias = null)
         {
-            var escapedColumn = $"[{columnName}]";
+            var safeColumn = Sanitise(columnName);
+            return string.IsNullOrWhiteSpace(tableAlias)
+                ? $"[{safeColumn}]"
+                : $"{tableAlias}.[{safeColumn}]";
+        }
+
+        private static string BuildNormalizedTextSql(string columnName, string? tableAlias = null)
+        {
+            var columnRef = BuildSqlIdentifier(columnName, tableAlias);
+            return $"UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), {columnRef}))))";
+        }
+
+        private static string BuildNotebookSqlDateParseExpression(string columnName, string? tableAlias = null)
+        {
+            var escapedColumn = BuildSqlIdentifier(columnName, tableAlias);
             var textValue = $"NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), {escapedColumn}))), '')";
             var normalizedText = $"REPLACE(REPLACE({textValue}, 'Sept', 'Sep'), '-', ' ')";
 
@@ -1301,9 +1376,9 @@ WHERE RunID = @RunID;";
     )";
         }
 
-        private static string BuildSqlIntParseExpression(string columnName)
+        private static string BuildSqlIntParseExpression(string columnName, string? tableAlias = null)
         {
-            var escapedColumn = $"[{columnName}]";
+            var escapedColumn = BuildSqlIdentifier(columnName, tableAlias);
             var textValue = $"NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), {escapedColumn}))), '')";
 
             return $@"COALESCE(
@@ -1313,9 +1388,9 @@ WHERE RunID = @RunID;";
     )";
         }
 
-        private static string BuildSqlDecimalParseExpression(string columnName)
+        private static string BuildSqlDecimalParseExpression(string columnName, string? tableAlias = null)
         {
-            var escapedColumn = $"[{columnName}]";
+            var escapedColumn = BuildSqlIdentifier(columnName, tableAlias);
             var textValue = $"NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(255), {escapedColumn}))), '')";
             var normalizedText = $"REPLACE({textValue}, ',', '.')";
 
@@ -1325,6 +1400,53 @@ WHERE RunID = @RunID;";
         TRY_PARSE({textValue} AS decimal(18, 4) USING 'en-ZA'),
         TRY_PARSE({textValue} AS decimal(18, 4) USING 'en-US')
     )";
+        }
+
+        private static bool UsesClientComparison(Rule34ValidationRequest request) =>
+            UsesClientComparison(request.ClientTableName, request.ClientJoinColumn, request.BlockColumn);
+
+        private static bool UsesClientComparison(string? clientTableName, string? clientJoinColumn, string? sourceBlockColumn) =>
+            !string.IsNullOrWhiteSpace(clientTableName) &&
+            !string.IsNullOrWhiteSpace(clientJoinColumn) &&
+            !string.IsNullOrWhiteSpace(sourceBlockColumn);
+
+        private static string BuildClientComparisonCte(string clientTableName, string clientJoinColumn, string censusDateColumn)
+        {
+            var joinKeySql = BuildNormalizedTextSql(clientJoinColumn, "cmpBase");
+            var parsedCensusDateSql = BuildNotebookSqlDateParseExpression(censusDateColumn, "cmpBase");
+
+            return $@"ClientComparison AS
+(
+    SELECT
+        cmpBase.*,
+        ROW_NUMBER() OVER
+        (
+            PARTITION BY {joinKeySql}
+            ORDER BY
+                CASE
+                    WHEN {joinKeySql} IS NULL OR {joinKeySql} = '' THEN 1
+                    ELSE 0
+                END,
+                CASE
+                    WHEN {parsedCensusDateSql} IS NULL THEN 1
+                    ELSE 0
+                END,
+                {parsedCensusDateSql} DESC
+        ) AS MatchRank
+    FROM [{clientTableName}] cmpBase
+)";
+        }
+
+        private static string BuildClientComparisonJoin(string sourceBlockColumn, string clientJoinColumn)
+        {
+            var sourceJoinSql = BuildNormalizedTextSql(sourceBlockColumn, "src");
+            var clientJoinSql = BuildNormalizedTextSql(clientJoinColumn, "cmp");
+
+            return $@"LEFT JOIN ClientComparison cmp
+    ON cmp.MatchRank = 1
+   AND {sourceJoinSql} IS NOT NULL
+   AND {sourceJoinSql} <> ''
+   AND {sourceJoinSql} = {clientJoinSql}";
         }
 
         private static int? ComputeNotebookDaySpan(DateTime? firstDay, DateTime? lastDay)
@@ -1906,5 +2028,3 @@ WHERE ClientID = @ClientID;";
         }
     }
 }
-
-

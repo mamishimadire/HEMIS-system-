@@ -244,6 +244,21 @@ namespace HemisAudit.Controllers
                 Sql     = _rule46.GenerateValidationSql(request)
             });
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule46ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule46SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule46SqlResult
+            {
+                Success = true,
+                Sql = Rule46RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule46")
+            }));
+        }
 
         [HttpGet]
         public async Task<IActionResult> DownloadCsv([FromQuery] int runId)
@@ -306,7 +321,7 @@ namespace HemisAudit.Controllers
         {
             using var ms = new System.IO.MemoryStream();
             using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
-            sw.WriteLine($"\"HEMIS RULE 46 â€“ Foundation Student PQM Validation\"");
+            sw.WriteLine($"\"HEMIS RULE 46 Ã¢â‚¬â€œ Foundation Student PQM Validation\"");
             sw.WriteLine($"\"Database\",\"{summary.Database}\"");
             sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
             sw.WriteLine($"\"Total\",{summary.TotalValidated},\"Pass\",{summary.PassCount},\"Fail\",{summary.FailCount},\"Exception Rate\",{summary.ExceptionRate:0.00}%");

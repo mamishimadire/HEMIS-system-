@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 36 - Deceased Students";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -200,6 +200,7 @@
         <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
         <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
         <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+<button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -212,6 +213,7 @@
             <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+<button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
@@ -244,6 +246,9 @@
         </div>
 
         <!-- Downloads -->
+        <div class="tab-pane" id="tab-rscript" data-tab-panel="rscript">
+            <div id="rContent" class="empty-state"><p>Click "Generate R Script" to generate the R script.</p></div>
+        </div>
         <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state">
                 <p>Run validation first, then use "Download All" or individual download buttons.</p>
@@ -529,6 +534,7 @@ function renderWorkspaceState() {
     const showDisabledArchivedSignoff = archived && !!state.currentRunId;
     const runValidationBtn = document.getElementById('runValidationBtn');
     const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const generateRScriptBtn = document.getElementById('generateRScriptBtn');
     const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
     const signOffBtn = document.getElementById('signOffBtn');
     const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
@@ -544,6 +550,7 @@ function renderWorkspaceState() {
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateRScriptBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
         { target: signoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
@@ -1374,6 +1381,28 @@ async function generateSql() {
         hideSpinner();
     }
 }
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule36/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">`+escapeHtml(result.sql)+`</pre></div>`;
+        switchTab('rscript');
+    } finally {
+        hideSpinner();
+    }
+}
+
 
 function filterValidationRows(rows, filter) {
     if (filter === 'PASS' || filter === 'FAIL') {
@@ -1707,7 +1736,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadWorkspaceState();
     }
 });
+    const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 </script>
-
-
-

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using HemisAudit.ViewModels;
 using Microsoft.Data.SqlClient;
 using Newtonsoft.Json;
@@ -9,6 +10,13 @@ namespace HemisAudit.Services
     public class Rule51Service : IRule51Service
     {
         private const int BrowserPreviewRowLimit = 10;
+        private static readonly Rule51ColumnMapping[] DefaultColumnMappings =
+        {
+            new() { ValpacColumn = "_007", ProdColumn = "IAGSTNO", Label = "Student No" },
+            new() { ValpacColumn = "_008", ProdColumn = "IADIDNO", Label = "ID No" },
+            new() { ValpacColumn = "_001", ProdColumn = "IAGQUAL", Label = "Qualification" },
+            new() { ValpacColumn = "ColYear", ProdColumn = "IAGCYR", Label = "Year" }
+        };
         private readonly IConfiguration _configuration;
         private readonly IPendingValidationCacheService _pendingValidationCache;
 
@@ -89,17 +97,13 @@ namespace HemisAudit.Services
 
                 var valpacTable = Sanitise(request.ValpacTable);
                 var prodTable   = Sanitise(request.ProdTable);
+                var mappings    = SanitizeMappings(GetMappings(request));
 
                 var valpacCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{valpacTable}];");
                 var prodCount   = await CountAsync(conn, $"SELECT COUNT(*) FROM [{prodTable}];");
 
                 await using var cmd = conn.CreateConfiguredCommand();
-                cmd.CommandText = BuildPopulationCountSql(
-                    valpacTable, prodTable,
-                    Sanitise(request.ValpacCol007), Sanitise(request.ValpacCol008),
-                    Sanitise(request.ValpacCol001), Sanitise(request.ValpacColYear),
-                    Sanitise(request.ProdColStNo),  Sanitise(request.ProdColIdNo),
-                    Sanitise(request.ProdColQual),  Sanitise(request.ProdColYear));
+                cmd.CommandText = BuildPopulationCountSql(valpacTable, prodTable, mappings);
                 await using var reader = await cmd.ExecuteReaderAsync();
 
                 var result = new Rule51VerifyResult { Success = true, ValpacRecordCount = valpacCount, ProdRecordCount = prodCount };
@@ -119,15 +123,14 @@ namespace HemisAudit.Services
             try
             {
                 ValidateRequest(request);
-                var browserSummary = await AnalyseAsync(request, includeAllReviewRows: false);
-                if (browserSummary.Success && request.ClientId > 0)
+                // Run once with all rows — no second query needed for saving
+                var full = await AnalyseAsync(request, includeAllReviewRows: true);
+                var browserSummary = CloneSummary(full);
+
+                if (full.Success && request.ClientId > 0)
                 {
                     try
                     {
-                        var full = CloneSummary(browserSummary);
-                        if (full.IsPreviewOnly || full.ReviewRows.Count < full.TotalValidated)
-                            full = await AnalyseAsync(request, includeAllReviewRows: true);
-
                         full.SavedRunId = null;
                         browserSummary.SavedRunId = await SaveValidationRunAsync(CloneRequest(request), full, userEmail, userName, markWorkspaceSaved: false);
 
@@ -143,7 +146,7 @@ namespace HemisAudit.Services
                 if (!browserSummary.SavedRunId.HasValue)
                 {
                     if (browserSummary.Success && request.ClientId > 0 && !string.IsNullOrWhiteSpace(userEmail))
-                        _pendingValidationCache.StorePending(51, request.ClientId, userEmail!, request, CloneSummary(browserSummary), userName);
+                        _pendingValidationCache.StorePending(51, request.ClientId, userEmail!, request, CloneSummary(full), userName);
                     browserSummary.Warning = string.IsNullOrWhiteSpace(browserSummary.Warning)
                         ? "Counts reflect the full VALPAC population. Browser review rows are limited for performance."
                         : browserSummary.Warning;
@@ -228,6 +231,9 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 ApplyBrowserPreview(deserializedSummary);
             }
             var summary = includeSummary ? deserializedSummary : null;
+            var mappings = deserializedSummary != null
+                ? GetMappings(deserializedSummary)
+                : BuildDefaultMappings();
 
             var workspace = new Rule51WorkspaceStateViewModel
             {
@@ -237,19 +243,22 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 Database             = database,
                 ValpacTable          = deserializedSummary?.ValpacTable ?? valpacTable,
                 ProdTable            = deserializedSummary?.ProdTable ?? prodTable,
-                ValpacCol007         = deserializedSummary?.ValpacCol007 ?? "_007",
-                ValpacCol008         = deserializedSummary?.ValpacCol008 ?? "_008",
-                ValpacCol001         = deserializedSummary?.ValpacCol001 ?? "_001",
-                ValpacColYear        = deserializedSummary?.ValpacColYear ?? "ColYear",
-                ProdColStNo          = deserializedSummary?.ProdColStNo ?? "IAGSTNO",
-                ProdColIdNo          = deserializedSummary?.ProdColIdNo ?? "IADIDNO",
-                ProdColQual          = deserializedSummary?.ProdColQual ?? "IAGQUAL",
-                ProdColYear          = deserializedSummary?.ProdColYear ?? "IAGCYR",
+                ValpacCol007         = deserializedSummary?.ValpacCol007 ?? mappings.ElementAtOrDefault(0)?.ValpacColumn ?? "_007",
+                ValpacCol008         = deserializedSummary?.ValpacCol008 ?? mappings.ElementAtOrDefault(1)?.ValpacColumn ?? "_008",
+                ValpacCol001         = deserializedSummary?.ValpacCol001 ?? mappings.ElementAtOrDefault(2)?.ValpacColumn ?? "_001",
+                ValpacColYear        = deserializedSummary?.ValpacColYear ?? mappings.ElementAtOrDefault(3)?.ValpacColumn ?? "ColYear",
+                ProdColStNo          = deserializedSummary?.ProdColStNo ?? mappings.ElementAtOrDefault(0)?.ProdColumn ?? "IAGSTNO",
+                ProdColIdNo          = deserializedSummary?.ProdColIdNo ?? mappings.ElementAtOrDefault(1)?.ProdColumn ?? "IADIDNO",
+                ProdColQual          = deserializedSummary?.ProdColQual ?? mappings.ElementAtOrDefault(2)?.ProdColumn ?? "IAGQUAL",
+                ProdColYear          = deserializedSummary?.ProdColYear ?? mappings.ElementAtOrDefault(3)?.ProdColumn ?? "IAGCYR",
+                ColumnMappings       = CloneMappings(mappings),
                 CurrentStatus        = currentStatus,
                 LastEditedByUserName = lastEditedByUserName,
                 LastEditedAt         = lastEditedAt,
                 Summary              = summary
             };
+
+            ApplyMappings(workspace, mappings);
 
             if (summary != null) workspace.CurrentStatus = summary.Status;
 
@@ -375,12 +384,18 @@ WHERE RunID=@RunID AND ClientID=@ClientID;";
                 if (!RequestsMatch(request, pending.Request))
                     return new Rule51WorkspaceSaveResult { Success = false, Error = "Workspace settings changed after validation. Run Rule 51 again before saving." };
 
+                var requestMappings = GetMappings(request);
+                var requestToSave = CloneRequest(pending.Request);
+                ApplyMappings(requestToSave, requestMappings);
+
                 var summaryToSave = CloneSummary(pending.Summary);
                 if (summaryToSave.IsPreviewOnly || summaryToSave.ReviewRows.Count < summaryToSave.TotalValidated)
-                    summaryToSave = await AnalyseAsync(pending.Request, includeAllReviewRows: true);
+                    summaryToSave = await AnalyseAsync(requestToSave, includeAllReviewRows: true);
+
+                ApplyMappings(summaryToSave, requestMappings);
 
                 summaryToSave.SavedRunId = null;
-                var savedRunId = await SaveValidationRunAsync(CloneRequest(pending.Request), summaryToSave, reviewerEmail, reviewerName ?? pending.ReviewerName, markWorkspaceSaved: true);
+                var savedRunId = await SaveValidationRunAsync(requestToSave, summaryToSave, reviewerEmail, reviewerName ?? pending.ReviewerName, markWorkspaceSaved: true);
                 _pendingValidationCache.ClearPending(51, request.ClientId, reviewerEmail);
 
                 var workspace = await GetCurrentWorkspaceStateAsync(request.ClientId, reviewerEmail, includeSummary: false);
@@ -494,34 +509,32 @@ ELSE
 
             var valpacTable  = Sanitise(request.ValpacTable);
             var prodTable    = Sanitise(request.ProdTable);
-            var v007 = Sanitise(request.ValpacCol007); var v008 = Sanitise(request.ValpacCol008);
-            var v001 = Sanitise(request.ValpacCol001); var vYear = Sanitise(request.ValpacColYear);
-            var pSt  = Sanitise(request.ProdColStNo);  var pId  = Sanitise(request.ProdColIdNo);
-            var pQual= Sanitise(request.ProdColQual);  var pYear= Sanitise(request.ProdColYear);
+            var mappings     = SanitizeMappings(GetMappings(request));
+            var mappingNotes = string.Join(Environment.NewLine, mappings.Select(m =>
+                $"--   [{valpacTable}].[{m.ValpacColumn}] <> [{prodTable}].[{m.ProdColumn}]"));
+            var selectColumns = mappings
+                .SelectMany((_, index) => new[] { ValpacDisplayAlias(index), ProdDisplayAlias(index) })
+                .ToList();
 
             var sql = $@"-- HEMIS RULE 51: VALPAC DATA IN PRODUCTION
 -- Check: ALL data from [{valpacTable}] must exist in [{prodTable}]
 -- Mapped columns:
---   [{valpacTable}].[{v007}]  <> [{prodTable}].[{pSt}]
---   [{valpacTable}].[{v008}]  <> [{prodTable}].[{pId}]
---   [{valpacTable}].[{v001}]  <> [{prodTable}].[{pQual}]
---   [{valpacTable}].[{vYear}] <> [{prodTable}].[{pYear}]
--- PASS when all 4 mapped columns match a row in [{prodTable}]
+{mappingNotes}
+-- PASS when all {mappings.Count} mapped column pair{(mappings.Count == 1 ? "" : "s")} match a row in [{prodTable}]
 
-{BuildSourceCtes(valpacTable, prodTable, v007, v008, v001, vYear, pSt, pId, pQual, pYear)}
+{BuildSourceCtes(valpacTable, prodTable, mappings)}
 SELECT
     'Control_1' AS Control_Type,
     'CONTROL 1: [{valpacTable}] data exists in [{prodTable}]' AS Control_Label,
-    VALPAC__007, VALPAC__008, VALPAC__001, VALPAC_COLYEAR,
-    PROD_IAGSTNO, PROD_IADIDNO, PROD_IAGQUAL, PROD_IAGCYR,
-    CASE WHEN PROD_IAGSTNO IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result
+    {string.Join("," + Environment.NewLine + "    ", selectColumns)},
+    CASE WHEN {MatchMarkerAlias} IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result
 FROM ValidationResults
-ORDER BY VALPAC__007, VALPAC__001;
+ORDER BY {BuildOrderByClause(mappings.Count, failFirst: false)};
 
 SELECT
-    (SELECT COUNT(1) FROM ValpacData)                                 AS Valpac_Total,
-    (SELECT COUNT(1) FROM ValidationResults WHERE PROD_IAGSTNO IS NOT NULL) AS Matched,
-    (SELECT COUNT(1) FROM ValidationResults WHERE PROD_IAGSTNO IS NULL)     AS Missing;";
+    (SELECT COUNT(1) FROM ValpacData) AS Valpac_Total,
+    (SELECT COUNT(1) FROM ValidationResults WHERE {MatchMarkerAlias} IS NOT NULL) AS Matched,
+    (SELECT COUNT(1) FROM ValidationResults WHERE {MatchMarkerAlias} IS NULL) AS Missing;";
 
             return Task.FromResult(sql.Trim());
         }
@@ -536,37 +549,55 @@ SELECT
 
             var valpacTable = Sanitise(request.ValpacTable);
             var prodTable   = Sanitise(request.ProdTable);
-            var v007 = Sanitise(request.ValpacCol007); var v008 = Sanitise(request.ValpacCol008);
-            var v001 = Sanitise(request.ValpacCol001); var vYear = Sanitise(request.ValpacColYear);
-            var pSt  = Sanitise(request.ProdColStNo);  var pId  = Sanitise(request.ProdColIdNo);
-            var pQual= Sanitise(request.ProdColQual);  var pYear= Sanitise(request.ProdColYear);
+            var mappings    = SanitizeMappings(GetMappings(request));
+            var col049        = !string.IsNullOrWhiteSpace(request.ValpacCol049) ? Sanitise(request.ValpacCol049) : null;
+            var saValues      = ParseSaValues(request.SaNationalValues);
+            var zPlaceholders = ParseZPlaceholders(request.ValpacCol008ZPlaceholders);
 
             var valpacCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{valpacTable}];");
             var prodCount   = await CountAsync(conn, $"SELECT COUNT(*) FROM [{prodTable}];");
 
-            await using var countCmd = conn.CreateConfiguredCommand();
-            countCmd.CommandText = BuildPopulationCountSql(valpacTable, prodTable, v007, v008, v001, vYear, pSt, pId, pQual, pYear);
-            await using var countReader = await countCmd.ExecuteReaderAsync();
+            int totalTested, matched, missing, passReviewCount;
+            List<Rule51ValidationRowRecord> reviewRows;
 
-            int totalTested = 0, matched = 0, missing = 0;
-            if (await countReader.ReadAsync())
+            if (includeAllReviewRows)
             {
-                totalTested = GetInt(countReader, 0);
-                matched     = GetInt(countReader, 1);
-                missing     = GetInt(countReader, 2);
+                // Single pass: load all rows, derive counts from the result — avoids a second scan
+                reviewRows     = await LoadRowsAsync(conn, valpacTable, prodTable, null, mappings, col049, saValues, zPlaceholders);
+                reviewRows     = NormalizeRows(reviewRows);
+                totalTested    = reviewRows.Count;
+                passReviewCount = reviewRows.Count(r => string.Equals(r.ValidationResult, "PASS_REVIEW", StringComparison.OrdinalIgnoreCase));
+                matched        = reviewRows.Count(r => string.Equals(r.ValidationResult, "PASS", StringComparison.OrdinalIgnoreCase)) + passReviewCount;
+                missing        = reviewRows.Count(r => string.Equals(r.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase));
             }
-            await countReader.CloseAsync();
+            else
+            {
+                await using var countCmd = conn.CreateConfiguredCommand();
+                countCmd.CommandText = BuildPopulationCountSql(valpacTable, prodTable, mappings, col049, saValues, zPlaceholders);
+                await using var countReader = await countCmd.ExecuteReaderAsync();
+                totalTested = 0; matched = 0; missing = 0; passReviewCount = 0;
+                if (await countReader.ReadAsync())
+                {
+                    totalTested     = GetInt(countReader, 0);
+                    matched         = GetInt(countReader, 1);
+                    missing         = GetInt(countReader, 2);
+                    passReviewCount = GetInt(countReader, 3);
+                }
+                await countReader.CloseAsync();
+                reviewRows = await LoadRowsAsync(conn, valpacTable, prodTable, BrowserPreviewRowLimit, mappings, col049, saValues, zPlaceholders);
+                reviewRows = NormalizeRows(reviewRows);
+            }
 
-            var reviewRows = await LoadRowsAsync(conn, valpacTable, prodTable, includeAllReviewRows ? null : BrowserPreviewRowLimit, v007, v008, v001, vYear, pSt, pId, pQual, pYear);
-            reviewRows = NormalizeRows(reviewRows);
-
-            var controlSummaries = BuildControlSummaries(totalTested, matched, valpacTable, prodTable);
+            var foreignExemptCount = reviewRows.Count(r =>
+                string.Equals(ReadValue(r.DisplayValues, "FOREIGN_NATIONAL_EXEMPT"), "1"));
+            var controlSummaries = BuildControlSummaries(totalTested, matched, valpacTable, prodTable, mappings.Count);
             var totalValidated   = controlSummaries.Sum(x => x.TotalCount);
             var passCount        = controlSummaries.Sum(x => x.PassCount);
             var failCount        = controlSummaries.Sum(x => x.FailCount);
             var isPreviewOnly    = !includeAllReviewRows && totalValidated > reviewRows.Count;
+            var exceptionCategories = BuildExceptionCategories(reviewRows, mappings);
 
-            return new Rule51ValidationSummary
+            var summary = new Rule51ValidationSummary
             {
                 Success          = true,
                 ValpacRecordCount = valpacCount,
@@ -584,99 +615,296 @@ SELECT
                 Database         = request.Database,
                 ValpacTable      = request.ValpacTable,
                 ProdTable        = request.ProdTable,
-                ValpacCol007     = v007, ValpacCol008 = v008, ValpacCol001 = v001, ValpacColYear = vYear,
-                ProdColStNo      = pSt,  ProdColIdNo  = pId,  ProdColQual  = pQual, ProdColYear  = pYear,
-                TableLinkageText = $"{request.ValpacTable}.{v007}<>{request.ProdTable}.{pSt} | {v008}<>{pId} | {v001}<>{pQual} | {vYear}<>{pYear}",
-                RuleModeText     = $"100% population testing of {request.ValpacTable} against {request.ProdTable} on 4 mapped columns",
-                ProcedureSteps   = BuildProcedureSteps(request.ValpacTable, request.ProdTable),
+                ValpacCol049     = request.ValpacCol049 ?? "",
+                SaNationalValues = request.SaNationalValues ?? "SA,PR",
+                ForeignNationalExemptCount = foreignExemptCount,
+                PassWithReviewCount = passReviewCount,
+                ColumnMappings   = CloneMappings(mappings),
+                TableLinkageText = BuildTableLinkageText(request.ValpacTable, request.ProdTable, mappings),
+                RuleModeText     = $"100% population testing of {request.ValpacTable} against {request.ProdTable} on {mappings.Count} mapped column pair{(mappings.Count == 1 ? "" : "s")}",
+                ProcedureSteps   = BuildProcedureSteps(request.ValpacTable, request.ProdTable, mappings),
                 ClientId         = request.ClientId,
                 ControlSummaries = controlSummaries,
+                ExceptionCategories = exceptionCategories,
                 ReviewRows       = reviewRows,
                 Warning = includeAllReviewRows
                     ? "Rule 51 completed with the full VALPAC population result set."
                     : "Counts reflect the full VALPAC population. Browser review rows are limited for performance."
             };
+
+            ApplyMappings(summary, mappings);
+            return summary;
         }
 
         // ─── SQL Builders ────────────────────────────────────────────────────────
 
         private static string BuildSourceCtes(
-            string valpacTable, string prodTable,
-            string v007, string v008, string v001, string vYear,
-            string pSt, string pId, string pQual, string pYear) => $@"
+            string valpacTable,
+            string prodTable,
+            IReadOnlyList<Rule51ColumnMapping> mappings,
+            string? col049 = null)
+        {
+            // ValpacData: one row per VALPAC record with display values and normalised join keys
+            var valpacSelectItems = new List<string>();
+            for (var i = 0; i < mappings.Count; i++)
+            {
+                var m = mappings[i];
+                valpacSelectItems.Add($"CONVERT(nvarchar(255), V.[{m.ValpacColumn}]) AS {ValpacDisplayAlias(i)}");
+                valpacSelectItems.Add($"UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), V.[{m.ValpacColumn}])))) AS {ValpacKeyAlias(i)}");
+            }
+            // _049 (Citizen-Resident) — display + normalised key for foreign-national exemption
+            if (!string.IsNullOrWhiteSpace(col049))
+            {
+                valpacSelectItems.Add($"CONVERT(nvarchar(255), V.[{col049}]) AS VALPAC_049_DISP");
+                valpacSelectItems.Add($"UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), V.[{col049}])))) AS VALPAC_049_KEY");
+            }
+
+            // ProdUnique: one representative row per unique normalised key combination — full match (all columns)
+            var prodSelectItems = new List<string>();
+            var prodGroupByItems = new List<string>();
+            for (var i = 0; i < mappings.Count; i++)
+            {
+                var m = mappings[i];
+                var keyExpr = $"UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{m.ProdColumn}]))))";
+                prodSelectItems.Add($"MIN(CONVERT(nvarchar(255), P.[{m.ProdColumn}])) AS {ProdDisplayAlias(i)}");
+                prodSelectItems.Add($"{keyExpr} AS {ProdKeyAlias(i)}");
+                prodGroupByItems.Add(keyExpr);
+            }
+            prodSelectItems.Add($"1 AS {MatchMarkerAlias}");
+
+            // ProdPartial: join on first column only (student number) — used to identify WHAT differs
+            // when a full match fails so we can show PROD values for FAIL rows
+            var partialSelectItems = new List<string>
+            {
+                $"UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{mappings[0].ProdColumn}])))) AS PART_KEY_0"
+            };
+            for (var i = 0; i < mappings.Count; i++)
+                partialSelectItems.Add($"MIN(CONVERT(nvarchar(255), P.[{mappings[i].ProdColumn}])) AS PART_DISP_{i}");
+
+            // ValidationResults: full match via PU; COALESCE to partial match (PP) so FAIL rows show PROD values
+            var validationSelectItems = new List<string>();
+            var joinConditions = new List<string>();
+            for (var i = 0; i < mappings.Count; i++)
+            {
+                validationSelectItems.Add($"VD.{ValpacDisplayAlias(i)}");
+                validationSelectItems.Add($"VD.{ValpacKeyAlias(i)}");
+                // Show exact match PROD values on PASS; fall back to partial-match values on FAIL
+                validationSelectItems.Add($"COALESCE(PU.{ProdDisplayAlias(i)}, PP.PART_DISP_{i}) AS {ProdDisplayAlias(i)}");
+                joinConditions.Add($"PU.{ProdKeyAlias(i)} = VD.{ValpacKeyAlias(i)}");
+            }
+            validationSelectItems.Add($"PU.{MatchMarkerAlias}");
+            // Flag whether the first-column (student) partial match found anything — drives exception categorisation
+            validationSelectItems.Add($"CASE WHEN PP.PART_KEY_0 IS NOT NULL THEN 1 ELSE 0 END AS PARTIAL_MATCH_FOUND");
+            if (!string.IsNullOrWhiteSpace(col049))
+            {
+                validationSelectItems.Add("VD.VALPAC_049_DISP");
+                validationSelectItems.Add("VD.VALPAC_049_KEY");
+            }
+
+            return $@"
 WITH ValpacData AS
 (
     SELECT
-        CONVERT(nvarchar(255), V.[{v007}])                             AS VALPAC__007,
-        CONVERT(nvarchar(255), V.[{v008}])                             AS VALPAC__008,
-        UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), V.[{v001}]))))        AS VALPAC__001,
-        CONVERT(nvarchar(255), V.[{vYear}])                            AS VALPAC_COLYEAR
+{BuildIndentedList(valpacSelectItems, "        ")}
     FROM [{valpacTable}] V
-    WHERE V.[{v007}] IS NOT NULL
-      AND LTRIM(RTRIM(CONVERT(nvarchar(255), V.[{v007}]))) <> ''
+),
+ProdUnique AS
+(
+    SELECT
+{BuildIndentedList(prodSelectItems, "        ")}
+    FROM [{prodTable}] P
+    GROUP BY {string.Join("," + Environment.NewLine + "        ", prodGroupByItems)}
+),
+ProdPartial AS
+(
+    SELECT
+{BuildIndentedList(partialSelectItems, "        ")}
+    FROM [{prodTable}] P
+    GROUP BY UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{mappings[0].ProdColumn}]))))
 ),
 ValidationResults AS
 (
     SELECT
-        VD.VALPAC__007, VD.VALPAC__008, VD.VALPAC__001, VD.VALPAC_COLYEAR,
-        CONVERT(nvarchar(255), P.[{pSt}])                              AS PROD_IAGSTNO,
-        CONVERT(nvarchar(255), P.[{pId}])                              AS PROD_IADIDNO,
-        UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{pQual}]))))       AS PROD_IAGQUAL,
-        CONVERT(nvarchar(255), P.[{pYear}])                            AS PROD_IAGCYR
+{BuildIndentedList(validationSelectItems, "        ")}
     FROM ValpacData VD
-    LEFT JOIN [{prodTable}] P
-        ON  UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{pSt}]))))  = UPPER(LTRIM(RTRIM(VD.VALPAC__007)))
-        AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{pId}]))))  = UPPER(LTRIM(RTRIM(VD.VALPAC__008)))
-        AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{pQual}])))) = VD.VALPAC__001
-        AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), P.[{pYear}])))) = UPPER(LTRIM(RTRIM(VD.VALPAC_COLYEAR)))
+    LEFT JOIN ProdUnique PU
+        ON {string.Join(Environment.NewLine + "        AND ", joinConditions)}
+    LEFT JOIN ProdPartial PP
+        ON PP.PART_KEY_0 = VD.{ValpacKeyAlias(0)}
 )";
+        }
 
         private static string BuildPopulationCountSql(
-            string valpacTable, string prodTable,
-            string v007, string v008, string v001, string vYear,
-            string pSt, string pId, string pQual, string pYear) => $@"
-{BuildSourceCtes(valpacTable, prodTable, v007, v008, v001, vYear, pSt, pId, pQual, pYear)}
+            string valpacTable,
+            string prodTable,
+            IReadOnlyList<Rule51ColumnMapping> mappings,
+            string? col049 = null,
+            IReadOnlyList<string>? saNationalValues = null,
+            IReadOnlyList<string>? zPlaceholders = null)
+        {
+            var exemptWhen = BuildForeignNationalExemptWhen(col049, saNationalValues, mappings, zPlaceholders);
+            var passExpr = string.IsNullOrEmpty(exemptWhen)
+                ? $"{MatchMarkerAlias} IS NOT NULL"
+                : $"({MatchMarkerAlias} IS NOT NULL OR ({exemptWhen}))";
+            var studentPassFlagsCte = string.IsNullOrEmpty(exemptWhen)
+                ? $@",
+StudentPassFlags AS
+(
+    SELECT DISTINCT {ValpacKeyAlias(0)} AS SPF_STUDENT_KEY
+    FROM ValidationResults
+    WHERE {MatchMarkerAlias} IS NOT NULL
+)"
+                : $@",
+StudentPassFlags AS
+(
+    SELECT DISTINCT {ValpacKeyAlias(0)} AS SPF_STUDENT_KEY
+    FROM ValidationResults
+    WHERE {MatchMarkerAlias} IS NOT NULL
+       OR ({exemptWhen})
+)";
+            // MatchedCount includes direct PASS + PASS_REVIEW (student has a passing row elsewhere)
+            // MissingCount is only rows with no match AND no other passing row for that student
+            return $@"
+{BuildSourceCtes(valpacTable, prodTable, mappings, col049)}{studentPassFlagsCte}
 SELECT
-    COUNT(1)                                                           AS TotalTested,
-    SUM(CASE WHEN PROD_IAGSTNO IS NOT NULL THEN 1 ELSE 0 END)         AS MatchedCount,
-    SUM(CASE WHEN PROD_IAGSTNO IS NULL     THEN 1 ELSE 0 END)         AS MissingCount
-FROM ValidationResults;";
+    COUNT(1) AS TotalTested,
+    SUM(CASE WHEN {passExpr} OR SPF_STUDENT_KEY IS NOT NULL THEN 1 ELSE 0 END) AS MatchedCount,
+    SUM(CASE WHEN NOT ({passExpr}) AND SPF_STUDENT_KEY IS NULL THEN 1 ELSE 0 END) AS MissingCount,
+    SUM(CASE WHEN NOT ({passExpr}) AND SPF_STUDENT_KEY IS NOT NULL THEN 1 ELSE 0 END) AS PassReviewCount
+FROM ValidationResults
+LEFT JOIN StudentPassFlags ON SPF_STUDENT_KEY = {ValpacKeyAlias(0)};";
+        }
 
         private static string BuildAllRowsSql(
-            string valpacTable, string prodTable, int? maxRows,
-            string v007, string v008, string v001, string vYear,
-            string pSt, string pId, string pQual, string pYear)
+            string valpacTable,
+            string prodTable,
+            int? maxRows,
+            IReadOnlyList<Rule51ColumnMapping> mappings,
+            string? col049 = null,
+            IReadOnlyList<string>? saNationalValues = null,
+            IReadOnlyList<string>? zPlaceholders = null)
         {
             var top = maxRows.HasValue && maxRows.Value > 0 ? $"TOP {maxRows.Value}" : string.Empty;
-            // When limiting rows (browser preview), order FAILs first so they are always included.
-            // When loading all rows (export), keep natural order.
-            var orderBy = maxRows.HasValue && maxRows.Value > 0
-                ? "CASE WHEN PROD_IAGSTNO IS NULL THEN 0 ELSE 1 END, VALPAC__007, VALPAC__001"
-                : "VALPAC__007, VALPAC__001";
-            return $@"
-{BuildSourceCtes(valpacTable, prodTable, v007, v008, v001, vYear, pSt, pId, pQual, pYear)}
-SELECT {top}
-    1 AS Control_Sort, 'Control_1' AS Control_Type,
-    'CONTROL 1: [{valpacTable}] data exists in [{prodTable}]' AS Control_Label,
-    CASE WHEN PROD_IAGSTNO IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Validation_Result,
-    CASE WHEN PROD_IAGSTNO IS NOT NULL
-        THEN 'VALPAC record found in PRODUCTION.'
+            var exemptWhen = BuildForeignNationalExemptWhen(col049, saNationalValues, mappings, zPlaceholders);
+
+            // StudentPassFlags: students with at least one fully-matched (or exempt) PASS row.
+            // FAIL rows for these students are reclassified as PASS_REVIEW — the student's primary
+            // qualification matched PRODUCTION; other VALPAC qual rows are not exceptions.
+            var studentPassFlagsCte = string.IsNullOrEmpty(exemptWhen)
+                ? $@",
+StudentPassFlags AS
+(
+    SELECT DISTINCT {ValpacKeyAlias(0)} AS SPF_STUDENT_KEY
+    FROM ValidationResults
+    WHERE {MatchMarkerAlias} IS NOT NULL
+)"
+                : $@",
+StudentPassFlags AS
+(
+    SELECT DISTINCT {ValpacKeyAlias(0)} AS SPF_STUDENT_KEY
+    FROM ValidationResults
+    WHERE {MatchMarkerAlias} IS NOT NULL
+       OR ({exemptWhen})
+)";
+
+            string validationResultExpr, validationExplanationExpr;
+            if (string.IsNullOrEmpty(exemptWhen))
+            {
+                validationResultExpr = $@"CASE
+        WHEN {MatchMarkerAlias} IS NOT NULL THEN 'PASS'
+        WHEN SPF_STUDENT_KEY IS NOT NULL THEN 'PASS_REVIEW'
+        ELSE 'FAIL'
+    END";
+                validationExplanationExpr = $@"CASE
+        WHEN {MatchMarkerAlias} IS NOT NULL THEN 'VALPAC record found in PRODUCTION.'
+        WHEN SPF_STUDENT_KEY IS NOT NULL THEN 'Student passed on primary qualification in PRODUCTION. This additional VALPAC qualification record is not an exception.'
         ELSE 'VALPAC record not found in PRODUCTION.'
-    END AS Validation_Explanation,
-    VALPAC__007, VALPAC__008, VALPAC__001, VALPAC_COLYEAR,
-    PROD_IAGSTNO, PROD_IADIDNO, PROD_IAGQUAL, PROD_IAGCYR
+    END";
+            }
+            else
+            {
+                validationResultExpr = $@"CASE
+        WHEN {MatchMarkerAlias} IS NOT NULL THEN 'PASS'
+        WHEN {exemptWhen} THEN 'PASS'
+        WHEN SPF_STUDENT_KEY IS NOT NULL THEN 'PASS_REVIEW'
+        ELSE 'FAIL'
+    END";
+                validationExplanationExpr = $@"CASE
+        WHEN {MatchMarkerAlias} IS NOT NULL THEN 'VALPAC record found in PRODUCTION.'
+        WHEN {exemptWhen} THEN 'Foreign national exemption: {col049} is not SA/PR, ID is all-Z placeholder, PROD IADIDNO is blank.'
+        WHEN SPF_STUDENT_KEY IS NOT NULL THEN 'Student passed on primary qualification in PRODUCTION. This additional VALPAC qualification record is not an exception.'
+        ELSE 'VALPAC record not found in PRODUCTION.'
+    END";
+            }
+
+            var isForeignExemptExpr = string.IsNullOrEmpty(exemptWhen)
+                ? "0"
+                : $"CASE WHEN {MatchMarkerAlias} IS NULL AND ({exemptWhen}) THEN 1 ELSE 0 END";
+
+            var selectItems = new List<string>
+            {
+                "1 AS Control_Sort",
+                "'Control_1' AS Control_Type",
+                $"'CONTROL 1: [{valpacTable}] data exists in [{prodTable}]' AS Control_Label",
+                $"{validationResultExpr} AS Validation_Result",
+                $"{validationExplanationExpr} AS Validation_Explanation"
+            };
+
+            selectItems.AddRange(mappings.Select((_, index) => ValpacDisplayAlias(index)));
+            selectItems.AddRange(mappings.Select((_, index) => ProdDisplayAlias(index)));
+            selectItems.Add("PARTIAL_MATCH_FOUND");
+            selectItems.Add($"{isForeignExemptExpr} AS FOREIGN_NATIONAL_EXEMPT");
+            if (!string.IsNullOrWhiteSpace(col049))
+                selectItems.Add("VALPAC_049_DISP");
+
+            return $@"
+{BuildSourceCtes(valpacTable, prodTable, mappings, col049)}{studentPassFlagsCte}
+SELECT {top}
+{BuildIndentedList(selectItems, "    ")}
 FROM ValidationResults
-ORDER BY {orderBy};";
+LEFT JOIN StudentPassFlags ON SPF_STUDENT_KEY = {ValpacKeyAlias(0)}
+ORDER BY {BuildOrderByClause(mappings.Count, maxRows.HasValue && maxRows.Value > 0)};";
+        }
+
+        // Returns the SQL WHEN condition (without the WHEN keyword) for the foreign-national exemption.
+        // Returns empty string if _049 is not configured.
+        private static string BuildForeignNationalExemptWhen(
+            string? col049,
+            IReadOnlyList<string>? saNationalValues,
+            IReadOnlyList<Rule51ColumnMapping> mappings,
+            IReadOnlyList<string>? zPlaceholders = null)
+        {
+            if (string.IsNullOrWhiteSpace(col049) || mappings.Count < 2)
+                return string.Empty;
+
+            var saList = saNationalValues != null && saNationalValues.Count > 0
+                ? string.Join(",", saNationalValues.Select(v => $"'{v.Trim().ToUpperInvariant()}'"))
+                : "'SA','PR'";
+
+            var zList = zPlaceholders != null && zPlaceholders.Count > 0
+                ? string.Join(",", zPlaceholders.Select(v => $"'{v.Trim().ToUpperInvariant()}'"))
+                : "'ZZZZZZZZZZZZZ'";
+
+            var idKeyAlias  = ValpacKeyAlias(1);   // normalised _008 — now flows through ValidationResults
+            var prodIdAlias = ProdDisplayAlias(1);  // COALESCE of full/partial PROD IADIDNO
+
+            return $@"VALPAC_049_KEY NOT IN ({saList})
+        AND {idKeyAlias} IN ({zList})
+        AND COALESCE(UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), {prodIdAlias})))), '') = ''";
         }
 
         private async Task<List<Rule51ValidationRowRecord>> LoadRowsAsync(
             SqlConnection connection,
-            string valpacTable, string prodTable, int? maxRows,
-            string v007, string v008, string v001, string vYear,
-            string pSt, string pId, string pQual, string pYear)
+            string valpacTable,
+            string prodTable,
+            int? maxRows,
+            IReadOnlyList<Rule51ColumnMapping> mappings,
+            string? col049 = null,
+            IReadOnlyList<string>? saValues = null,
+            IReadOnlyList<string>? zPlaceholders = null)
         {
             await using var command = connection.CreateConfiguredCommand();
-            command.CommandText = BuildAllRowsSql(valpacTable, prodTable, maxRows, v007, v008, v001, vYear, pSt, pId, pQual, pYear);
+            command.CommandText = BuildAllRowsSql(valpacTable, prodTable, maxRows, mappings, col049, saValues, zPlaceholders);
             await using var reader = await command.ExecuteReaderAsync();
             var rows = new List<Rule51ValidationRowRecord>();
             while (await reader.ReadAsync())
@@ -694,26 +922,152 @@ ORDER BY {orderBy};";
                     ValidationExplanation = ReadValue(displayValues, "Validation_Explanation"),
                     DisplayValues = displayValues
                 });
-                EnrichDisplayValues(rows[^1]);
+                EnrichDisplayValues(rows[^1], mappings);
             }
             return rows;
         }
 
-        private static void EnrichDisplayValues(Rule51ValidationRowRecord row)
+        private static void EnrichDisplayValues(Rule51ValidationRowRecord row, IReadOnlyList<Rule51ColumnMapping> mappings)
         {
             var v = row.DisplayValues;
-            var isPass  = string.Equals(ReadValue(v, "Validation_Result"), "PASS", StringComparison.OrdinalIgnoreCase);
-            var stNo    = ReadValue(v, "VALPAC__007");
-            var qual    = ReadValue(v, "VALPAC__001");
-            var prodSt  = ReadValue(v, "PROD_IAGSTNO");
+            var result = ReadValue(v, "Validation_Result") ?? "";
+            var isPass = string.Equals(result, "PASS", StringComparison.OrdinalIgnoreCase);
+            var isPassReview = string.Equals(result, "PASS_REVIEW", StringComparison.OrdinalIgnoreCase);
+            var valpacRef = BuildDisplayReference(v, mappings, useProdValues: false);
 
-            v["FINAL_RESULT_MESSAGE"] = isPass
-                ? $"PASS: VALPAC record ({stNo}/{qual}) found in PRODUCTION as {prodSt}."
-                : $"FAIL: VALPAC record ({stNo}/{qual}) not found in PRODUCTION.";
-            row.ValidationExplanation = ReadValue(v, "FINAL_RESULT_MESSAGE");
+            if (isPass)
+            {
+                var isForeignNationalExempt = string.Equals(ReadValue(v, "FOREIGN_NATIONAL_EXEMPT"), "1");
+                if (isForeignNationalExempt)
+                {
+                    var citizenVal = ReadValue(v, "VALPAC_049_DISP") ?? "";
+                    var idVal = ReadValue(v, ValpacDisplayAlias(1)) ?? "";
+                    v["FINAL_RESULT_MESSAGE"] = $"PASS (Exempt): Foreign national — citizen/resident status ({citizenVal}) is not SA/PR, ID placeholder ({idVal}) is expected, PROD IADIDNO is blank.";
+                    v["EXCEPTION_REASON"] = $"Exempt: _049 = '{citizenVal}' (not SA/PR), _008 = '{idVal}' (all-Z placeholder for foreign national with no SA ID), PRODUCTION IADIDNO is blank — no ID number required.";
+                    v["EXCEPTION_CATEGORY"] = "PASS__FOREIGN_NATIONAL";
+                }
+                else
+                {
+                    var prodRef = BuildDisplayReference(v, mappings, useProdValues: true);
+                    v["FINAL_RESULT_MESSAGE"] = $"PASS: VALPAC record matched in PRODUCTION. VALPAC: {valpacRef} | PRODUCTION: {prodRef}";
+                    v["EXCEPTION_REASON"] = "";
+                    v["EXCEPTION_CATEGORY"] = "PASS";
+                }
+            }
+            else if (isPassReview)
+            {
+                // Student has at least one fully-matched PASS row elsewhere — primary qualification matched.
+                // This non-primary VALPAC qualification record is not an exception.
+                var stNo = ReadValue(v, ValpacDisplayAlias(0)) ?? "";
+                var qualVal = mappings.Count > 1 ? ReadValue(v, ValpacDisplayAlias(1)) ?? "" : "";
+                var prodQualVal = mappings.Count > 1 ? ReadValue(v, ProdDisplayAlias(1)) ?? "" : "";
+                var reviewNote = mappings.Count > 1 && !string.IsNullOrWhiteSpace(qualVal)
+                    ? $"Qualification ({mappings[1].ValpacColumn}): VALPAC='{qualVal}' ≠ PROD='{prodQualVal}'. "
+                    : "";
+                v["FINAL_RESULT_MESSAGE"] = $"PASS (Review): Student No (_007 = '{stNo}') passed on primary qualification in PRODUCTION. {reviewNote}No exception — this additional VALPAC record does not require a match.";
+                v["EXCEPTION_REASON"] = $"Student passed on primary qualification. {reviewNote}PRODUCTION stores only the primary qualification record; this additional VALPAC entry is not expected in PRODUCTION.";
+                v["EXCEPTION_CATEGORY"] = "PASS_REVIEW";
+            }
+            else
+            {
+                var partialFound = string.Equals(ReadValue(v, "PARTIAL_MATCH_FOUND"), "1");
+                if (!partialFound)
+                {
+                    // Student (first key) not found in PRODUCTION at all
+                    var stNo = ReadValue(v, ValpacDisplayAlias(0)) ?? "";
+                    var label0 = mappings.Count > 0 ? mappings[0].Label : mappings[0].ValpacColumn;
+                    v["FINAL_RESULT_MESSAGE"] = $"FAIL: {label0} ({mappings[0].ValpacColumn} = '{stNo}') not found in PRODUCTION.";
+                    v["EXCEPTION_REASON"] = $"{label0} ({mappings[0].ValpacColumn} = '{stNo}') does not exist in PRODUCTION table. The record cannot be matched because the student is not present.";
+                    v["EXCEPTION_CATEGORY"] = $"NOT_FOUND__{label0}";
+                }
+                else
+                {
+                    // Student found by first key — find which columns differ
+                    var diffParts = new List<string>();
+                    var categories = new List<string>();
+                    for (var i = 1; i < mappings.Count; i++)
+                    {
+                        var valpacVal = (ReadValue(v, ValpacDisplayAlias(i)) ?? "").Trim();
+                        var prodVal   = (ReadValue(v, ProdDisplayAlias(i)) ?? "").Trim();
+                        if (!string.Equals(valpacVal, prodVal, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var lbl = !string.IsNullOrWhiteSpace(mappings[i].Label) ? mappings[i].Label : mappings[i].ValpacColumn;
+                            diffParts.Add($"{lbl} ({mappings[i].ValpacColumn}): VALPAC='{valpacVal}' ≠ PROD='{prodVal}'");
+                            categories.Add($"DIFF__{lbl}");
+                        }
+                    }
+                    // Also check first column even though it matched (defensive)
+                    var diffSummary = diffParts.Count > 0
+                        ? string.Join("; ", diffParts)
+                        : "values differ";
+                    var categoryKey = categories.Count == 1 ? categories[0]
+                        : categories.Count > 1 ? "DIFF__MULTIPLE"
+                        : "DIFF__UNKNOWN";
+                    v["FINAL_RESULT_MESSAGE"] = $"FAIL: {mappings[0].Label} found in PRODUCTION but record does not match. {diffSummary}.";
+                    v["EXCEPTION_REASON"] = $"{mappings[0].Label} ({mappings[0].ValpacColumn} = '{ReadValue(v, ValpacDisplayAlias(0))}') exists in PRODUCTION, but the full record does not match: {diffSummary}.";
+                    v["EXCEPTION_CATEGORY"] = categoryKey;
+                }
+            }
+
+            row.ValidationExplanation = ReadValue(v, "EXCEPTION_REASON") is { Length: > 0 } reason
+                ? reason
+                : ReadValue(v, "FINAL_RESULT_MESSAGE") ?? "";
         }
 
-        private static List<Rule51ControlSummaryItemViewModel> BuildControlSummaries(int total, int matched, string valpacTable, string prodTable)
+        private static List<Rule51ExceptionCategoryViewModel> BuildExceptionCategories(
+            IReadOnlyList<Rule51ValidationRowRecord> rows,
+            IReadOnlyList<Rule51ColumnMapping> mappings)
+        {
+            var counts = new Dictionary<string, (string Description, int Count)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                var cat = ReadValue(row.DisplayValues, "EXCEPTION_CATEGORY") ?? "";
+                // Skip PASS and PASS_REVIEW (not exceptions); include PASS__FOREIGN_NATIONAL for auditor visibility
+                if (string.IsNullOrEmpty(cat)
+                    || string.Equals(cat, "PASS", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(cat, "PASS_REVIEW", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string desc;
+                if (string.Equals(cat, "PASS__FOREIGN_NATIONAL", StringComparison.OrdinalIgnoreCase))
+                {
+                    desc = "Exempt — foreign national (not SA/PR): ID is all-Z placeholder, PROD IADIDNO is blank";
+                }
+                else if (cat.StartsWith("NOT_FOUND__", StringComparison.OrdinalIgnoreCase))
+                {
+                    var lbl = cat["NOT_FOUND__".Length..];
+                    desc = $"{lbl} not found in PRODUCTION";
+                }
+                else if (cat.StartsWith("DIFF__", StringComparison.OrdinalIgnoreCase))
+                {
+                    var lbl = cat["DIFF__".Length..];
+                    desc = lbl == "MULTIPLE" ? "Multiple columns differ"
+                         : lbl == "UNKNOWN"  ? "Record found but mismatch (unknown column)"
+                         : $"{lbl} differs";
+                }
+                else
+                {
+                    desc = cat;
+                }
+
+                if (counts.TryGetValue(cat, out var existing))
+                    counts[cat] = (existing.Description, existing.Count + 1);
+                else
+                    counts[cat] = (desc, 1);
+            }
+
+            return counts
+                .OrderByDescending(kv => kv.Value.Count)
+                .Select(kv => new Rule51ExceptionCategoryViewModel
+                {
+                    Category    = kv.Key,
+                    Description = kv.Value.Description,
+                    Count       = kv.Value.Count
+                })
+                .ToList();
+        }
+
+        private static List<Rule51ControlSummaryItemViewModel> BuildControlSummaries(int total, int matched, string valpacTable, string prodTable, int mappingCount)
         {
             var fail = Math.Max(total - matched, 0);
             return new List<Rule51ControlSummaryItemViewModel>
@@ -722,7 +1076,7 @@ ORDER BY {orderBy};";
                 {
                     ControlType  = "Control_1",
                     ControlLabel = "Control 1",
-                    CriteriaText = $"All {valpacTable} records exist in {prodTable} (4 mapped columns)",
+                    CriteriaText = $"All {valpacTable} records exist in {prodTable} ({mappingCount} mapped column pair{(mappingCount == 1 ? "" : "s")})",
                     TotalCount   = total,
                     PassCount    = matched,
                     FailCount    = fail,
@@ -731,10 +1085,10 @@ ORDER BY {orderBy};";
             };
         }
 
-        private static List<string> BuildProcedureSteps(string valpacTable, string prodTable) => new()
+        private static List<string> BuildProcedureSteps(string valpacTable, string prodTable, IReadOnlyList<Rule51ColumnMapping> mappings) => new()
         {
             $"Select all records from {valpacTable} as the population to test.",
-            $"For each VALPAC record, attempt to find a matching row in {prodTable} using all 4 mapped columns.",
+            $"For each VALPAC record, attempt to find a matching row in {prodTable} using {mappings.Count} selected column pair{(mappings.Count == 1 ? "" : "s")}.",
             "Mark PASS when a matching row exists in PRODUCTION; FAIL when no match is found.",
             "All VALPAC data is expected to exist in PRODUCTION."
         };
@@ -834,12 +1188,20 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             ValpacTable = s.ValpacTable, ProdTable = s.ProdTable,
             ValpacCol007 = s.ValpacCol007, ValpacCol008 = s.ValpacCol008, ValpacCol001 = s.ValpacCol001, ValpacColYear = s.ValpacColYear,
             ProdColStNo = s.ProdColStNo, ProdColIdNo = s.ProdColIdNo, ProdColQual = s.ProdColQual, ProdColYear = s.ProdColYear,
+            ValpacCol049 = s.ValpacCol049, SaNationalValues = s.SaNationalValues,
+            ValpacCol008ZPlaceholders = s.ValpacCol008ZPlaceholders,
+            ForeignNationalExemptCount = s.ForeignNationalExemptCount,
+            ColumnMappings = CloneMappings(s.ColumnMappings),
             TableLinkageText = s.TableLinkageText, RuleModeText = s.RuleModeText, ProcedureSteps = s.ProcedureSteps.ToList(),
             ClientId = s.ClientId, SavedRunId = s.SavedRunId,
             ControlSummaries = s.ControlSummaries.Select(i => new Rule51ControlSummaryItemViewModel
             {
                 ControlType = i.ControlType, ControlLabel = i.ControlLabel, CriteriaText = i.CriteriaText,
                 TotalCount = i.TotalCount, PassCount = i.PassCount, FailCount = i.FailCount, Status = i.Status
+            }).ToList(),
+            ExceptionCategories = s.ExceptionCategories.Select(c => new Rule51ExceptionCategoryViewModel
+            {
+                Category = c.Category, Description = c.Description, Count = c.Count
             }).ToList(),
             ReviewRows = s.ReviewRows.Select(r => new Rule51ValidationRowRecord
             {
@@ -855,15 +1217,39 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             ClientId = r.ClientId, RunId = r.RunId, Server = r.Server, Database = r.Database, Driver = r.Driver,
             ValpacTable = r.ValpacTable, ProdTable = r.ProdTable,
             ValpacCol007 = r.ValpacCol007, ValpacCol008 = r.ValpacCol008, ValpacCol001 = r.ValpacCol001, ValpacColYear = r.ValpacColYear,
-            ProdColStNo = r.ProdColStNo, ProdColIdNo = r.ProdColIdNo, ProdColQual = r.ProdColQual, ProdColYear = r.ProdColYear
+            ProdColStNo = r.ProdColStNo, ProdColIdNo = r.ProdColIdNo, ProdColQual = r.ProdColQual, ProdColYear = r.ProdColYear,
+            ValpacCol049 = r.ValpacCol049, SaNationalValues = r.SaNationalValues,
+            ValpacCol008ZPlaceholders = r.ValpacCol008ZPlaceholders,
+            ColumnMappings = CloneMappings(r.ColumnMappings)
         };
+
+        private static IReadOnlyList<string> ParseSaValues(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return new[] { "SA", "PR" };
+            return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                      .Select(v => v.ToUpperInvariant())
+                      .Where(v => v.Length > 0)
+                      .Distinct()
+                      .ToArray();
+        }
+
+        private static IReadOnlyList<string> ParseZPlaceholders(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return new[] { "ZZZZZZZZZZZZZ" };
+            return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                      .Select(v => v.ToUpperInvariant())
+                      .Where(v => v.Length > 0)
+                      .Distinct()
+                      .ToArray();
+        }
 
         private static bool RequestsMatch(Rule51ValidationRequest a, Rule51ValidationRequest b) =>
             a.ClientId == b.ClientId &&
             string.Equals(a.Server?.Trim(), b.Server?.Trim(), StringComparison.OrdinalIgnoreCase) &&
             string.Equals(a.Database?.Trim(), b.Database?.Trim(), StringComparison.OrdinalIgnoreCase) &&
             string.Equals(a.ValpacTable?.Trim(), b.ValpacTable?.Trim(), StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(a.ProdTable?.Trim(), b.ProdTable?.Trim(), StringComparison.OrdinalIgnoreCase);
+            string.Equals(a.ProdTable?.Trim(), b.ProdTable?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+            MappingColumnsMatch(GetMappings(a), GetMappings(b));
 
         private static List<Rule51ValidationRowRecord> NormalizeRows(IEnumerable<Rule51ValidationRowRecord> rows) =>
             rows.Select((r, i) => { r.ValidationNumber = i + 1; return r; }).ToList();
@@ -881,7 +1267,10 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
                     ClientId = summary.ClientId, RunId = summary.SavedRunId, Server = server, Database = summary.Database,
                     Driver = "ODBC Driver 17 for SQL Server", ValpacTable = summary.ValpacTable, ProdTable = summary.ProdTable,
                     ValpacCol007 = summary.ValpacCol007, ValpacCol008 = summary.ValpacCol008, ValpacCol001 = summary.ValpacCol001, ValpacColYear = summary.ValpacColYear,
-                    ProdColStNo = summary.ProdColStNo, ProdColIdNo = summary.ProdColIdNo, ProdColQual = summary.ProdColQual, ProdColYear = summary.ProdColYear
+                    ProdColStNo = summary.ProdColStNo, ProdColIdNo = summary.ProdColIdNo, ProdColQual = summary.ProdColQual, ProdColYear = summary.ProdColYear,
+                    ValpacCol049 = summary.ValpacCol049, SaNationalValues = summary.SaNationalValues,
+                    ValpacCol008ZPlaceholders = summary.ValpacCol008ZPlaceholders,
+                    ColumnMappings = CloneMappings(summary.ColumnMappings)
                 }, includeAllReviewRows: true);
                 expanded.Timestamp = string.IsNullOrWhiteSpace(summary.Timestamp) ? expanded.Timestamp : summary.Timestamp;
                 expanded.ClientId  = summary.ClientId;
@@ -904,6 +1293,8 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
 
         // ─── DB Helpers ───────────────────────────────────────────────────────
 
+        private const string MatchMarkerAlias = "PROD_MATCH_FOUND";
+
         private static void ValidateRequest(Rule51ValidationRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.Server)) throw new InvalidOperationException("Server name is required.");
@@ -911,6 +1302,16 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             if (string.IsNullOrWhiteSpace(request.ValpacTable)) throw new InvalidOperationException("VALPAC table is required.");
             if (string.IsNullOrWhiteSpace(request.ProdTable)) throw new InvalidOperationException("PRODUCTION table is required.");
             ValidateObjectName(request.ValpacTable); ValidateObjectName(request.ProdTable);
+
+            var mappings = GetMappings(request);
+            if (mappings.Count == 0) throw new InvalidOperationException("At least one column mapping is required.");
+            foreach (var mapping in mappings)
+            {
+                ValidateObjectName(mapping.ValpacColumn);
+                ValidateObjectName(mapping.ProdColumn);
+            }
+
+            ApplyMappings(request, mappings);
         }
 
         private static void ValidateRequest(Rule51VerifyRequest request)
@@ -920,6 +1321,285 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             if (string.IsNullOrWhiteSpace(request.ValpacTable)) throw new InvalidOperationException("VALPAC table is required.");
             if (string.IsNullOrWhiteSpace(request.ProdTable)) throw new InvalidOperationException("PRODUCTION table is required.");
             ValidateObjectName(request.ValpacTable); ValidateObjectName(request.ProdTable);
+
+            var mappings = GetMappings(request);
+            if (mappings.Count == 0) throw new InvalidOperationException("At least one column mapping is required.");
+            foreach (var mapping in mappings)
+            {
+                ValidateObjectName(mapping.ValpacColumn);
+                ValidateObjectName(mapping.ProdColumn);
+            }
+
+            ApplyMappings(request, mappings);
+        }
+
+        private static List<Rule51ColumnMapping> BuildDefaultMappings() =>
+            DefaultColumnMappings.Select(m => new Rule51ColumnMapping
+            {
+                ValpacColumn = m.ValpacColumn,
+                ProdColumn = m.ProdColumn,
+                Label = m.Label
+            }).ToList();
+
+        private static List<Rule51ColumnMapping> BuildLegacyMappings(
+            string? v007,
+            string? v008,
+            string? v001,
+            string? vYear,
+            string? pSt,
+            string? pId,
+            string? pQual,
+            string? pYear)
+        {
+            var mappings = new List<Rule51ColumnMapping>();
+            AddLegacyMapping(mappings, v007, pSt, "Student No");
+            AddLegacyMapping(mappings, v008, pId, "ID No");
+            AddLegacyMapping(mappings, v001, pQual, "Qualification");
+            AddLegacyMapping(mappings, vYear, pYear, "Year");
+            return mappings;
+        }
+
+        private static void AddLegacyMapping(List<Rule51ColumnMapping> mappings, string? valpacColumn, string? prodColumn, string label)
+        {
+            if (string.IsNullOrWhiteSpace(valpacColumn) || string.IsNullOrWhiteSpace(prodColumn))
+                return;
+
+            mappings.Add(new Rule51ColumnMapping
+            {
+                ValpacColumn = valpacColumn.Trim(),
+                ProdColumn = prodColumn.Trim(),
+                Label = label
+            });
+        }
+
+        private static List<Rule51ColumnMapping> NormalizeMappings(IEnumerable<Rule51ColumnMapping>? mappings, IEnumerable<Rule51ColumnMapping>? fallback)
+        {
+            var normalized = (mappings ?? Enumerable.Empty<Rule51ColumnMapping>())
+                .Where(m => m != null && !string.IsNullOrWhiteSpace(m.ValpacColumn) && !string.IsNullOrWhiteSpace(m.ProdColumn))
+                .Select(m => new Rule51ColumnMapping
+                {
+                    ValpacColumn = m.ValpacColumn.Trim(),
+                    ProdColumn = m.ProdColumn.Trim(),
+                    Label = string.IsNullOrWhiteSpace(m.Label) ? m.ValpacColumn.Trim() : m.Label.Trim()
+                })
+                .ToList();
+
+            if (normalized.Count > 0)
+                return normalized;
+
+            var fallbackMappings = (fallback ?? BuildDefaultMappings())
+                .Where(m => !string.IsNullOrWhiteSpace(m.ValpacColumn) && !string.IsNullOrWhiteSpace(m.ProdColumn))
+                .Select(m => new Rule51ColumnMapping
+                {
+                    ValpacColumn = m.ValpacColumn.Trim(),
+                    ProdColumn = m.ProdColumn.Trim(),
+                    Label = string.IsNullOrWhiteSpace(m.Label) ? m.ValpacColumn.Trim() : m.Label.Trim()
+                })
+                .ToList();
+
+            return fallbackMappings.Count > 0 ? fallbackMappings : BuildDefaultMappings();
+        }
+
+        private static List<Rule51ColumnMapping> GetMappings(Rule51VerifyRequest request) =>
+            NormalizeMappings(request.ColumnMappings, BuildLegacyMappings(
+                request.ValpacCol007, request.ValpacCol008, request.ValpacCol001, request.ValpacColYear,
+                request.ProdColStNo, request.ProdColIdNo, request.ProdColQual, request.ProdColYear));
+
+        private static List<Rule51ColumnMapping> GetMappings(Rule51ValidationRequest request) =>
+            NormalizeMappings(request.ColumnMappings, BuildLegacyMappings(
+                request.ValpacCol007, request.ValpacCol008, request.ValpacCol001, request.ValpacColYear,
+                request.ProdColStNo, request.ProdColIdNo, request.ProdColQual, request.ProdColYear));
+
+        private static List<Rule51ColumnMapping> GetMappings(Rule51ValidationSummary summary) =>
+            NormalizeMappings(summary.ColumnMappings, BuildLegacyMappings(
+                summary.ValpacCol007, summary.ValpacCol008, summary.ValpacCol001, summary.ValpacColYear,
+                summary.ProdColStNo, summary.ProdColIdNo, summary.ProdColQual, summary.ProdColYear));
+
+        private static List<Rule51ColumnMapping> GetMappings(Rule51WorkspaceStateViewModel workspace) =>
+            NormalizeMappings(workspace.ColumnMappings, BuildLegacyMappings(
+                workspace.ValpacCol007, workspace.ValpacCol008, workspace.ValpacCol001, workspace.ValpacColYear,
+                workspace.ProdColStNo, workspace.ProdColIdNo, workspace.ProdColQual, workspace.ProdColYear));
+
+        private static List<Rule51ColumnMapping> CloneMappings(IEnumerable<Rule51ColumnMapping>? mappings) =>
+            (mappings ?? Enumerable.Empty<Rule51ColumnMapping>())
+                .Select(m => new Rule51ColumnMapping
+                {
+                    ValpacColumn = m.ValpacColumn,
+                    ProdColumn = m.ProdColumn,
+                    Label = m.Label
+                })
+                .ToList();
+
+        private static List<Rule51ColumnMapping> SanitizeMappings(IEnumerable<Rule51ColumnMapping> mappings) =>
+            mappings.Select(m => new Rule51ColumnMapping
+            {
+                ValpacColumn = Sanitise(m.ValpacColumn),
+                ProdColumn = Sanitise(m.ProdColumn),
+                Label = string.IsNullOrWhiteSpace(m.Label) ? m.ValpacColumn.Trim() : m.Label.Trim()
+            }).ToList();
+
+        private static bool MappingColumnsMatch(IReadOnlyList<Rule51ColumnMapping> left, IReadOnlyList<Rule51ColumnMapping> right)
+        {
+            if (left.Count != right.Count)
+                return false;
+
+            for (var i = 0; i < left.Count; i++)
+            {
+                if (!string.Equals(left[i].ValpacColumn?.Trim(), right[i].ValpacColumn?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return false;
+                if (!string.Equals(left[i].ProdColumn?.Trim(), right[i].ProdColumn?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static void ApplyMappings(Rule51VerifyRequest request, IReadOnlyList<Rule51ColumnMapping> mappings)
+        {
+            request.ColumnMappings = CloneMappings(mappings);
+            request.ValpacCol007 = LegacyValpacColumn(mappings, 0, "_007");
+            request.ValpacCol008 = LegacyValpacColumn(mappings, 1, "_008");
+            request.ValpacCol001 = LegacyValpacColumn(mappings, 2, "_001");
+            request.ValpacColYear = LegacyValpacColumn(mappings, 3, "ColYear");
+            request.ProdColStNo = LegacyProdColumn(mappings, 0, "IAGSTNO");
+            request.ProdColIdNo = LegacyProdColumn(mappings, 1, "IADIDNO");
+            request.ProdColQual = LegacyProdColumn(mappings, 2, "IAGQUAL");
+            request.ProdColYear = LegacyProdColumn(mappings, 3, "IAGCYR");
+        }
+
+        private static void ApplyMappings(Rule51ValidationRequest request, IReadOnlyList<Rule51ColumnMapping> mappings)
+        {
+            request.ColumnMappings = CloneMappings(mappings);
+            request.ValpacCol007 = LegacyValpacColumn(mappings, 0, "_007");
+            request.ValpacCol008 = LegacyValpacColumn(mappings, 1, "_008");
+            request.ValpacCol001 = LegacyValpacColumn(mappings, 2, "_001");
+            request.ValpacColYear = LegacyValpacColumn(mappings, 3, "ColYear");
+            request.ProdColStNo = LegacyProdColumn(mappings, 0, "IAGSTNO");
+            request.ProdColIdNo = LegacyProdColumn(mappings, 1, "IADIDNO");
+            request.ProdColQual = LegacyProdColumn(mappings, 2, "IAGQUAL");
+            request.ProdColYear = LegacyProdColumn(mappings, 3, "IAGCYR");
+        }
+
+        private static void ApplyMappings(Rule51ValidationSummary summary, IReadOnlyList<Rule51ColumnMapping> mappings)
+        {
+            summary.ProcedureSteps ??= new List<string>();
+            summary.ReviewRows ??= new List<Rule51ValidationRowRecord>();
+            summary.ColumnMappings = CloneMappings(mappings);
+            summary.ValpacCol007 = LegacyValpacColumn(mappings, 0, "_007");
+            summary.ValpacCol008 = LegacyValpacColumn(mappings, 1, "_008");
+            summary.ValpacCol001 = LegacyValpacColumn(mappings, 2, "_001");
+            summary.ValpacColYear = LegacyValpacColumn(mappings, 3, "ColYear");
+            summary.ProdColStNo = LegacyProdColumn(mappings, 0, "IAGSTNO");
+            summary.ProdColIdNo = LegacyProdColumn(mappings, 1, "IADIDNO");
+            summary.ProdColQual = LegacyProdColumn(mappings, 2, "IAGQUAL");
+            summary.ProdColYear = LegacyProdColumn(mappings, 3, "IAGCYR");
+
+            if (!string.IsNullOrWhiteSpace(summary.ValpacTable) && !string.IsNullOrWhiteSpace(summary.ProdTable))
+                summary.TableLinkageText = BuildTableLinkageText(summary.ValpacTable, summary.ProdTable, mappings);
+            if (string.IsNullOrWhiteSpace(summary.RuleModeText) && !string.IsNullOrWhiteSpace(summary.ValpacTable) && !string.IsNullOrWhiteSpace(summary.ProdTable))
+                summary.RuleModeText = $"100% population testing of {summary.ValpacTable} against {summary.ProdTable} on {mappings.Count} mapped column pair{(mappings.Count == 1 ? "" : "s")}";
+            if (summary.ProcedureSteps.Count == 0 && !string.IsNullOrWhiteSpace(summary.ValpacTable) && !string.IsNullOrWhiteSpace(summary.ProdTable))
+                summary.ProcedureSteps = BuildProcedureSteps(summary.ValpacTable, summary.ProdTable, mappings);
+
+            HydrateLegacyDisplayAliases(summary.ReviewRows, mappings);
+        }
+
+        private static void ApplyMappings(Rule51WorkspaceStateViewModel workspace, IReadOnlyList<Rule51ColumnMapping> mappings)
+        {
+            workspace.ColumnMappings = CloneMappings(mappings);
+            workspace.ValpacCol007 = LegacyValpacColumn(mappings, 0, "_007");
+            workspace.ValpacCol008 = LegacyValpacColumn(mappings, 1, "_008");
+            workspace.ValpacCol001 = LegacyValpacColumn(mappings, 2, "_001");
+            workspace.ValpacColYear = LegacyValpacColumn(mappings, 3, "ColYear");
+            workspace.ProdColStNo = LegacyProdColumn(mappings, 0, "IAGSTNO");
+            workspace.ProdColIdNo = LegacyProdColumn(mappings, 1, "IADIDNO");
+            workspace.ProdColQual = LegacyProdColumn(mappings, 2, "IAGQUAL");
+            workspace.ProdColYear = LegacyProdColumn(mappings, 3, "IAGCYR");
+        }
+
+        private static string LegacyValpacColumn(IReadOnlyList<Rule51ColumnMapping> mappings, int index, string fallback) =>
+            mappings.Count > index && !string.IsNullOrWhiteSpace(mappings[index].ValpacColumn)
+                ? mappings[index].ValpacColumn
+                : fallback;
+
+        private static string LegacyProdColumn(IReadOnlyList<Rule51ColumnMapping> mappings, int index, string fallback) =>
+            mappings.Count > index && !string.IsNullOrWhiteSpace(mappings[index].ProdColumn)
+                ? mappings[index].ProdColumn
+                : fallback;
+
+        private static string BuildTableLinkageText(string valpacTable, string prodTable, IReadOnlyList<Rule51ColumnMapping> mappings) =>
+            string.Join(" | ", mappings.Select(m => $"{valpacTable}.{m.ValpacColumn}<>{prodTable}.{m.ProdColumn}"));
+
+        private static string BuildIndentedList(IEnumerable<string> items, string indent)
+        {
+            var materialized = items.ToList();
+            return materialized.Count == 0 ? indent : indent + string.Join("," + Environment.NewLine + indent, materialized);
+        }
+
+        private static string BuildOrderByClause(int mappingCount, bool failFirst)
+        {
+            var items = new List<string>();
+            if (failFirst)
+                // FAIL first (0), PASS_REVIEW second (1), PASS last (2)
+                items.Add($"CASE WHEN {MatchMarkerAlias} IS NULL AND SPF_STUDENT_KEY IS NULL THEN 0 WHEN {MatchMarkerAlias} IS NULL THEN 1 ELSE 2 END");
+
+            for (var i = 0; i < mappingCount; i++)
+                items.Add(ValpacDisplayAlias(i));
+
+            IEnumerable<string> orderedItems = items.Count == 0 ? new[] { "1" } : items;
+            return string.Join(", ", orderedItems);
+        }
+
+        private static string ValpacDisplayAlias(int index) => $"VALPAC_COL_{index + 1}";
+        private static string ValpacKeyAlias(int index) => $"VALPAC_KEY_{index + 1}";
+        private static string ProdDisplayAlias(int index) => $"PROD_COL_{index + 1}";
+        private static string ProdKeyAlias(int index) => $"PROD_KEY_{index + 1}";
+
+        private static string BuildDisplayReference(IReadOnlyDictionary<string, string?> values, IReadOnlyList<Rule51ColumnMapping> mappings, bool useProdValues)
+        {
+            var parts = new List<string>();
+            for (var i = 0; i < mappings.Count; i++)
+            {
+                var alias = useProdValues ? ProdDisplayAlias(i) : ValpacDisplayAlias(i);
+                var value = ReadValue(values, alias);
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                var mapping = mappings[i];
+                var label = !string.IsNullOrWhiteSpace(mapping.Label)
+                    ? mapping.Label
+                    : useProdValues ? mapping.ProdColumn : mapping.ValpacColumn;
+                parts.Add($"{label}: {value}");
+            }
+
+            return parts.Count == 0 ? "selected values unavailable" : string.Join(" | ", parts);
+        }
+
+        private static void HydrateLegacyDisplayAliases(IEnumerable<Rule51ValidationRowRecord> rows, IReadOnlyList<Rule51ColumnMapping> mappings)
+        {
+            var legacyValpacAliases = new[] { "VALPAC__007", "VALPAC__008", "VALPAC__001", "VALPAC_COLYEAR" };
+            var legacyProdAliases = new[] { "PROD_IAGSTNO", "PROD_IADIDNO", "PROD_IAGQUAL", "PROD_IAGCYR" };
+
+            foreach (var row in rows)
+            {
+                var values = row.DisplayValues;
+                var aliasCount = Math.Min(mappings.Count, legacyValpacAliases.Length);
+                for (var i = 0; i < aliasCount; i++)
+                {
+                    if (!values.ContainsKey(ValpacDisplayAlias(i)) && values.TryGetValue(legacyValpacAliases[i], out var legacyValpac))
+                        values[ValpacDisplayAlias(i)] = legacyValpac;
+                    if (!values.ContainsKey(ProdDisplayAlias(i)) && values.TryGetValue(legacyProdAliases[i], out var legacyProd))
+                        values[ProdDisplayAlias(i)] = legacyProd;
+                }
+
+                if (!values.ContainsKey(MatchMarkerAlias))
+                {
+                    var matched = mappings.Count > 0 && !string.IsNullOrWhiteSpace(ReadValue(values, ProdDisplayAlias(0)));
+                    values[MatchMarkerAlias] = matched ? "1" : null;
+                }
+
+                EnrichDisplayValues(row, mappings);
+            }
         }
 
         private static void ValidateObjectName(string value)
@@ -1135,7 +1815,15 @@ ORDER BY CASE ISNULL(rs.SignoffRole,'') WHEN 'DataAnalyst' THEN 1 WHEN 'Manager'
         private static Rule51ValidationSummary? DeserializeSummary(string? json)
         {
             if (string.IsNullOrWhiteSpace(json)) return null;
-            try { var decoded = ValidationPayloadCodec.Decode(json); return string.IsNullOrWhiteSpace(decoded) ? null : JsonConvert.DeserializeObject<Rule51ValidationSummary>(decoded); }
+            try
+            {
+                var decoded = ValidationPayloadCodec.Decode(json);
+                if (string.IsNullOrWhiteSpace(decoded)) return null;
+                var summary = JsonConvert.DeserializeObject<Rule51ValidationSummary>(decoded);
+                if (summary == null) return null;
+                ApplyMappings(summary, GetMappings(summary));
+                return summary;
+            }
             catch { return null; }
         }
 

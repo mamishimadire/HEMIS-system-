@@ -88,6 +88,11 @@
 <div class="card" style="margin-bottom:24px;padding:20px">
     <h3 class="section-title" style="margin-top:0">Signoffs</h3>
 
+    @if (!isArchived && !string.IsNullOrWhiteSpace(Model.SignoffStatusMessage) && !Model.CurrentUserHasSignedOff)
+    {
+        <div class="alert alert--info" style="margin-bottom:16px">@Model.SignoffStatusMessage</div>
+    }
+
     @if (Model.CanCurrentUserSignOff && !isArchived)
     {
         <form asp-action="AddSignoff" method="post" style="margin-bottom:16px">
@@ -102,14 +107,15 @@
             </button>
         </form>
 
-        @if (Model.CanCurrentUserRemoveSignoff)
-        {
-            <form asp-action="RemoveSignoff" method="post" style="margin-bottom:16px">
-                @Html.AntiForgeryToken()
-                <input type="hidden" name="runId" value="@Model.RunId" />
-                <button type="submit" class="btn btn-warning" onclick="return confirm('Remove the signoff for this validation run?')">Remove Signoff</button>
-            </form>
-        }
+    }
+
+    @if (Model.CanCurrentUserRemoveSignoff && !isArchived)
+    {
+        <form asp-action="RemoveSignoff" method="post" style="margin-bottom:16px">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="runId" value="@Model.RunId" />
+            <button type="submit" class="btn btn-warning" onclick="return confirm('Remove the signoff for this validation run?')">Remove Signoff</button>
+        </form>
     }
 
     @if (Model.Signoffs.Any())
@@ -229,9 +235,24 @@
         @if (canDownload)
         {
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <a asp-action="DownloadSavedExcel" asp-route-runId="@Model.RunId" class="btn btn-success">Download Excel</a>
-                <a asp-action="DownloadSavedCsv" asp-route-runId="@Model.RunId" class="btn btn-info">Download CSV</a>
-                <a asp-action="DownloadSavedSql" asp-route-runId="@Model.RunId" class="btn btn-secondary">Download SQL</a>
+                    <a asp-action="DownloadSavedExcel"
+                       asp-route-runId="@Model.RunId"
+                       class="btn btn-success"
+                       data-track-download
+                       data-download-label="Downloading Rule 12 Excel results"
+                       data-download-name="Rule12_Course_Selection.xlsx">Download Excel</a>
+                    <a asp-action="DownloadSavedCsv"
+                       asp-route-runId="@Model.RunId"
+                       class="btn btn-info"
+                       data-track-download
+                       data-download-label="Downloading Rule 12 CSV results"
+                       data-download-name="Rule12_Course_Selection.csv">Download CSV</a>
+                    <a asp-action="DownloadSavedSql"
+                       asp-route-runId="@Model.RunId"
+                       class="btn btn-secondary"
+                       data-track-download
+                       data-download-label="Downloading Rule 12 SQL results"
+                       data-download-name="Rule12_Course_Selection.sql">Download SQL</a>
             </div>
         }
         else
@@ -337,8 +358,6 @@
     document.getElementById('controlFilter')?.addEventListener('change', renderRule12Results);
     renderRule12Results();
 </script>
-
-
 
 
 

@@ -276,6 +276,21 @@ namespace HemisAudit.Controllers
 
             return Json(RequireDataAnalystResult(() => new Rule41SqlResult { Success = true, Sql = _rule48.GenerateSql(request) }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule41ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule41SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(RequireDataAnalystResult(() => new Rule41SqlResult
+            {
+                Success = true,
+                Sql = Rule48RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule48")
+            }));
+        }
 
         [HttpGet]
         public async Task<IActionResult> DownloadExcel([FromQuery] int runId)
@@ -339,7 +354,7 @@ namespace HemisAudit.Controllers
         {
             using var ms = new System.IO.MemoryStream();
             using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
-            sw.WriteLine($"\"HEMIS RULE 48 â€“ {(exceptionsOnly ? "Exceptions" : "All Results")}\"");
+            sw.WriteLine($"\"HEMIS RULE 48 Ã¢â‚¬â€œ {(exceptionsOnly ? "Exceptions" : "All Results")}\"");
             sw.WriteLine($"\"Database\",\"{summary.Database}\"");
             sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
             sw.WriteLine();
@@ -361,7 +376,7 @@ namespace HemisAudit.Controllers
                     if (row.Fields.TryGetValue(lbl, out var fv))
                         line.Append($"\"{fv.StudValue}\",\"{fv.AuditValue}\",\"{fv.Match}\",");
                     else
-                        line.Append("\"â€”\",\"â€”\",\"â€”\",");
+                        line.Append("\"Ã¢â‚¬â€\",\"Ã¢â‚¬â€\",\"Ã¢â‚¬â€\",");
                 }
                 line.Append($"\"{row.OverallResult}\",\"{row.DisagreeDetail.Replace("\"", "\"\"")}\"");
                 sw.WriteLine(line.ToString());

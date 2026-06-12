@@ -74,6 +74,22 @@
         })();
     </script>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <style>
+        #generateRScriptBtn,
+        #rScriptBtn,
+        #downloadRScriptBtn,
+        #chkSharedRScript,
+        #chkRScript,
+        [data-rscript-ui-download],
+        [data-tab="rscript"],
+        [data-tab$="rscript"],
+        [data-tab-panel="rscript"],
+        [data-tab-panel$="rscript"],
+        [onclick*="generateRScript"],
+        [onclick*="downloadRScript"] {
+            display: none !important;
+        }
+    </style>
     <script src="~/js/rule-workspace-ui.js" asp-append-version="true"></script>
     <script>
         (function () {
@@ -672,6 +688,80 @@
         window.setTimeout(function () {
             URL.revokeObjectURL(href);
         }, 0);
+    }
+
+    function activateResultsTab(tabValue) {
+        if (!tabValue) return;
+
+        var buttons = document.querySelectorAll('.results-panel .tab-btn');
+        var panes = document.querySelectorAll('.results-panel .tab-pane');
+
+        buttons.forEach(function (button) {
+            button.classList.toggle('active', button.getAttribute('data-tab') === tabValue);
+        });
+
+        panes.forEach(function (pane) {
+            pane.classList.toggle('active', pane.getAttribute('data-tab-panel') === tabValue);
+        });
+    }
+
+    window.ruleRScriptUi = window.ruleRScriptUi || {
+        disabledMessage: 'R script generation has been removed from the system.',
+        disableAll: function () {
+            var selectors = [
+                '#generateRScriptBtn',
+                '#rScriptBtn',
+                '#downloadRScriptBtn',
+                '#chkSharedRScript',
+                '#chkRScript',
+                '[data-rscript-ui-download]',
+                '[data-tab="rscript"]',
+                '[data-tab$="rscript"]',
+                '[data-tab-panel="rscript"]',
+                '[data-tab-panel$="rscript"]',
+                '[onclick*="generateRScript"]',
+                '[onclick*="downloadRScript"]'
+            ];
+
+            document.querySelectorAll(selectors.join(',')).forEach(function (element) {
+                if (!element) {
+                    return;
+                }
+
+                if (element.id === 'chkSharedRScript' || element.id === 'chkRScript') {
+                    var label = element.closest('label');
+                    if (label) {
+                        label.style.display = 'none';
+                    }
+                }
+
+                element.style.display = 'none';
+                element.setAttribute('aria-hidden', 'true');
+                if ('disabled' in element) {
+                    element.disabled = true;
+                }
+            });
+
+            var activeRTab = document.querySelector('.results-tabs [data-tab].active[data-tab$="rscript"], .results-tabs [data-tab].active[data-tab="rscript"]');
+            if (activeRTab) {
+                var fallbackTab = document.querySelector('.results-tabs [data-tab="sql"], .results-tabs [data-tab="validation"], .results-tabs [data-tab="analysis"], .results-tabs [data-tab]');
+                if (fallbackTab && fallbackTab !== activeRTab) {
+                    fallbackTab.click();
+                }
+            }
+        },
+        install: function () {
+            this.disableAll();
+            return false;
+        }
+    };
+
+    window.ruleRScriptUi.disableAll();
+    if (typeof MutationObserver === 'function' && document.body) {
+        var rScriptUiObserver = new MutationObserver(function () {
+            window.ruleRScriptUi.disableAll();
+        });
+        rScriptUiObserver.observe(document.body, { childList: true, subtree: true });
     }
 
     window.isAppDownloadInProgress = function () {

@@ -360,6 +360,21 @@ namespace HemisAudit.Controllers
                     Sql = await _rule22.GenerateSqlAsync(request)
                 }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule22ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule22SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule22SqlResult
+            {
+                Success = true,
+                Sql = Rule22RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule22")
+            }));
+        }
 
         [HttpPost]
         public async Task<IActionResult> SignOffWorkspace([FromBody] Rule22WorkspaceSignoffInputModel model)

@@ -17,7 +17,7 @@ namespace HemisAudit.Services
         private static readonly IReadOnlyList<JoinDatasetTemplate> Rule10JoinDatasets =
         [
             new("dbo_CREG", "dbo_CREG", "dbo_CREG", ["_030", "_001"], ["_001+_030"]),
-            new("dbo_CRSE", "dbo_CRSE", "dbo_CRSE", ["_030"], []),
+            new("dbo_CRSE", "dbo_CRSE", "dbo_CRSE", ["_030", "_058"], []),
             new("dbo_STUD", "dbo_STUD", "dbo_STUD", ["_007", "_001"], ["_007+_001"]),
             new("dbo_QUAL", "dbo_QUAL", "dbo_QUAL", ["_001"], []),
             new("dbo_CESM", "dbo_CESM", "dbo_CESM", ["_001"], []),
@@ -705,8 +705,10 @@ SELECT 'dbo_CRSE' AS TableName, COUNT(*) AS RecordCount FROM [{Sanitise(request.
 -- Table Scope: {definition.TableName}
 -- Severity: {definition.Severity}
 -- ============================================================
+{(string.IsNullOrWhiteSpace(definition.PrepSql) ? "" : definition.PrepSql.Trim() + "\n\n")}-- Exception count:
 {definition.CountSql}
 
+-- Full detail:
 {definition.ReviewSql}
 ";
             }
@@ -1183,15 +1185,10 @@ WHERE RunID = @RunID;";
             var parameters = ParseRuleParameters(request.RuleParameterJson, request.RuleNumber);
             var rule5PlaceholderValue = ResolveRuleParameterValue(parameters.MatchValue, "9999999");
             var rule5PlaceholderValueSql = ToSqlLiteral(rule5PlaceholderValue);
-            var rule7ContextColumn = ResolveSelectedColumn(parameters.ContextColumn);
+            var rule7ContextColumn = ResolveSelectedColumn(parameters.ContextColumn, "_007");
             var rule7ContextColumnSafe = Sanitise(rule7ContextColumn);
-            var rule8ContextColumn = ResolveSelectedColumn(parameters.ContextColumn);
+            var rule8ContextColumn = ResolveSelectedColumn(parameters.ContextColumn, "_007");
             var rule8ContextColumnSafe = Sanitise(rule8ContextColumn);
-            var rule9CregContextColumn = ResolveSelectedColumn(parameters.ContextColumn);
-            var rule9CregContextColumnSafe = Sanitise(rule9CregContextColumn);
-            var rule9StudContextColumn = ResolveSelectedColumn(parameters.SecondaryContextColumn);
-            var rule9StudContextColumnSafe = Sanitise(rule9StudContextColumn);
-
             var qualValue = $"LTRIM(RTRIM(CONVERT(nvarchar(255), q.[{qualColumn}])))";
             var studValue = $"LTRIM(RTRIM(CONVERT(nvarchar(255), s.[{studColumn}])))";
             var cregValue = $"LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregColumn}])))";
@@ -1208,7 +1205,7 @@ WHERE RunID = @RunID;";
             var rule6Criteria = $"ISBLANK({request.StudTable}.{studColumn})";
             var rule7Criteria = $"ISBLANK({request.StudTable}.{studColumn}) OR {request.StudTable}.{studColumn} <> {request.QualTable}.{qualColumn}";
             var rule8Criteria = $"ISBLANK({request.CregTable}.{cregColumn}) OR {request.CregTable}.{cregColumn} <> {request.CrseTable}.{crseColumn}";
-            var rule9Criteria = $"{request.CregTable}.{cregColumn} = {request.StudTable}.{studColumn} AND {request.CregTable}.{rule9CregContextColumnSafe} = {request.StudTable}.{rule9StudContextColumnSafe}";
+            var rule9Criteria = $"ISBLANK({request.CregTable}.{cregColumn}) OR {request.CregTable}.{cregColumn} <> {request.StudTable}.{studColumn}";
             var failPreviewTake = Math.Max(BrowserPreviewRowLimit / 2, 1);
             var passPreviewTake = Math.Max(BrowserPreviewRowLimit - failPreviewTake, 1);
             var rule8PrepSql = $@"
@@ -1271,94 +1268,49 @@ OUTER APPLY
 ORDER BY CASE WHEN cr.IS_BLANK = 1 OR cs.NORMALIZED_JOIN_VALUE IS NULL THEN 0 ELSE 1 END, cr.STUDENT_COLUMN_VALUE;";
             var rule9PrepSql = $@"
 DROP TABLE IF EXISTS #Rule9Creg;
-DROP TABLE IF EXISTS #Rule9StudRaw;
 DROP TABLE IF EXISTS #Rule9Stud;
 
 SELECT
-    CONVERT(nvarchar(255), cr.[{cregColumn}]) AS LEFT_STUDENT_COLUMN_VALUE,
-    CONVERT(nvarchar(255), cr.[{rule9CregContextColumnSafe}]) AS LEFT_COLUMN_VALUE,
-    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregColumn}])))) AS NORMALIZED_JOIN_VALUE,
-    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{rule9CregContextColumnSafe}])))) AS NORMALIZED_CONTEXT_VALUE,
-    CASE
-        WHEN cr.[{cregColumn}] IS NULL OR LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{cregColumn}]))) = ''
-            THEN 1
-        ELSE 0
-    END AS IS_STUDENT_BLANK,
-    CASE
-        WHEN cr.[{rule9CregContextColumnSafe}] IS NULL OR LTRIM(RTRIM(CONVERT(nvarchar(255), cr.[{rule9CregContextColumnSafe}]))) = ''
-            THEN 1
-        ELSE 0
-    END AS IS_CONTEXT_BLANK
+    cr.[RowNo],
+    LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(50), cr.[{cregColumn}]), ''))) AS StudentNo,
+    cr.[InstCode],
+    cr.[ColYear]
 INTO #Rule9Creg
 FROM [{creg}] cr;
 
-CREATE NONCLUSTERED INDEX IX_Rule9Creg_Normalized
-ON #Rule9Creg (NORMALIZED_JOIN_VALUE, NORMALIZED_CONTEXT_VALUE)
-INCLUDE (IS_STUDENT_BLANK, IS_CONTEXT_BLANK, LEFT_STUDENT_COLUMN_VALUE, LEFT_COLUMN_VALUE);
+CREATE INDEX IX_Rule9Creg ON #Rule9Creg (StudentNo);
 
-SELECT
-    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), s.[{studColumn}])))) AS NORMALIZED_JOIN_VALUE,
-    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), s.[{rule9StudContextColumnSafe}])))) AS NORMALIZED_CONTEXT_VALUE,
-    LTRIM(RTRIM(CONVERT(nvarchar(255), s.[{studColumn}]))) AS RIGHT_STUDENT_COLUMN_VALUE,
-    LTRIM(RTRIM(CONVERT(nvarchar(255), s.[{rule9StudContextColumnSafe}]))) AS RIGHT_COLUMN_VALUE
+SELECT DISTINCT
+    LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(50), s.[{studColumn}]), ''))) AS StudentNo
 INTO #Rule9Stud
 FROM [{stud}] s
 WHERE s.[{studColumn}] IS NOT NULL
-  AND LTRIM(RTRIM(CONVERT(nvarchar(255), s.[{studColumn}]))) <> '';
+  AND LTRIM(RTRIM(CONVERT(nvarchar(50), s.[{studColumn}]))) <> '';
 
-CREATE NONCLUSTERED INDEX IX_Rule9Stud_Normalized
-ON #Rule9Stud (NORMALIZED_JOIN_VALUE, NORMALIZED_CONTEXT_VALUE)
-INCLUDE (RIGHT_STUDENT_COLUMN_VALUE, RIGHT_COLUMN_VALUE);";
-            var rule9ReviewProjection = $@"SELECT
+CREATE INDEX IX_Rule9Stud ON #Rule9Stud (StudentNo);";
+            var rule9ReviewSql = $@"SELECT
+'FAIL' AS Validation_Result,
 CASE
-    WHEN cr.IS_STUDENT_BLANK = 1 OR cr.IS_CONTEXT_BLANK = 1 OR studentMatch.NORMALIZED_JOIN_VALUE IS NULL OR exactMatch.NORMALIZED_JOIN_VALUE IS NULL THEN 'FAIL'
-    ELSE 'PASS'
-END AS Validation_Result,
-CASE
-    WHEN cr.IS_STUDENT_BLANK = 1 THEN 'fail because the selected student value is blank in the CREG table'
-    WHEN cr.IS_CONTEXT_BLANK = 1 THEN 'fail because the selected course value is blank in the CREG table'
-    WHEN studentMatch.NORMALIZED_JOIN_VALUE IS NULL THEN CONCAT('fail because student number ', cr.LEFT_STUDENT_COLUMN_VALUE, ' is missing in ', '{request.StudTable}')
-    WHEN exactMatch.NORMALIZED_JOIN_VALUE IS NULL THEN CONCAT('fail because student number ', cr.LEFT_STUDENT_COLUMN_VALUE, ' exists in both tables but course value ', cr.LEFT_COLUMN_VALUE, ' from ', '{request.CregTable}', ' does not match ', '{request.StudTable}')
-    ELSE CONCAT('pass because student number ', cr.LEFT_STUDENT_COLUMN_VALUE, ' is in both tables and course value ', cr.LEFT_COLUMN_VALUE, ' matches')
+    WHEN c.StudentNo = '' THEN 'Blank Student Number'
+    ELSE 'Student Not in STUD Table'
 END AS Validation_Explanation,
 CASE
-    WHEN cr.IS_STUDENT_BLANK = 1 OR cr.IS_CONTEXT_BLANK = 1 OR studentMatch.NORMALIZED_JOIN_VALUE IS NULL OR exactMatch.NORMALIZED_JOIN_VALUE IS NULL
-        THEN 'Ghost Student Registration'
-    ELSE 'Valid Student Registration'
+    WHEN c.StudentNo = '' THEN 'Blank Student Number'
+    ELSE 'Student Not in STUD Table'
 END AS Exception_Type,
-'{request.CregTable}' AS LEFT_TABLE_NAME, '{cregColumn}' AS LEFT_STUDENT_COLUMN_NAME, cr.LEFT_STUDENT_COLUMN_VALUE AS LEFT_STUDENT_COLUMN_VALUE,
-'{request.CregTable}' AS LEFT_CONTEXT_TABLE_NAME, '{rule9CregContextColumnSafe}' AS LEFT_COLUMN_NAME, cr.LEFT_COLUMN_VALUE AS LEFT_COLUMN_VALUE,
-'{request.StudTable}' AS RIGHT_TABLE_NAME, '{studColumn}' AS RIGHT_STUDENT_COLUMN_NAME, COALESCE(exactMatch.RIGHT_STUDENT_COLUMN_VALUE, studentMatch.RIGHT_STUDENT_COLUMN_VALUE) AS RIGHT_STUDENT_COLUMN_VALUE,
-'{request.StudTable}' AS RIGHT_CONTEXT_TABLE_NAME, '{rule9StudContextColumnSafe}' AS RIGHT_COLUMN_NAME, COALESCE(exactMatch.RIGHT_COLUMN_VALUE, studentMatch.RIGHT_COLUMN_VALUE) AS RIGHT_COLUMN_VALUE,
+c.[RowNo],
+c.StudentNo,
+c.[InstCode],
+c.[ColYear],
 CASE
-    WHEN cr.IS_STUDENT_BLANK = 1 THEN 'fail because the selected student value is blank in the CREG table'
-    WHEN cr.IS_CONTEXT_BLANK = 1 THEN 'fail because the selected course value is blank in the CREG table'
-    WHEN studentMatch.NORMALIZED_JOIN_VALUE IS NULL THEN CONCAT('fail because student number ', cr.LEFT_STUDENT_COLUMN_VALUE, ' is missing in ', '{request.StudTable}')
-    WHEN exactMatch.NORMALIZED_JOIN_VALUE IS NULL THEN CONCAT('fail because student number ', cr.LEFT_STUDENT_COLUMN_VALUE, ' exists in both tables but course value ', cr.LEFT_COLUMN_VALUE, ' from ', '{request.CregTable}', ' does not match ', '{request.StudTable}')
-    ELSE CONCAT('pass because student number ', cr.LEFT_STUDENT_COLUMN_VALUE, ' is in both tables and course value ', cr.LEFT_COLUMN_VALUE, ' matches')
+    WHEN c.StudentNo = '' THEN 'Blank Student Number'
+    ELSE 'Student Not in STUD Table'
 END AS FINAL_RESULT_MESSAGE
-FROM #Rule9Creg cr
-OUTER APPLY
-(
-    SELECT TOP 1
-        st.NORMALIZED_JOIN_VALUE,
-        st.RIGHT_STUDENT_COLUMN_VALUE,
-        st.RIGHT_COLUMN_VALUE
-    FROM #Rule9Stud st
-    WHERE st.NORMALIZED_JOIN_VALUE = cr.NORMALIZED_JOIN_VALUE
-) studentMatch
-OUTER APPLY
-(
-    SELECT TOP 1
-        st.NORMALIZED_JOIN_VALUE,
-        st.RIGHT_STUDENT_COLUMN_VALUE,
-        st.RIGHT_COLUMN_VALUE
-    FROM #Rule9Stud st
-    WHERE st.NORMALIZED_JOIN_VALUE = cr.NORMALIZED_JOIN_VALUE
-      AND st.NORMALIZED_CONTEXT_VALUE = cr.NORMALIZED_CONTEXT_VALUE
-) exactMatch";
-            var rule9ReviewSql = $@"{rule9ReviewProjection}
-ORDER BY CASE WHEN cr.IS_STUDENT_BLANK = 1 OR cr.IS_CONTEXT_BLANK = 1 OR studentMatch.NORMALIZED_JOIN_VALUE IS NULL OR exactMatch.NORMALIZED_JOIN_VALUE IS NULL THEN 0 ELSE 1 END, cr.LEFT_STUDENT_COLUMN_VALUE;";
+FROM #Rule9Creg c
+LEFT JOIN #Rule9Stud s ON s.StudentNo = c.StudentNo
+WHERE c.StudentNo = ''
+   OR s.StudentNo IS NULL
+ORDER BY Exception_Type, c.StudentNo;";
 
             var definitions = new List<IntegrityRuleDefinition>
             {
@@ -1515,22 +1467,10 @@ WHERE cr.IS_BLANK = 1
                     rule8PrepSql),
                 new(9, "Course registrations for ghost students", rule9Criteria, $"{request.CregTable} -> {request.StudTable}", "High",
                     @"SELECT COUNT(*)
-FROM #Rule9Creg cr
-WHERE cr.IS_STUDENT_BLANK = 1
-   OR cr.IS_CONTEXT_BLANK = 1
-   OR NOT EXISTS
-   (
-       SELECT 1
-       FROM #Rule9Stud s
-       WHERE s.NORMALIZED_JOIN_VALUE = cr.NORMALIZED_JOIN_VALUE
-   )
-   OR NOT EXISTS
-   (
-       SELECT 1
-       FROM #Rule9Stud s
-       WHERE s.NORMALIZED_JOIN_VALUE = cr.NORMALIZED_JOIN_VALUE
-         AND s.NORMALIZED_CONTEXT_VALUE = cr.NORMALIZED_CONTEXT_VALUE
-   );",
+FROM #Rule9Creg c
+LEFT JOIN #Rule9Stud s ON s.StudentNo = c.StudentNo
+WHERE c.StudentNo = ''
+   OR s.StudentNo IS NULL;",
                     @"SELECT COUNT(*) FROM #Rule9Creg;",
                     rule9ReviewSql,
                     null,
@@ -1632,7 +1572,7 @@ FROM
             EnsureHasColumns(qualTable, qualColumns, "_001", "_002", "_003", "_004", "_005");
             EnsureHasColumns(studTable, studColumns, "_001", "_007", "_019", "_024", "_025", "_106");
             EnsureHasColumns(cregTable, cregColumns, "_001", "_007", "_030", "_032");
-            EnsureHasColumns(crseTable, crseColumns, "_030");
+            EnsureHasColumns(crseTable, crseColumns, "_030", "_058");
         }
 
         private async Task EnsureColumnsExistAsync(Rule10ValidationRequest request)
@@ -1675,7 +1615,7 @@ FROM
                         request.StudTable,
                         await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.StudTable),
                         ResolveSelectedColumn(request.StudColumn),
-                        ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn));
+                        ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn, "_007"));
                     EnsureHasColumns(
                         request.QualTable,
                         await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.QualTable),
@@ -1686,7 +1626,7 @@ FROM
                         request.CregTable,
                         await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.CregTable),
                         ResolveSelectedColumn(request.CregColumn),
-                        ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn));
+                        ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn, "_007"));
                     EnsureHasColumns(
                         request.CrseTable,
                         await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.CrseTable),
@@ -1696,13 +1636,11 @@ FROM
                     EnsureHasColumns(
                         request.CregTable,
                         await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.CregTable),
-                        ResolveSelectedColumn(request.CregColumn),
-                        ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn));
+                        ResolveSelectedColumn(request.CregColumn));
                     EnsureHasColumns(
                         request.StudTable,
                         await GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.StudTable),
-                        ResolveSelectedColumn(request.StudColumn),
-                        ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).SecondaryContextColumn));
+                        ResolveSelectedColumn(request.StudColumn));
                     break;
                 case 10:
                     await VerifyRule10JoinDatasetsAsync(
@@ -2035,22 +1973,20 @@ ORDER BY c.column_id;";
                     ValidateObjectName(request.QualTable);
                     ValidateObjectName(ResolveSelectedColumn(request.StudColumn));
                     ValidateObjectName(ResolveSelectedColumn(request.QualColumn));
-                    ValidateObjectName(ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn));
+                    ValidateObjectName(ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn, "_007"));
                     break;
                 case 8:
                     ValidateObjectName(request.CregTable);
                     ValidateObjectName(request.CrseTable);
                     ValidateObjectName(ResolveSelectedColumn(request.CregColumn));
                     ValidateObjectName(ResolveSelectedColumn(request.CrseColumn));
-                    ValidateObjectName(ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn));
+                    ValidateObjectName(ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn, "_007"));
                     break;
                 case 9:
                     ValidateObjectName(request.CregTable);
                     ValidateObjectName(request.StudTable);
                     ValidateObjectName(ResolveSelectedColumn(request.CregColumn));
                     ValidateObjectName(ResolveSelectedColumn(request.StudColumn));
-                    ValidateObjectName(ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).ContextColumn));
-                    ValidateObjectName(ResolveSelectedColumn(ParseRuleParameters(request.RuleParameterJson, request.RuleNumber).SecondaryContextColumn));
                     break;
                 case 10:
                     foreach (var dataset in ResolveRule10JoinDatasets(request.Rule10JoinConfigJson))
@@ -2100,7 +2036,6 @@ ORDER BY c.column_id;";
             5 => JsonConvert.SerializeObject(new IntegrityRuleParameterSet { MatchValue = "9999999" }),
             7 => JsonConvert.SerializeObject(new IntegrityRuleParameterSet { ContextColumn = "_007" }),
             8 => JsonConvert.SerializeObject(new IntegrityRuleParameterSet { ContextColumn = "_007" }),
-            9 => JsonConvert.SerializeObject(new IntegrityRuleParameterSet { ContextColumn = "_001", SecondaryContextColumn = "_001" }),
             _ => ""
         };
 
@@ -2119,6 +2054,8 @@ ORDER BY c.column_id;";
             var fallback = ruleNumber switch
             {
                 5 => new IntegrityRuleParameterSet { MatchValue = "9999999" },
+                7 => new IntegrityRuleParameterSet { ContextColumn = "_007" },
+                8 => new IntegrityRuleParameterSet { ContextColumn = "_007" },
                 _ => new IntegrityRuleParameterSet()
             };
 

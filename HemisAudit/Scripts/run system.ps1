@@ -132,6 +132,29 @@ function Open-Browser {
     }
 }
 
+function Resolve-LaunchLogPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BasePath
+    )
+
+    if (-not (Test-Path $BasePath)) {
+        return $BasePath
+    }
+
+    try {
+        Remove-Item -LiteralPath $BasePath -Force -ErrorAction Stop
+        return $BasePath
+    }
+    catch {
+        $directory = Split-Path -Parent $BasePath
+        $fileName = [System.IO.Path]::GetFileNameWithoutExtension($BasePath)
+        $extension = [System.IO.Path]::GetExtension($BasePath)
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        return (Join-Path $directory "$fileName.$timestamp$extension")
+    }
+}
+
 function Start-HemisAudit {
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
         throw ".NET SDK was not found on PATH. Install .NET, then run this script again."
@@ -149,8 +172,8 @@ function Start-HemisAudit {
         throw "dotnet build failed with exit code $LASTEXITCODE. Fix build errors and try again."
     }
 
-    if (Test-Path $stdoutLog) { Remove-Item $stdoutLog -Force }
-    if (Test-Path $stderrLog) { Remove-Item $stderrLog -Force }
+    $script:stdoutLog = Resolve-LaunchLogPath -BasePath $stdoutLog
+    $script:stderrLog = Resolve-LaunchLogPath -BasePath $stderrLog
 
     $dllPath = Join-Path $buildFolder "HemisAudit.dll"
     if (-not (Test-Path $dllPath)) {
@@ -188,6 +211,7 @@ if ($existingProcesses.Count -gt 0) {
         $statusText = if (Test-UrlReady -Url $existing.Url -TimeoutSeconds 5) { "running" } else { "stale" }
         Write-Host "Stopping $statusText HemisAudit process on $($existing.Url) (PID $($existing.ProcessId)) so the latest build is always launched..." -ForegroundColor Yellow
         Stop-Process -Id $existing.ProcessId -Force -ErrorAction SilentlyContinue
+        Wait-Process -Id $existing.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
     }
 
     Start-Sleep -Seconds 2

@@ -8,6 +8,11 @@
     var canOpenWorkspace = ViewBag.CanOpenWorkspace is bool openWorkspace && openWorkspace;
     var isArchived = ViewBag.IsArchived is bool archived && archived;
     var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+    var usesClientComparison =
+        !string.IsNullOrWhiteSpace(Model.Summary.ClientTableName) &&
+        !string.IsNullOrWhiteSpace(Model.Summary.ClientJoinColumn);
+    var censusValueLabel = usesClientComparison ? "Client Census Date" : "Stored Census Date";
+    var censusColumnLabel = usesClientComparison ? "Client Census Date Column" : "Census Date Column";
 }
 
 @if (TempData["Success"] != null)
@@ -190,8 +195,16 @@
                     <div>@Model.Summary.TableName</div>
                 </div>
                 <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Client Census Table</div>
+                    <div>@(usesClientComparison ? Model.Summary.ClientTableName : "(not used)")</div>
+                </div>
+                <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Columns</div>
-                    <div>@Model.Summary.FirstDayColumn | @Model.Summary.LastDayColumn | @Model.Summary.CensusDateColumn</div>
+                    <div>@Model.Summary.FirstDayColumn | @Model.Summary.LastDayColumn | @censusColumnLabel: @Model.Summary.CensusDateColumn</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Join Mapping</div>
+                    <div>@(string.IsNullOrWhiteSpace(Model.Summary.BlockColumn) ? "(not selected)" : Model.Summary.BlockColumn) -> @(usesClientComparison ? Model.Summary.ClientJoinColumn : "(not used)")</div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Holiday Years</div>
@@ -228,7 +241,7 @@
                             <th>c_Days_2</th>
                             <th>Prepared Census Date</th>
                             <th>Actual Census Date</th>
-                            <th>Stored Census Date</th>
+                            <th>@censusValueLabel</th>
                             <th>Day Status</th>
                             <th>Validation Status</th>
                         </tr>
@@ -283,7 +296,7 @@
                             <th>Last Day</th>
                             <th>Prepared Census Date</th>
                             <th>Actual Census Date</th>
-                            <th>Stored Census Date</th>
+                            <th>@censusValueLabel</th>
                             <th>Day Status</th>
                             <th>Result</th>
                         </tr>

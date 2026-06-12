@@ -276,6 +276,21 @@ namespace HemisAudit.Controllers
 
             return Json(RequireDataAnalystResult(() => new Rule40SqlResult { Success = true, Sql = _rule40.GenerateSql(request) }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule40ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule40SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(RequireDataAnalystResult(() => new Rule40SqlResult
+            {
+                Success = true,
+                Sql = Rule40RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule40")
+            }));
+        }
 
         [HttpGet]
         public async Task<IActionResult> DownloadExcel([FromQuery] int runId)
@@ -327,14 +342,14 @@ namespace HemisAudit.Controllers
             return File(bytes, "application/sql", $"Rule40_PROF_Agreement_Run_{runId}.sql");
         }
 
-        // â”€â”€ Private helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Ã¢â€â‚¬Ã¢â€â‚¬ Private helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
         private static byte[] BuildExcelExport(Rule40ValidationSummary summary)
         {
             using var ms = new System.IO.MemoryStream();
             using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
 
-            sw.WriteLine("HEMIS RULE 40 â€“ PROF ASCII Staff Agreement");
+            sw.WriteLine("HEMIS RULE 40 Ã¢â‚¬â€œ PROF ASCII Staff Agreement");
             sw.WriteLine($"Database: {summary.Database}  |  Timestamp: {summary.Timestamp}");
             sw.WriteLine();
 
@@ -351,7 +366,7 @@ namespace HemisAudit.Controllers
             using var ms = new System.IO.MemoryStream();
             using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
 
-            sw.WriteLine($"\"HEMIS RULE 40 â€“ {(exceptionsOnly ? "Exceptions" : "All Results")}\"");
+            sw.WriteLine($"\"HEMIS RULE 40 Ã¢â‚¬â€œ {(exceptionsOnly ? "Exceptions" : "All Results")}\"");
             sw.WriteLine($"\"Database\",\"{summary.Database}\"");
             sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
             sw.WriteLine();
@@ -386,7 +401,7 @@ namespace HemisAudit.Controllers
                     if (row.Fields.TryGetValue(lbl, out var fv))
                         line.Append($"\"{fv.ProfValue}\",\"{fv.OtherValue}\",\"{fv.Match}\",");
                     else
-                        line.Append("\"â€”\",\"â€”\",\"â€”\",");
+                        line.Append("\"Ã¢â‚¬â€\",\"Ã¢â‚¬â€\",\"Ã¢â‚¬â€\",");
                 }
                 line.Append($"\"{row.OverallResult}\",\"{row.DisagreeDetail.Replace("\"", "\"\"")}\"");
                 sw.WriteLine(line.ToString());

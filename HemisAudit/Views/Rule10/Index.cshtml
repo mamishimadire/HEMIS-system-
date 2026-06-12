@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @using HemisAudit.ViewModels
 @{
     var ruleNumber = ViewBag.RuleNumber is int currentRuleNumber ? currentRuleNumber : 10;
@@ -374,6 +374,7 @@
             <button type="button" class="btn btn-info" id="verifyBtn">Verify Tables</button>
             <button type="button" class="btn btn-success" id="runBtn">Run @ruleLabel</button>
             <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+                <button type="button" class="btn btn-primary" id="rScriptBtn">Generate R Script</button>
             <button type="button" class="btn btn-warning" id="downloadAllBtn" disabled>Download All</button>
         </div>
     }
@@ -384,12 +385,16 @@
             <button class="tab-btn" type="button" data-tab="results">Results</button>
             <button class="tab-btn" type="button" data-tab="charts">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+                <button class="tab-btn" type="button" data-tab="rscript">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
         </div>
         <div class="tab-pane active" data-tab-panel="analysis" id="analysisPane"></div>
         <div class="tab-pane" data-tab-panel="results" id="resultsPane"></div>
         <div class="tab-pane" data-tab-panel="charts" id="chartsPane"></div>
         <div class="tab-pane" data-tab-panel="sql"><textarea id="sqlText" rows="18" readonly></textarea></div>
+        <div class="tab-pane" data-tab-panel="rscript" id="rscriptPane">
+            <div class="empty-state" style="padding:24px;text-align:center"><p>Click "Generate R Script" to generate the R script.</p></div>
+        </div>
         <div class="tab-pane" data-tab-panel="downloads">
             <div class="alert alert--info" style="margin-bottom:16px">
                 Excel includes the summary and full exception detail. CSV includes the current exception detail. SQL includes the query generated for @ruleLabel.
@@ -1481,6 +1486,7 @@ window.toggleAccordion = function (section) {
             { target: 'verifyBtn', disabled: !canEdit || signoffLocked },
             { target: 'runBtn', disabled: !canEdit || signoffLocked },
             { target: 'sqlBtn', disabled: !canEdit || signoffLocked },
+            { target: 'rScriptBtn', disabled: !canEdit || signoffLocked },
             { target: els.beginEditBtn, disabled: signoffLocked || !canEdit || !state.currentRunId || state.hasPendingValidation },
             { target: els.saveWorkspaceBtn, disabled: signoffLocked || !canEdit || !hasUnsavedValidation },
             { target: els.signoffBtn, disabled: signoffLocked || !canSign, text: state.currentUserHasSignedOff ? `Signed Off as ${role || currentSystemRole}` : 'Save Signoff' },
@@ -1959,7 +1965,20 @@ window.toggleAccordion = function (section) {
     document.getElementById('verifyBtn')?.addEventListener('click', () => verifyTables().catch(err => setAlert(els.configOutput, 'error', err.message)));
     document.getElementById('runBtn')?.addEventListener('click', () => runValidation().catch(err => setWorkspaceState(err.message, 'error')));
     document.getElementById('sqlBtn')?.addEventListener('click', () => generateSql().catch(err => setWorkspaceState(err.message, 'error')));
-    document.getElementById('downloadAllBtn')?.addEventListener('click', () => downloadAll().catch(err => setWorkspaceState(err.message, 'error')));
+    document.getElementById('rScriptBtn')?.addEventListener('click', () => generateRScript().catch(err => setWorkspaceState(err.message, 'error')));
+        async function generateRScript() {
+        showSpinner('Generating R script...');
+        try {
+            const data = await postJson(`${apiBasePath}/GenerateRScript`, getRequest());
+            if (!data.success) throw new Error(data.error || 'R script generation failed.');
+            const pane = document.getElementById('rscriptPane');
+            pane.innerHTML = `<div style="padding:8px 0 8px"><button class="btn btn-sm btn-primary" onclick="(function(){const e=document.getElementById('rCode');if(e)navigator.clipboard.writeText(e.textContent)})()">Copy</button></div><pre id="rCode" style="white-space:pre-wrap;font-family:monospace;font-size:12px;padding:12px;overflow:auto;max-height:600px">${escapeHtml(data.sql)}</pre>`;
+            setActiveTab('rscript');
+        } finally {
+            hideSpinner();
+        }
+    }
+document.getElementById('downloadAllBtn')?.addEventListener('click', () => downloadAll().catch(err => setWorkspaceState(err.message, 'error')));
     document.getElementById('downloadExcelBtn')?.addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadExcel`, state.summary, `Rule${ruleNumber}_Integrity_Check.xlsx`));
     document.getElementById('downloadCsvBtn')?.addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadCsv`, state.summary, `Rule${ruleNumber}_Integrity_Check.csv`));
     document.getElementById('downloadSqlBtn')?.addEventListener('click', () => downloadBlob(`${apiBasePath}/DownloadSql`, getRequest(), `Rule${ruleNumber}_Integrity_Check.sql`));
@@ -2000,5 +2019,23 @@ window.toggleAccordion = function (section) {
     renderResults();
     renderCharts();
     updateWorkspaceButtons();
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>

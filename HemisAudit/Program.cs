@@ -150,6 +150,8 @@ builder.Services.AddScoped<IRule58Service, Rule58Service>();
 builder.Services.AddScoped<IRule59Service, Rule59Service>();
 builder.Services.AddScoped<IRule60Service, Rule60Service>();
 builder.Services.AddScoped<IRule61Service, Rule61Service>();
+builder.Services.AddScoped<IRule62Service, Rule62Service>();
+builder.Services.AddScoped<IRule63Service, Rule63Service>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddSingleton<IValidationOperationService, ValidationOperationService>();
@@ -187,6 +189,21 @@ app.UseStaticFiles(new StaticFileOptions
 });
 app.UseRouting();
 app.UseSession();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.Value?.EndsWith("/GenerateRScript", StringComparison.OrdinalIgnoreCase) == true)
+    {
+        context.Response.StatusCode = StatusCodes.Status410Gone;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            success = false,
+            error = "R script generation has been removed from the system."
+        });
+        return;
+    }
+
+    await next();
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (context, next) =>
@@ -478,6 +495,26 @@ app.MapControllerRoute(
     name: "rule61-short",
     pattern: "Rule61",
     defaults: new { controller = "Rule61", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule62-run",
+    pattern: "Rule62/Run/{id:int}",
+    defaults: new { controller = "Rule62", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule62-short",
+    pattern: "Rule62",
+    defaults: new { controller = "Rule62", action = "Index" });
+
+app.MapControllerRoute(
+    name: "rule63-run",
+    pattern: "Rule63/Run/{id:int}",
+    defaults: new { controller = "Rule63", action = "Run" });
+
+app.MapControllerRoute(
+    name: "rule63-short",
+    pattern: "Rule63",
+    defaults: new { controller = "Rule63", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule58-run",

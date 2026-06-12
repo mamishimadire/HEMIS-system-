@@ -267,6 +267,21 @@ namespace HemisAudit.Controllers
                 return Json(new Rule52SqlResult { Success = false, Error = "You cannot access this engagement." });
             return Json(await RequireDataAnalystAsync(async () => new Rule52SqlResult { Success = true, Sql = await _Rule52.GenerateSqlAsync(request) }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule52ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new Rule52SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(await RequireDataAnalystAsync(async () => new Rule52SqlResult
+            {
+                Success = true,
+                Sql = Rule52RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule52")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule52RunSignoffInputModel model)
@@ -364,7 +379,7 @@ namespace HemisAudit.Controllers
             return File(_export.ExportSql(await _Rule52.GenerateSqlAsync(request)), "application/sql", $"Rule52_VALPAC_Production_{Ts()}.sql");
         }
 
-        // ─── Private helpers ──────────────────────────────────────────────────
+        // â”€â”€â”€ Private helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private async Task<Rule52RunReviewViewModel?> LoadAuthorizedSavedRunAsync(int runId, bool requireDownloadAccess)
         {

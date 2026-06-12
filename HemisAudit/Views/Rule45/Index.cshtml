@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 45 – STU vs H16STU Agreement";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -53,7 +53,7 @@
         <div>
             <h1 class="rule-header__title">HEMIS RULE 45: STU vs H16STU Agreement</h1>
             <p class="rule-header__sub">
-                Full outer reconciliation — <code>STU</code> vs <code>H16STU</code>.
+                Full outer reconciliation — <code>STU</code> vs <code>H16STU</code>.
                 Join key: <code>_007</code> (STU) &harr; <code>_007</code> (H16STU).
             </p>
         </div>
@@ -202,10 +202,10 @@
             <div id="r45AnalysisPane"><div class="empty-state"><p>Run Rule 45 validation to see results here.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r45-flagged">
-            <div id="r45FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
+            <div id="r45FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r45-clear">
-            <div id="r45ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
+            <div id="r45ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r45-sql">
             <textarea id="r45SqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
@@ -373,7 +373,7 @@ window.r45Tab = function(tab) {
             unspin();
             if (!d.success) { setStatus('r45ConnOut', d.error || 'Connection failed.', 'error'); return; }
             fillSel('r45Db', d.databases || []);
-            setStatus('r45ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
+            setStatus('r45ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
             if ((d.databases || []).length) r45LoadTables();
         }).catch(function(e) { unspin(); setStatus('r45ConnOut', e.message, 'error'); });
     };
@@ -389,7 +389,7 @@ window.r45Tab = function(tab) {
             fillSel('r45StudTable',  tables, d.autoStudTable  || 'STU');
             fillSel('r45AuditTable', tables, d.autoAuditTable || 'H16STU');
             show('body-r45-tables', true); show('body-r45-colmap', true);
-            setStatus('r45TableOut', 'Loaded ' + tables.length + ' tables — STU and H16STU auto-detected.', 'success');
+            setStatus('r45TableOut', 'Loaded ' + tables.length + ' tables — STU and H16STU auto-detected.', 'success');
             st.pairs = DEF_PAIRS.slice();
             return Promise.all([
                 r45LoadColsInner('stud',  gv('r45StudTable')),
@@ -637,7 +637,7 @@ window.r45Tab = function(tab) {
         setHtml('r45FlaggedPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #C0392B">' +
             '<strong>FLAGGED</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING rows.' +
-            '</div>' + buildTable(excRows, pairs, 'No exceptions — all students agree.'));
+            '</div>' + buildTable(excRows, pairs, 'No exceptions — all students agree.'));
 
         setHtml('r45ClearPane',
             '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid #1E8449">' +
@@ -669,8 +669,8 @@ window.r45Tab = function(tab) {
                     }
                 }
                 f = f || {};
-                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
-                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
+                var sv = f.studValue != null ? f.studValue : (f.StudValue != null ? f.StudValue : '—');
+                var av = f.auditValue != null ? f.auditValue : (f.AuditValue != null ? f.AuditValue : '—');
                 var matchVal = f.match || f.Match || 'MISSING';
                 var mi = matchVal === 'AGREE' ? '<span style="color:#1E8449">&#10003;</span>' : matchVal === 'DISAGREE' ? '<span style="color:#C0392B">&#x2717;</span>' : '<span style="color:#E67E22">?</span>';
                 return '<td>' + esc(sv) + '</td><td class="oc">' + esc(av) + '</td><td>' + mi + '</td>';
@@ -686,5 +686,23 @@ window.r45Tab = function(tab) {
     applySummary(null, false);
     updateButtons();
     if (st.clientId) loadWorkspace();
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>

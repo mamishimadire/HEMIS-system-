@@ -166,6 +166,9 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> GenerateSql([FromBody] Rule44ValidationRequest request) =>
             Json(new Rule44SqlResult { Success = true, Sql = _rule44.GenerateSql(request) });
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] Rule44ValidationRequest request) =>
+            Json(new Rule44SqlResult { Success = true, Sql = Rule44RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule44") });
 
         [HttpPost]
         public async Task<IActionResult> SignOffWorkspace([FromBody] Rule44WorkspaceSignoffInputModel model)
@@ -252,7 +255,7 @@ namespace HemisAudit.Controllers
             return File(bytes, "application/sql", $"Rule44_Research_Time_{Ts()}.sql");
         }
 
-        // ── Private helpers ───────────────────────────────────────────────────
+        // â”€â”€ Private helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
@@ -305,7 +308,7 @@ namespace HemisAudit.Controllers
         {
             using var ms = new System.IO.MemoryStream();
             using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
-            sw.WriteLine("\"HEMIS RULE 44 – Research Time Validation\"");
+            sw.WriteLine("\"HEMIS RULE 44 â€“ Research Time Validation\"");
             sw.WriteLine($"\"Database\",\"{summary.Database}\"");
             sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
             sw.WriteLine($"\"Status\",\"{summary.Status}\"");

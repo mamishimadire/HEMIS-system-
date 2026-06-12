@@ -26,10 +26,8 @@ namespace HemisAudit.ViewModels
         public string QualHeqfCol { get; set; } = "_084";
         public string QualTotalSubsidyCol { get; set; } = "_090";
 
-        // CESM table
-        public string CesmTable { get; set; } = "dbo_CESM";
-        public string CesmIdCol { get; set; } = "_001";
-        public string CesmCodeCol { get; set; } = "_006";
+        // CESM code sourced directly from QUAL (CESM table removed)
+        public string QualCesmCodeCol { get; set; } = "_006";
 
         // PQM table
         public string PqmTable { get; set; } = "PQM";
@@ -63,10 +61,8 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string QualTable { get; set; } = "dbo_QUAL";
-        public string CesmTable { get; set; } = "dbo_CESM";
         public string PqmTable { get; set; } = "PQM";
         public string QualIdCol { get; set; } = "_001";
-        public string CesmIdCol { get; set; } = "_001";
         public string QualApprovalCol { get; set; } = "_004";
         public string QualApprovalValue { get; set; } = "A";
         public bool UseMPrefixPopulationSplit { get; set; }
@@ -78,8 +74,6 @@ namespace HemisAudit.ViewModels
     {
         public bool Success { get; set; }
         public int QualTotal { get; set; }
-        public int CesmTotal { get; set; }
-        public int MergedTotal { get; set; }
         public int ApprovedCount { get; set; }
         public int PqmTotal { get; set; }
         public string? Error { get; set; }
@@ -90,7 +84,6 @@ namespace HemisAudit.ViewModels
         public bool Success { get; set; }
         public List<string> Tables { get; set; } = new();
         public string? AutoQualTable { get; set; }
-        public string? AutoCesmTable { get; set; }
         public string? AutoPqmTable { get; set; }
         public string? Error { get; set; }
     }
@@ -185,9 +178,7 @@ namespace HemisAudit.ViewModels
         public string QualMinTimeWilCol { get; set; } = "_054";
         public string QualHeqfCol { get; set; } = "_084";
         public string QualTotalSubsidyCol { get; set; } = "_090";
-        public string CesmTable { get; set; } = "dbo_CESM";
-        public string CesmIdCol { get; set; } = "_001";
-        public string CesmCodeCol { get; set; } = "_006";
+        public string QualCesmCodeCol { get; set; } = "_006";
         public string PqmTable { get; set; } = "PQM";
         public string PqmNameCol { get; set; } = "Authorised_Qualification_Name";
         public string PqmQualTypeCol { get; set; } = "HEQF_Qual_Type";
@@ -229,9 +220,7 @@ namespace HemisAudit.ViewModels
         public string QualMinTimeWilCol { get; set; } = "_054";
         public string QualHeqfCol { get; set; } = "_084";
         public string QualTotalSubsidyCol { get; set; } = "_090";
-        public string CesmTable { get; set; } = "dbo_CESM";
-        public string CesmIdCol { get; set; } = "_001";
-        public string CesmCodeCol { get; set; } = "_006";
+        public string QualCesmCodeCol { get; set; } = "_006";
         public string PqmTable { get; set; } = "PQM";
         public string PqmNameCol { get; set; } = "Authorised_Qualification_Name";
         public string PqmQualTypeCol { get; set; } = "HEQF_Qual_Type";

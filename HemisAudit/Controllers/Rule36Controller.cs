@@ -524,6 +524,21 @@ namespace HemisAudit.Controllers
 
             return Json(RequireDataAnalystResult(() => new SqlResult { Success = true, Sql = _rule36.GenerateSql(request) }));
         }
+        [HttpPost]
+        public async Task<IActionResult> GenerateRScript([FromBody] ValidationRequest request)
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+
+            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new SqlResult { Success = false, Error = "You cannot access this engagement." });
+
+            return Json(RequireDataAnalystResult(() => new SqlResult
+            {
+                Success = true,
+                Sql = Rule36RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule36")
+            }));
+        }
 
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> AddSignoff(Rule36RunSignoffInputModel model)

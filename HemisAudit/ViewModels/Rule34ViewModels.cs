@@ -50,9 +50,11 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "";
         public string TableName { get; set; } = "";
+        public string ClientTableName { get; set; } = "";
         public string FirstDayColumn { get; set; } = "";
         public string LastDayColumn { get; set; } = "";
         public string CensusDateColumn { get; set; } = "";
+        public string ClientJoinColumn { get; set; } = "";
         public string BlockColumn { get; set; } = "";
     }
 
@@ -77,9 +79,11 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string TableName { get; set; } = "";
+        public string ClientTableName { get; set; } = "";
         public string FirstDayColumn { get; set; } = "";
         public string LastDayColumn { get; set; } = "";
         public string CensusDateColumn { get; set; } = "";
+        public string ClientJoinColumn { get; set; } = "";
         public int StartYear { get; set; }
         public int EndYear { get; set; }
         public string BlockColumn { get; set; } = "";
@@ -114,9 +118,11 @@ namespace HemisAudit.ViewModels
         public string Timestamp { get; set; } = "";
         public string Database { get; set; } = "";
         public string TableName { get; set; } = "";
+        public string ClientTableName { get; set; } = "";
         public string FirstDayColumn { get; set; } = "";
         public string LastDayColumn { get; set; } = "";
         public string CensusDateColumn { get; set; } = "";
+        public string ClientJoinColumn { get; set; } = "";
         public int StartYear { get; set; }
         public int EndYear { get; set; }
         public string HolidayYearRange { get; set; } = "";
@@ -162,9 +168,11 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string TableName { get; set; } = "";
+        public string ClientTableName { get; set; } = "";
         public string FirstDayColumn { get; set; } = "";
         public string LastDayColumn { get; set; } = "";
         public string CensusDateColumn { get; set; } = "";
+        public string ClientJoinColumn { get; set; } = "";
         public int StartYear { get; set; }
         public int EndYear { get; set; }
         public string BlockColumn { get; set; } = "";
@@ -210,5 +218,4 @@ namespace HemisAudit.ViewModels
         public string? Error { get; set; }
     }
 }
-
 

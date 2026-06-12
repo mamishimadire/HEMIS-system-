@@ -26,6 +26,9 @@ namespace HemisAudit.Services
         private static string Digits(string? v) =>
             v == null ? "" : string.Concat(v.Where(char.IsDigit));
 
+        private static string TrimLeadingZeros(string s) =>
+            s.TrimStart('0') is { Length: > 0 } t ? t : s;
+
         private static string NormName(string? v)
         {
             if (v == null) return "";
@@ -40,7 +43,73 @@ namespace HemisAudit.Services
             return use >= 2 && string.Equals(hDigits[..use], p[..use], StringComparison.Ordinal);
         }
 
+        private static bool ExactCodeMatch(string hDigits, string? pqmCode)
+        {
+            var p = Digits(pqmCode);
+            return !string.IsNullOrEmpty(hDigits) && !string.IsNullOrEmpty(p) &&
+                   string.Equals(hDigits, p, StringComparison.Ordinal);
+        }
+
+        private static bool HasSameLeadingDigits(string left, string right, int digits) =>
+            left.Length >= digits && right.Length >= digits &&
+            string.Equals(left[..digits], right[..digits], StringComparison.Ordinal);
+
+        private record CesmReviewMatch(string Reason, string? PqmCode, string? PqmName);
+
+        private static int CesmReviewPriority(string reason) => reason switch
+        {
+            "first 4 digits matched" => 0,
+            "first 4 digits matched after removing leading zeros" => 1,
+            "first 3 digits matched" => 2,
+            "first 3 digits matched after removing leading zeros" => 3,
+            _ => 99
+        };
+
+        private static CesmReviewMatch? GetCesmReviewMatch(string? cesmCode, List<PqmRow> pqm)
+        {
+            if (string.IsNullOrWhiteSpace(cesmCode)) return null;
+            var rawCode = Digits(cesmCode);
+            if (rawCode.Length < 3) return null;
+            var trimmedCode = TrimLeadingZeros(rawCode);
+
+            CesmReviewMatch? best = null;
+            foreach (var p in pqm)
+            {
+                foreach (var pqmCode in new[] { p.Code1, p.Code2 }
+                    .Where(c => !string.IsNullOrWhiteSpace(c)))
+                {
+                    var pqmRaw = Digits(pqmCode);
+                    if (string.IsNullOrEmpty(pqmRaw)) continue;
+                    var pqmTrimmed = TrimLeadingZeros(pqmRaw);
+                    string? reason = null;
+                    if (HasSameLeadingDigits(rawCode, pqmRaw, 4))
+                        reason = "first 4 digits matched";
+                    else if (HasSameLeadingDigits(trimmedCode, pqmTrimmed, 4))
+                        reason = "first 4 digits matched after removing leading zeros";
+                    else if (HasSameLeadingDigits(rawCode, pqmRaw, 3))
+                        reason = "first 3 digits matched";
+                    else if (HasSameLeadingDigits(trimmedCode, pqmTrimmed, 3))
+                        reason = "first 3 digits matched after removing leading zeros";
+
+                    if (reason != null)
+                    {
+                        if (best == null || CesmReviewPriority(reason) < CesmReviewPriority(best.Reason))
+                            best = new CesmReviewMatch(reason, pqmCode?.Trim(), p.Name);
+                        if (best.Reason == "first 4 digits matched") return best;
+                    }
+                }
+            }
+            return best;
+        }
+
         // ── Internal record types ─────────────────────────────────────────────
+
+        private static string? ResolveMatchedPqmCode(string hemisDigits, PqmRow pqm)
+        {
+            if (CodeMatches(hemisDigits, pqm.Code1)) return pqm.Code1?.Trim();
+            if (CodeMatches(hemisDigits, pqm.Code2)) return pqm.Code2?.Trim();
+            return pqm.Code1?.Trim() ?? pqm.Code2?.Trim();
+        }
 
         private record HemisRecord(string RecordId, string CesmCode, string QualName);
         private record PqmRow(string? Code1, string? Code2, string? Name);
@@ -64,23 +133,78 @@ namespace HemisAudit.Services
             if (combined.Count > 0)
             {
                 var best = combined[0];
+                var resolvedPqmCode = ResolveMatchedPqmCode(hDigits, best);
+                bool isExact = ExactCodeMatch(hDigits, best.Code1) || ExactCodeMatch(hDigits, best.Code2);
+
+                if (isExact)
+                {
+                    return new Rule37ValidationRow
+                    {
+                        ValidationNumber = rowNo,
+                        RecordId = h.RecordId,
+                        HemisCesmCode = h.CesmCode,
+                        HemisQualName = h.QualName,
+                        PqmCode = resolvedPqmCode,
+                        PqmName = best.Name,
+                        CodeMatch = true,
+                        NameMatch = true,
+                        ValidationResult = "PASS",
+                        ExceptionReason = null
+                    };
+                }
+
+                // 4-digit prefix matched but codes are not identical — CESM review required
                 return new Rule37ValidationRow
                 {
                     ValidationNumber = rowNo,
                     RecordId = h.RecordId,
                     HemisCesmCode = h.CesmCode,
                     HemisQualName = h.QualName,
-                    PqmCode = best.Code1?.Trim(),
+                    PqmCode = resolvedPqmCode,
                     PqmName = best.Name,
                     CodeMatch = true,
                     NameMatch = true,
+                    NeedsReview = true,
                     ValidationResult = "PASS",
-                    ExceptionReason = null
+                    ExceptionReason = $"Pass - CESM review required because first 4 digits matched against PQM.CESM_CODE. " +
+                                      $"Qualification Name (_003): '{h.QualName}' = Authorised_Qualification_Name: '{best.Name}' | " +
+                                      $"CESM._006: '{h.CesmCode}' | PQM CESM_Code: '{resolvedPqmCode}'"
                 };
             }
 
             if (codeRows.Count == 0)
             {
+                // No 4-digit prefix match — check for 3 or 4 leading-digit CESM review match
+                var review = GetCesmReviewMatch(h.CesmCode, pqm);
+                if (review != null)
+                {
+                    var reviewNameMatches = string.Equals(
+                        NormName(review.PqmName),
+                        hNorm,
+                        StringComparison.Ordinal);
+
+                    return new Rule37ValidationRow
+                    {
+                        ValidationNumber = rowNo,
+                        RecordId = h.RecordId,
+                        HemisCesmCode = h.CesmCode,
+                        HemisQualName = h.QualName,
+                        PqmCode = review.PqmCode,
+                        PqmName = review.PqmName,
+                        CodeMatch = false,
+                        NameMatch = reviewNameMatches,
+                        NeedsReview = reviewNameMatches,
+                        ValidationResult = reviewNameMatches ? "PASS" : "FAIL",
+                        ExceptionReason = reviewNameMatches
+                            ? $"Pass - CESM review required ({review.Reason}). " +
+                              $"Qualification Name (_003): '{h.QualName}' = Authorised_Qualification_Name: '{review.PqmName}' | " +
+                              $"CESM._006: '{h.CesmCode}' | PQM CESM_Code: '{review.PqmCode}' (CESM leading digits matched for review)"
+                            : $"Fail - qualification name did not align. " +
+                              $"Qualification Name (_003): '{h.QualName}' ≠ Authorised_Qualification_Name: '{review.PqmName}' | " +
+                              $"CESM._006: '{h.CesmCode}' | PQM CESM_Code: '{review.PqmCode}' (CESM leading digits matched for review)"
+                    };
+                }
+
                 return new Rule37ValidationRow
                 {
                     ValidationNumber = rowNo,
@@ -92,12 +216,15 @@ namespace HemisAudit.Services
                     CodeMatch = false,
                     NameMatch = false,
                     ValidationResult = "FAIL",
-                    ExceptionReason = $"CESM code '{h.CesmCode}' not found in PQM (no 4-digit prefix match in CESM_Code or CESM_Code2)"
+                    ExceptionReason = $"Fail - qualification name did not align. " +
+                                      $"Qualification Name (_003): '{h.QualName}' | Authorised_Qualification_Name: not found in PQM | " +
+                                      $"CESM._006: '{h.CesmCode}' not found in PQM (no 4-digit prefix match in CESM_Code or CESM_Code2)"
                 };
             }
 
-            // Code matched, name did not
+            // Code matched (4-digit prefix), name did not — CESM review required
             var bestCode = codeRows[0];
+            var reviewMatchedPqmCode = ResolveMatchedPqmCode(hDigits, bestCode);
             var pqmNames = string.Join(" | ",
                 codeRows.Take(3)
                         .Select(p => p.Name?.Trim())
@@ -110,14 +237,15 @@ namespace HemisAudit.Services
                 RecordId = h.RecordId,
                 HemisCesmCode = h.CesmCode,
                 HemisQualName = h.QualName,
-                PqmCode = bestCode.Code1?.Trim(),
+                PqmCode = reviewMatchedPqmCode,
                 PqmName = bestCode.Name,
                 CodeMatch = true,
                 NameMatch = false,
+                NeedsReview = false,
                 ValidationResult = "FAIL",
-                ExceptionReason = $"Code matched (PQM: {bestCode.Code1?.Trim()}) but name mismatch — " +
-                                  $"HEMIS _003: '{h.QualName}' | " +
-                                  $"PQM Authorised_Qualification_Name: '{pqmNames}'"
+                ExceptionReason = $"Fail - qualification name did not align. " +
+                                  $"Qualification Name (_003): '{h.QualName}' ≠ Authorised_Qualification_Name: '{pqmNames}' | " +
+                                  $"CESM._006: '{h.CesmCode}' | PQM CESM_Code: '{reviewMatchedPqmCode}'"
             };
         }
 
@@ -326,13 +454,14 @@ SELECT
                     .Select((h, idx) => ValidateRecord(idx + 1, h, pqm))
                     .ToList();
 
-                var total     = validationRows.Count;
-                var passCount = validationRows.Count(r => r.ValidationResult == "PASS");
-                var failCount = validationRows.Count(r => r.ValidationResult == "FAIL");
-                var rate      = total > 0 ? Math.Round((decimal)failCount / total * 100, 2) : 0;
+                var total       = validationRows.Count;
+                var passCount   = validationRows.Count(r => r.ValidationResult == "PASS" && !r.NeedsReview);
+                var failCount   = validationRows.Count(r => r.ValidationResult == "FAIL");
+                var reviewCount = validationRows.Count(r => r.NeedsReview);
+                var rate        = total > 0 ? Math.Round((decimal)failCount / total * 100, 2) : 0;
 
                 var exceptions = validationRows
-                    .Where(r => r.ValidationResult == "FAIL")
+                    .Where(r => r.ValidationResult == "FAIL" || r.NeedsReview)
                     .Select(r => new Rule37ExceptionRecord
                     {
                         ValidationNumber = r.ValidationNumber,
@@ -343,6 +472,7 @@ SELECT
                         PqmName          = r.PqmName,
                         CodeMatch        = r.CodeMatch,
                         NameMatch        = r.NameMatch,
+                        NeedsReview      = r.NeedsReview,
                         ValidationResult = r.ValidationResult,
                         ExceptionReason  = r.ExceptionReason ?? ""
                     })
@@ -354,8 +484,9 @@ SELECT
                     TotalValidated   = total,
                     PassCount        = passCount,
                     FailCount        = failCount,
+                    ReviewCount      = reviewCount,
                     ExceptionRate    = rate,
-                    Status           = failCount == 0 ? "PASS" : "FAIL",
+                    Status           = failCount == 0 ? (reviewCount == 0 ? "PASS" : "PASS WITH REVIEW") : "FAIL",
                     Timestamp        = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     Database         = request.Database,
                     CesmTable        = request.CesmTable,

@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 39 - First-Time Entering vs Non-Aligned Qualifications";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -158,7 +158,7 @@
         <div class="rule-header__icon">R39</div>
         <div>
             <h1 class="rule-header__title">HEMIS RULE 39: First-Time Entering Students vs Non-Aligned Qualifications</h1>
-            <p class="rule-header__sub">Procedure 5.3 — Cross-match FTE students through QUAL against the Non-Aligned Qualifications reference | Flags students enrolled in non-aligned qualifications</p>
+            <p class="rule-header__sub">Procedure 5.3 — Cross-match FTE students through QUAL against the Non-Aligned Qualifications reference | Flags students enrolled in non-aligned qualifications</p>
         </div>
         <div class="rule-header__badge" id="statusBadge" style="display:none"></div>
     </div>
@@ -429,6 +429,7 @@
         <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
         <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
         <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+<button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -440,6 +441,7 @@
             <button class="tab-btn" type="button" data-tab="clear" onclick="switchTab('clear')">CLEAR</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+<button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="dl" onclick="switchTab('dl')">Downloads</button>
         </div>
 
@@ -1248,8 +1250,8 @@ function renderValidationSummary(r) {
         </div>
         <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
             ${r.status === 'PASS'
-                ? 'VALIDATION PASSED — No first-time entering students found in Non-Aligned Qualifications list'
-                : `VALIDATION FAILED — ${r.flaggedCount.toLocaleString()} student(s) enrolled in Non-Aligned Qualifications`}
+                ? 'VALIDATION PASSED — No first-time entering students found in Non-Aligned Qualifications list'
+                : `VALIDATION FAILED — ${r.flaggedCount.toLocaleString()} student(s) enrolled in Non-Aligned Qualifications`}
         </div>
         ${r.isPreviewOnly ? `<div class="alert alert--info" style="margin-top:1rem">Preview only: showing up to ${r.previewLimit} rows per result set in the browser. Download the Excel for the full population.</div>` : ''}
         <div style="margin-top:1rem">
@@ -1319,7 +1321,7 @@ function renderFlaggedRows(r) {
     el.innerHTML = `
         ${renderSectionHeader('FLAGGED Rows', 'FTE students whose qualification code was found in the Non-Aligned Qualifications list through QUAL', `FLAGGED: ${r.flaggedCount.toLocaleString()}`)}
         ${r.flaggedCount === 0
-            ? '<div class="alert alert--success">No FLAGGED rows — all first-time entering students are enrolled in aligned qualifications.</div>'
+            ? '<div class="alert alert--success">No FLAGGED rows — all first-time entering students are enrolled in aligned qualifications.</div>'
             : renderNalTable(rows, 'No flagged rows loaded.')}
         ${rows.length < r.flaggedCount ? `<div class="alert alert--info">Showing ${rows.length.toLocaleString()} of ${r.flaggedCount.toLocaleString()} total FLAGGED rows. Download the Excel or CSV for the full list.</div>` : ''}`;
 }
@@ -1331,7 +1333,7 @@ function renderClearRows(r) {
     el.innerHTML = `
         ${renderSectionHeader('CLEAR Rows', 'FTE students whose qualification code was NOT found in the Non-Aligned Qualifications list through QUAL', `CLEAR: ${r.clearCount.toLocaleString()}`)}
         ${r.clearCount === 0
-            ? '<div class="alert alert--warning">All FTE students are in Non-Aligned Qualifications — check if the NAL table is configured correctly.</div>'
+            ? '<div class="alert alert--warning">All FTE students are in Non-Aligned Qualifications — check if the NAL table is configured correctly.</div>'
             : renderNalTable(rows, 'No clear rows loaded.')}
         ${rows.length < r.clearCount ? `<div class="alert alert--info">Showing ${rows.length.toLocaleString()} of ${r.clearCount.toLocaleString()} CLEAR rows.</div>` : ''}`;
 }
@@ -1432,6 +1434,28 @@ async function generateSql() {
         switchTab('sql');
     } finally { hideSpinner(); }
 }
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule39/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">`+escapeHtml(result.sql)+`</pre></div>`;
+        switchTab('rscript');
+    } finally {
+        hideSpinner();
+    }
+}
+
 
 // ── Download ──────────────────────────────────────────────────────────────────
 async function downloadExcel() {
@@ -1534,6 +1558,7 @@ function renderWorkspaceState() {
     const showDisabledArchivedSignoff = archived && !!state.currentRunId;
     const runValidationBtn = document.getElementById('runValidationBtn');
     const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const generateRScriptBtn = document.getElementById('generateRScriptBtn');
     const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
     const signOffBtn = document.getElementById('signOffBtn');
     const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
@@ -1547,6 +1572,7 @@ function renderWorkspaceState() {
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateRScriptBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
         { target: signoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
@@ -1692,4 +1718,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderWorkspaceState();
     if (state.clientId > 0) await loadWorkspaceState();
 });
+    const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 </script>

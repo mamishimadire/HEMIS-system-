@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 37 - CESM vs PQM Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -180,6 +180,7 @@
                     <label class="checkbox-label"><input type="checkbox" id="chkCsv" checked /> CSV (Full results)</label>
                     <label class="checkbox-label"><input type="checkbox" id="chkExceptionsCsv" checked /> CSV (Exceptions only)</label>
                     <label class="checkbox-label"><input type="checkbox" id="chkSql" checked /> SQL Script</label>
+                    <label class="checkbox-label"><input type="checkbox" id="chkRScript" checked /> R Script</label>
                 </div>
             </div>
         </div>
@@ -215,6 +216,7 @@
         <button class="btn btn-info" onclick="verifyTables()">Verify Tables</button>
         <button class="btn btn-success" id="runValidationBtn" onclick="runValidation()">Run Validation</button>
         <button class="btn btn-primary" id="generateSqlBtn" onclick="generateSql()">Generate SQL</button>
+        <button class="btn btn-primary" id="generateRScriptBtn" onclick="generateRScript()">Generate R Script</button>
         <button class="btn btn-warning" id="downloadAllBtn" onclick="downloadAll()" disabled>Download All</button>
     </div>
 
@@ -225,6 +227,7 @@
             <button class="tab-btn" type="button" data-tab="exceptions" onclick="switchTab('exceptions')">Exceptions List</button>
             <button class="tab-btn" type="button" data-tab="charts" onclick="switchTab('charts')">Charts</button>
             <button class="tab-btn" type="button" data-tab="sql" onclick="switchTab('sql')">SQL Code</button>
+            <button class="tab-btn" type="button" data-tab="rscript" onclick="switchTab('rscript')">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads" onclick="switchTab('downloads')">Downloads</button>
         </div>
 
@@ -239,6 +242,9 @@
         </div>
         <div class="tab-pane" id="tab-sql" data-tab-panel="sql">
             <div id="sqlContent" class="empty-state"><p>Click "Generate SQL" or run validation to generate the SQL script.</p></div>
+        </div>
+        <div class="tab-pane" id="tab-rscript" data-tab-panel="rscript">
+            <div id="rContent" class="empty-state"><p>Click "Generate R Script" or run validation to generate the R script.</p></div>
         </div>
         <div class="tab-pane" id="tab-downloads" data-tab-panel="downloads">
             <div id="downloadsContent" class="empty-state"><p>Run validation first, then use "Download All" or individual download buttons.</p></div>
@@ -450,11 +456,12 @@ function resetWorkspaceState(clearClient = false) {
     });
     document.getElementById('connectionStatus').innerHTML = '';
     document.getElementById('tableStatus').innerHTML = '';
-    ['validationContent','exceptionsContent','chartsContent','sqlContent','downloadsContent'].forEach((id, i) => {
+    ['validationContent','exceptionsContent','chartsContent','sqlContent','rContent','downloadsContent'].forEach((id, i) => {
         const msgs = ['Run validation to see results here.',
             'No exceptions data yet. Run validation first.',
             'Charts will appear after running validation.',
             'Click "Generate SQL" or run validation to generate the SQL script.',
+            'Click "Generate R Script" or run validation to generate the R script.',
             'Run validation first, then use "Download All" or individual download buttons.'];
         const el = document.getElementById(id);
         el.className = 'empty-state';
@@ -479,6 +486,7 @@ function renderWorkspaceState() {
     const showDisabledArchivedSignoff = archived && !!state.currentRunId;
     const runValidationBtn = document.getElementById('runValidationBtn');
     const generateSqlBtn = document.getElementById('generateSqlBtn');
+    const generateRScriptBtn = document.getElementById('generateRScriptBtn');
     const saveWorkspaceBtn = document.getElementById('saveWorkspaceBtn');
     const signOffBtn = document.getElementById('signOffBtn');
     const removeWorkspaceSignoffBtn = document.getElementById('removeWorkspaceSignoffBtn');
@@ -494,6 +502,7 @@ function renderWorkspaceState() {
     window.ruleWorkspaceUi.applyStates([
         { target: runValidationBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: generateSqlBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
+        { target: generateRScriptBtn, show: canEditWorkspace, disabled: !canEditWorkspace || signedOffLock },
         { target: saveWorkspaceBtn, show: canEditWorkspace, disabled: !canEditWorkspace || !state.currentRunId || signedOffLock },
         { target: signoffComment, disabled: archived || !canActivateSignoff || signedOffLock }
     ]);
@@ -874,7 +883,7 @@ async function verifyTables() {
             ${state.cesmTable}: <strong>${result.cesmTotal.toLocaleString()}</strong> records<br>
             ${state.qualTable}: <strong>${result.qualTotal.toLocaleString()}</strong> records<br>
             ${state.pqmTable}: <strong>${result.pqmTotal.toLocaleString()}</strong> PQM rows<br>
-            CESM ⋈ QUAL joined: <strong>${result.mergedTotal.toLocaleString()}</strong> records<br>
+            CESM â‹ˆ QUAL joined: <strong>${result.mergedTotal.toLocaleString()}</strong> records<br>
             <em>Ready to run full validation against PQM.</em>
         `, 'success');
     } finally {
@@ -965,20 +974,32 @@ function renderValidationResults(r) {
                             <th>#</th>
                             <th>Result</th>
                             <th>Record ID</th>
-                            <th>HEMIS CESM Code</th>
-                            <th>HEMIS Qual Name</th>
-                            <th>PQM Code</th>
-                            <th>PQM Name</th>
+                            <th>CESM Code (_006)</th>
+                            <th>Qualification Name (_003)</th>
+                            <th>PQM CESM Code</th>
+                            <th>Authorised Qualification Name</th>
                             <th>Code Match</th>
                             <th>Name Match</th>
-                            <th>Exception Reason</th>
+                            <th>Note</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${pageRows.map((row, i) => `
+                        ${pageRows.map((row, i) => {
+                            const reviewNote = row.needsReview
+                                ? (() => {
+                                    const r = row.exceptionReason || '';
+                                    const m = r.match(/\((CESM (?:leading digits|first [34] digits)[^)]*)\)/i);
+                                    const detail = m ? m[1] : 'CESM leading digits matched';
+                                    return `Pass - CESM review required because ${detail} against PQM.CESM_CODE`;
+                                })()
+                                : '';
+                            return `
                         <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
                             <td>${row.validationNumber}</td>
-                            <td><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
+                            <td>
+                                <span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span>
+                                ${row.needsReview ? '<br><span class="badge badge--warning" style="font-size:0.72em;margin-top:3px;white-space:nowrap">CESM REVIEW</span>' : ''}
+                            </td>
                             <td><strong>${escapeHtml(row.recordId)}</strong></td>
                             <td><code>${escapeHtml(row.hemisCesmCode)}</code></td>
                             <td>${escapeHtml(row.hemisQualName)}</td>
@@ -986,8 +1007,9 @@ function renderValidationResults(r) {
                             <td>${escapeHtml(row.pqmName || '')}</td>
                             <td>${row.codeMatch ? '<span class="badge badge--pass">YES</span>' : '<span class="badge badge--fail">NO</span>'}</td>
                             <td>${row.nameMatch ? '<span class="badge badge--pass">YES</span>' : '<span class="badge badge--fail">NO</span>'}</td>
-                            <td>${escapeHtml(row.exceptionReason || '')}</td>
-                        </tr>`).join('')}
+                            <td style="font-size:0.85em;color:${row.needsReview ? '#5D4037' : row.validationResult !== 'PASS' ? '#B71C1C' : '#2E7D32'}">${escapeHtml(reviewNote || row.exceptionReason || (row.validationResult === 'PASS' ? 'Pass — Qualification Name (_003) = Authorised Qualification Name' : ''))}</td>
+                        </tr>`;
+                        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -1004,8 +1026,8 @@ function renderValidationResults(r) {
         )}
         <div class="stats-grid">
             <div class="stat-card"><div class="stat-card__label">Records Validated</div><div class="stat-card__value">${r.totalValidated.toLocaleString()}</div></div>
-            <div class="stat-card stat-card--pass"><div class="stat-card__label">PASS (Both matched)</div><div class="stat-card__value">${r.passCount.toLocaleString()}</div></div>
-            <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL (Mismatch)</div><div class="stat-card__value">${r.failCount.toLocaleString()}</div></div>
+            <div class="stat-card stat-card--pass"><div class="stat-card__label">PASS (_003 = Authorised Name)</div><div class="stat-card__value">${r.passCount.toLocaleString()}</div></div>
+            <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL (_003 ≠ Authorised Name)</div><div class="stat-card__value">${r.failCount.toLocaleString()}</div></div>
             <div class="stat-card"><div class="stat-card__label">Exception Rate</div><div class="stat-card__value" style="color:${rateColor}">${rate.toFixed(2)}%</div></div>
         </div>
         <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
@@ -1072,8 +1094,8 @@ function renderExceptions(r) {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>#</th><th>Record ID</th><th>CESM Code</th><th>Qual Name</th>
-                            <th>PQM Code</th><th>PQM Name</th><th>Code Match</th><th>Name Match</th>
+                            <th>#</th><th>Record ID</th><th>CESM Code (_006)</th><th>Qualification Name (_003)</th>
+                            <th>PQM CESM Code</th><th>Authorised Qualification Name</th><th>Code Match</th><th>Name Match</th>
                             <th>Result</th><th>Exception Reason</th>
                         </tr>
                     </thead>
@@ -1139,6 +1161,7 @@ function renderDownloads(r) {
                 <button class="btn btn-info" onclick="downloadCsv()">Full CSV</button>
                 <button class="btn btn-info" onclick="downloadExceptionsCsv()">Exceptions CSV</button>
                 ${canUseSql ? '<button class="btn btn-primary" onclick="downloadSql()">SQL Script</button>' : ''}
+                ${canUseSql ? '<button class="btn btn-primary" onclick="downloadRScript()">R Script</button>' : ''}
                 ${r.savedRunId ? `<a href="/Rule37/Run/${r.savedRunId}" class="btn btn-secondary">${canUseSql ? 'Open Saved Run and Sign Off' : 'Open Saved Run'}</a>` : ''}
             </div>
             <div class="download-summary-grid">
@@ -1169,6 +1192,30 @@ async function generateSql() {
             </div>
             <div class="sql-panel"><pre id="sqlCode" class="sql-block">${escapeHtml(result.sql)}</pre></div>`;
         switchTab('sql');
+    } finally {
+        hideSpinner();
+    }
+}
+
+async function generateRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can generate the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script generation is disabled.', 'error'); return; }
+    syncStateFromSelects();
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule37/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        const el = document.getElementById('rContent');
+        el.classList.remove('empty-state');
+        el.innerHTML = `
+            ${renderSectionHeader('Rule 37 R Code', 'Generated R script matches the CESM vs PQM validation formula', `Database: ${escapeHtml(state.database || '')}`)}
+            <div class="sql-toolbar">
+                <button class="btn btn-sm btn-primary" onclick="copyToClipboard('rCode')">Copy</button>
+                <button class="btn btn-sm btn-info" onclick="downloadRScript()">Download R</button>
+            </div>
+            <div class="sql-panel"><pre id="rCode" class="sql-block">${escapeHtml(result.sql)}</pre></div>`;
+        switchTab('rscript');
     } finally {
         hideSpinner();
     }
@@ -1251,6 +1298,19 @@ async function downloadSql() {
     if (!validateConfig()) return;
     await downloadPost('/Rule37/DownloadSql', buildRequest(), `Rule37_CESM_PQM_Validation_${fileStamp()}.sql`);
 }
+async function downloadRScript() {
+    if (currentSystemRole !== 'DataAnalyst') { setWorkspaceInfo('Only the assigned data analyst can download the R script.', 'error'); return; }
+    if (isArchivedWorkspace()) { setWorkspaceInfo('Archived engagements are read-only. R script download is disabled.', 'error'); return; }
+    if (!validateConfig()) return;
+    showSpinner('Generating R script...');
+    try {
+        const result = await post('/Rule37/GenerateRScript', buildRequest());
+        if (!result.success) return;
+        saveBlob(new Blob([result.sql || ''], { type: 'text/plain;charset=utf-8' }), `Rule37_CESM_PQM_Validation_${fileStamp()}.R`);
+    } finally {
+        hideSpinner();
+    }
+}
 
 async function downloadAll() {
     if (!state.validationResult) { alert('Run validation first.'); return; }
@@ -1259,6 +1319,7 @@ async function downloadAll() {
     if (document.getElementById('chkCsv')?.checked) tasks.push(() => downloadCsv());
     if (document.getElementById('chkExceptionsCsv')?.checked) tasks.push(() => downloadExceptionsCsv());
     if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkSql')?.checked) tasks.push(() => downloadSql());
+    if (currentSystemRole === 'DataAnalyst' && document.getElementById('chkRScript')?.checked) tasks.push(() => downloadRScript());
     if (!tasks.length) { alert('Select at least one download format.'); return; }
     for (const task of tasks) await task();
 }

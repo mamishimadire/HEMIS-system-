@@ -589,200 +589,219 @@ END";
             var sql = $@"-- ============================================================================
 -- HEMIS RULE 26: DBO_PROF TO PAYROLL_SAMPLE 5-CONTROL VALIDATION
 -- ============================================================================
--- Base population : dbo_PROF
--- Reference table : Payroll_Sample
--- Logic           : same one-direction population-testing pattern as Rules 51/52,
---                   but across 4 mapped payroll controls.
--- ============================================================================
 
-IF OBJECT_ID('tempdb..#ProfBase') IS NOT NULL DROP TABLE #ProfBase;
+IF OBJECT_ID('tempdb..#ProfBase')    IS NOT NULL DROP TABLE #ProfBase;
 IF OBJECT_ID('tempdb..#PayrollBase') IS NOT NULL DROP TABLE #PayrollBase;
+IF OBJECT_ID('tempdb..#Exceptions')  IS NOT NULL DROP TABLE #Exceptions;
 
+-- ============================================================
+-- BUILD BASE TABLES
+-- ============================================================
 SELECT
-    {profPersonnelExpr} AS PersonnelKey,
-    LTRIM(RTRIM(CAST([{profPersonnel}] AS nvarchar(4000)))) AS PersonnelNumber,
-    LTRIM(RTRIM(CAST([{profEmployment}] AS nvarchar(4000)))) AS EmploymentType,
+    {profPersonnelExpr}                                        AS PersonnelKey,
+    {profPersonnelExpr}                                        AS PersonnelNumber,
+    LTRIM(RTRIM(CAST([{profEmployment}] AS nvarchar(4000))))   AS EmploymentType,
     UPPER(LTRIM(RTRIM(CAST([{profGender}] AS nvarchar(100))))) AS GenderValue,
-    LTRIM(RTRIM(CAST([{profGroup}] AS nvarchar(4000)))) AS GroupValue,
-    LTRIM(RTRIM(CAST([{profBirth}] AS nvarchar(50)))) AS BirthRawValue,
-    {profBirthExpr} AS BirthDateValue
+    LTRIM(RTRIM(CAST([{profGroup}] AS nvarchar(4000))))        AS GroupValue,
+    LTRIM(RTRIM(CAST([{profBirth}] AS nvarchar(50))))          AS BirthRawValue,
+    {profBirthExpr}                                            AS BirthDateValue
 INTO #ProfBase
 FROM [{profTable}]
 WHERE [{profPersonnel}] IS NOT NULL;
 
 SELECT
-    {payrollPersonnelExpr} AS PersonnelKey,
-    LTRIM(RTRIM(CAST([{payrollPersonnel}] AS nvarchar(4000)))) AS PersonnelNumber,
-    LTRIM(RTRIM(CAST([{payrollEmployment}] AS nvarchar(4000)))) AS EmploymentType,
-    UPPER(LTRIM(RTRIM(CAST([{payrollGender}] AS nvarchar(100))))) AS GenderValue,
-    LTRIM(RTRIM(CAST([{payrollGroup}] AS nvarchar(4000)))) AS GroupValue,
-    LTRIM(RTRIM(CAST([{payrollBirth}] AS nvarchar(50)))) AS BirthRawValue,
-    {payrollBirthExpr} AS BirthDateValue
+    {payrollPersonnelExpr}                                                  AS PersonnelKey,
+    {payrollPersonnelExpr}                                                  AS PersonnelNumber,
+    LTRIM(RTRIM(CAST([{payrollEmployment}] AS nvarchar(4000))))             AS EmploymentType,
+    UPPER(LTRIM(RTRIM(CAST([{payrollGender}] AS nvarchar(100)))))           AS GenderValue,
+    LTRIM(RTRIM(CAST([{payrollGroup}] AS nvarchar(4000))))                  AS GroupValue,
+    LTRIM(RTRIM(CAST([{payrollBirth}] AS nvarchar(50))))                    AS BirthRawValue,
+    {payrollBirthExpr}                                                      AS BirthDateValue
 INTO #PayrollBase
 FROM [{payrollTable}];
 
+-- ============================================================
 -- STEP 1: POPULATION COUNTS
-SELECT 'PROF population' AS Metric, COUNT(*) AS RecordCount FROM #ProfBase
+-- ============================================================
+SELECT 'PROF population'     AS Metric, COUNT(*) AS RecordCount FROM #ProfBase
 UNION ALL
-SELECT 'Payroll population', COUNT(*) FROM #PayrollBase
+SELECT 'Payroll population',             COUNT(*) FROM #PayrollBase
 UNION ALL
-SELECT 'Linked population', COUNT(*) FROM #ProfBase p WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+SELECT 'Linked population',              COUNT(*)
+FROM #ProfBase p
+WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
 UNION ALL
-SELECT 'PROF without Payroll', COUNT(*)
+SELECT 'PROF without Payroll',           COUNT(*)
 FROM #ProfBase p
 LEFT JOIN #PayrollBase py ON py.PersonnelKey = p.PersonnelKey
 WHERE py.PersonnelKey IS NULL;
 
--- STEP 2: DBO_PROF EXCEPTIONS AGAINST PAYROLL_SAMPLE
-SELECT *
-FROM
-(
-    SELECT
-        'dbo_PROF -> Payroll_Sample',
-        2,
-        'Employment Type Match',
-        p.PersonnelNumber,
-        'dbo_PROF employment type first letter does not match Payroll_Sample PERMANENT_OR_TEMP.',
-        p.EmploymentType,
-        mismatch.EmploymentType
-    FROM #ProfBase p
-    OUTER APPLY
-    (
-        SELECT TOP 1 py.EmploymentType
-        FROM #PayrollBase py
-        WHERE py.PersonnelKey = p.PersonnelKey
-          AND LEFT(p.EmploymentType, 1) <> LEFT(py.EmploymentType, 1)
-    ) mismatch
-    WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
-      AND NOT EXISTS
-      (
-          SELECT 1
-          FROM #PayrollBase py
-          WHERE py.PersonnelKey = p.PersonnelKey
-            AND LEFT(p.EmploymentType, 1) = LEFT(py.EmploymentType, 1)
+-- ============================================================
+-- STEP 2: STAGE EXCEPTIONS
+-- ============================================================
+SELECT
+    CAST('{profTable} -> {payrollTable}' AS nvarchar(100)) AS ControlDirection,
+    CAST(2 AS int)                                          AS ControlNumber,
+    CAST('Employment Type Match' AS nvarchar(100))          AS ControlName,
+    CAST(p.PersonnelNumber AS nvarchar(255))                AS PersonnelNumber,
+    CAST('{profTable} employment type first letter does not match {payrollTable} PERMANENT_OR_TEMP.'
+                                          AS nvarchar(500)) AS ExceptionReason,
+    CAST(p.EmploymentType  AS nvarchar(255))                AS PROF_Value,
+    CAST(mismatch.EmploymentType AS nvarchar(255))          AS Payroll_Value
+INTO #Exceptions
+FROM #ProfBase p
+OUTER APPLY (
+    SELECT TOP 1 py.EmploymentType
+    FROM #PayrollBase py
+    WHERE py.PersonnelKey = p.PersonnelKey
+      AND LEFT(p.EmploymentType, 1) <> LEFT(py.EmploymentType, 1)
+) mismatch
+WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+  AND NOT EXISTS (
+      SELECT 1 FROM #PayrollBase py
+      WHERE py.PersonnelKey = p.PersonnelKey
+        AND LEFT(p.EmploymentType, 1) = LEFT(py.EmploymentType, 1)
+  )
+
+UNION ALL
+
+-- CONTROL 3: Gender Consistency
+SELECT
+    '{profTable} -> {payrollTable}',
+    3,
+    'Gender Consistency',
+    p.PersonnelNumber,
+    '{profTable} gender first letter does not match {payrollTable} GENDER first letter.',
+    p.GenderValue,
+    mismatch.GenderValue
+FROM #ProfBase p
+OUTER APPLY (
+    SELECT TOP 1 py.GenderValue
+    FROM #PayrollBase py
+    WHERE py.PersonnelKey = p.PersonnelKey
+      AND LEFT(p.GenderValue, 1) <> LEFT(py.GenderValue, 1)
+) mismatch
+WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+  AND NOT EXISTS (
+      SELECT 1 FROM #PayrollBase py
+      WHERE py.PersonnelKey = p.PersonnelKey
+        AND LEFT(p.GenderValue, 1) = LEFT(py.GenderValue, 1)
+  )
+
+UNION ALL
+
+-- CONTROL 4: Race/Group Code Accuracy
+SELECT
+    '{profTable} -> {payrollTable}',
+    4,
+    'Race/Group Code Accuracy',
+    p.PersonnelNumber,
+    '{profTable} race/group code first letter does not match {payrollTable} GROUP_NAME first letter.',
+    p.GroupValue,
+    mismatch.GroupValue
+FROM #ProfBase p
+OUTER APPLY (
+    SELECT TOP 1 py.GroupValue
+    FROM #PayrollBase py
+    WHERE py.PersonnelKey = p.PersonnelKey
+      AND NOT (
+          LEFT(p.GroupValue, 1) IN ({blankPayrollGroupPassCodeSqlList})
+          AND NULLIF(LTRIM(RTRIM(py.GroupValue)), '') IS NULL
       )
-
-    UNION ALL
-
-    SELECT
-        'dbo_PROF -> Payroll_Sample',
-        3,
-        'Gender Consistency',
-        p.PersonnelNumber,
-        'dbo_PROF gender first letter does not match Payroll_Sample GENDER first letter.',
-        p.GenderValue,
-        mismatch.GenderValue
-    FROM #ProfBase p
-    OUTER APPLY
-    (
-        SELECT TOP 1 py.GenderValue
-        FROM #PayrollBase py
-        WHERE py.PersonnelKey = p.PersonnelKey
-          AND LEFT(p.GenderValue, 1) <> LEFT(py.GenderValue, 1)
-    ) mismatch
-    WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
-      AND NOT EXISTS
-      (
-          SELECT 1
-          FROM #PayrollBase py
-          WHERE py.PersonnelKey = p.PersonnelKey
-            AND LEFT(p.GenderValue, 1) = LEFT(py.GenderValue, 1)
-      )
-
-    UNION ALL
-
-    SELECT
-        'dbo_PROF -> Payroll_Sample',
-        4,
-        'Race/Group Code Accuracy',
-        p.PersonnelNumber,
-        'dbo_PROF race/group code first letter does not match Payroll_Sample GROUP_NAME first letter.',
-        p.GroupValue,
-        mismatch.GroupValue
-    FROM #ProfBase p
-    OUTER APPLY
-    (
-        SELECT TOP 1 py.GroupValue
-        FROM #PayrollBase py
-        WHERE py.PersonnelKey = p.PersonnelKey
-          AND NOT
-          (
-              LEFT(p.GroupValue, 1) IN ({blankPayrollGroupPassCodeSqlList})
-              AND NULLIF(LTRIM(RTRIM(py.GroupValue)), '') IS NULL
-          )
-          AND LEFT(p.GroupValue, 1) <> LEFT(py.GroupValue, 1)
-    ) mismatch
-    WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
-      AND NOT EXISTS
-      (
-          SELECT 1
-          FROM #PayrollBase py
-          WHERE py.PersonnelKey = p.PersonnelKey
-            AND
-            (
-                LEFT(p.GroupValue, 1) = LEFT(py.GroupValue, 1)
-                OR
-                (
-                    LEFT(p.GroupValue, 1) IN ({blankPayrollGroupPassCodeSqlList})
-                    AND NULLIF(LTRIM(RTRIM(py.GroupValue)), '') IS NULL
-                )
+      AND LEFT(p.GroupValue, 1) <> LEFT(py.GroupValue, 1)
+) mismatch
+WHERE EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+  AND NOT EXISTS (
+      SELECT 1 FROM #PayrollBase py
+      WHERE py.PersonnelKey = p.PersonnelKey
+        AND (
+            LEFT(p.GroupValue, 1) = LEFT(py.GroupValue, 1)
+            OR (
+                LEFT(p.GroupValue, 1) IN ({blankPayrollGroupPassCodeSqlList})
+                AND NULLIF(LTRIM(RTRIM(py.GroupValue)), '') IS NULL
             )
-      )
+        )
+  )
 
-    UNION ALL
+UNION ALL
 
-    SELECT
-        'dbo_PROF -> Payroll_Sample',
-        5,
-        'Birth Date Integrity',
-        p.PersonnelNumber,
-        'dbo_PROF birth date is not a valid YYYYMMDD value and cannot be matched to Payroll_Sample birth date.',
-        p.BirthRawValue,
-        COALESCE(CONVERT(nvarchar(30), sample.BirthDateValue, 23), sample.BirthRawValue, '')
-    FROM #ProfBase p
-    OUTER APPLY
-    (
-        SELECT TOP 1 py.BirthRawValue, py.BirthDateValue
-        FROM #PayrollBase py
-        WHERE py.PersonnelKey = p.PersonnelKey
-        ORDER BY CASE WHEN py.BirthDateValue IS NULL THEN 1 ELSE 0 END, py.BirthRawValue
-    ) sample
-    WHERE p.BirthRawValue <> ''
-      AND p.BirthDateValue IS NULL
-      AND EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+-- CONTROL 5a: Birth Date - invalid YYYYMMDD format
+SELECT
+    '{profTable} -> {payrollTable}',
+    5,
+    'Birth Date Integrity',
+    p.PersonnelNumber,
+    '{profTable} birth date is not a valid YYYYMMDD value and cannot be matched to {payrollTable} birth date.',
+    p.BirthRawValue,
+    COALESCE(CONVERT(nvarchar(30), sample.BirthDateValue, 23), sample.BirthRawValue, '')
+FROM #ProfBase p
+OUTER APPLY (
+    SELECT TOP 1 py.BirthRawValue, py.BirthDateValue
+    FROM #PayrollBase py
+    WHERE py.PersonnelKey = p.PersonnelKey
+    ORDER BY CASE WHEN py.BirthDateValue IS NULL THEN 1 ELSE 0 END, py.BirthRawValue
+) sample
+WHERE p.BirthRawValue <> ''
+  AND p.BirthDateValue IS NULL
+  AND EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
 
-    UNION ALL
+UNION ALL
 
-    SELECT
-        'dbo_PROF -> Payroll_Sample',
-        5,
-        'Birth Date Integrity',
-        p.PersonnelNumber,
-        'dbo_PROF birth date does not match Payroll_Sample birth date.',
-        CONVERT(nvarchar(30), p.BirthDateValue, 23),
-        CONVERT(nvarchar(30), mismatch.BirthDateValue, 23)
-    FROM #ProfBase p
-    OUTER APPLY
-    (
-        SELECT TOP 1 py.BirthDateValue
-        FROM #PayrollBase py
-        WHERE py.PersonnelKey = p.PersonnelKey
-          AND (py.BirthDateValue IS NULL OR p.BirthDateValue <> py.BirthDateValue)
-    ) mismatch
-    WHERE p.BirthDateValue IS NOT NULL
-      AND EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
-      AND NOT EXISTS
-      (
-          SELECT 1
-          FROM #PayrollBase py
-          WHERE py.PersonnelKey = p.PersonnelKey
-            AND py.BirthDateValue = p.BirthDateValue
-      )
-) Exceptions
+-- CONTROL 5b: Birth Date - valid format but does not match
+SELECT
+    '{profTable} -> {payrollTable}',
+    5,
+    'Birth Date Integrity',
+    p.PersonnelNumber,
+    '{profTable} birth date does not match {payrollTable} birth date.',
+    CONVERT(nvarchar(30), p.BirthDateValue, 23),
+    CONVERT(nvarchar(30), mismatch.BirthDateValue, 23)
+FROM #ProfBase p
+OUTER APPLY (
+    SELECT TOP 1 py.BirthDateValue
+    FROM #PayrollBase py
+    WHERE py.PersonnelKey = p.PersonnelKey
+      AND (py.BirthDateValue IS NULL OR p.BirthDateValue <> py.BirthDateValue)
+) mismatch
+WHERE p.BirthDateValue IS NOT NULL
+  AND EXISTS (SELECT 1 FROM #PayrollBase py WHERE py.PersonnelKey = p.PersonnelKey)
+  AND NOT EXISTS (
+      SELECT 1 FROM #PayrollBase py
+      WHERE py.PersonnelKey = p.PersonnelKey
+        AND py.BirthDateValue = p.BirthDateValue
+  );
+
+-- ============================================================
+-- STEP 3: SUMMARY PER CONTROL
+-- ============================================================
+SELECT
+    ControlNumber,
+    ControlName,
+    COUNT(*) AS Exception_Count
+FROM #Exceptions
+GROUP BY ControlNumber, ControlName
+ORDER BY ControlNumber;
+
+-- ============================================================
+-- STEP 4: FULL EXCEPTION DETAIL
+-- ============================================================
+SELECT
+    ControlDirection,
+    ControlNumber,
+    ControlName,
+    PersonnelNumber,
+    ExceptionReason,
+    PROF_Value,
+    Payroll_Value
+FROM #Exceptions
 ORDER BY ControlNumber, PersonnelNumber;
 
+-- ============================================================
+-- CLEANUP
+-- ============================================================
 DROP TABLE #ProfBase;
-DROP TABLE #PayrollBase;";
+DROP TABLE #PayrollBase;
+DROP TABLE #Exceptions;";
 
             return Task.FromResult(sql);
         }

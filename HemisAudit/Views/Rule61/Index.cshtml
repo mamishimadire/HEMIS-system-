@@ -1,4 +1,4 @@
-@using HemisAudit.Models
+﻿@using HemisAudit.Models
 @{
     ViewData["Title"] = "Rule 61 – Masters & Doctoral Research Time Validation";
     Layout = "~/Views/Shared/_Layout.cshtml";
@@ -232,6 +232,7 @@
             <button type="button" class="btn btn-info"    id="verifyBtn">Verify Tables</button>
             <button type="button" class="btn btn-success" id="runBtn">Run Rule 61</button>
             <button type="button" class="btn btn-primary" id="sqlBtn">Generate SQL</button>
+                <button type="button" class="btn btn-primary" id="rScriptBtn">Generate R Script</button>
         </div>
     }
 
@@ -241,6 +242,7 @@
             <button class="tab-btn" type="button" data-tab="flagged">FLAGGED</button>
             <button class="tab-btn" type="button" data-tab="clear">CLEAR</button>
             <button class="tab-btn" type="button" data-tab="sql">SQL</button>
+                <button class="tab-btn" type="button" data-tab="rscript">R Code</button>
             <button class="tab-btn" type="button" data-tab="downloads">Downloads</button>
         </div>
         <div class="tab-pane active" data-tab-panel="analysis"></div>
@@ -248,6 +250,9 @@
         <div class="tab-pane" data-tab-panel="clear"></div>
         <div class="tab-pane" data-tab-panel="sql">
             <textarea id="sqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
+        </div>
+        <div class="tab-pane" data-tab-panel="rscript" id="rscriptPane">
+            <div class="empty-state" style="padding:24px;text-align:center"><p>Click "Generate R Script" to generate the R script.</p></div>
         </div>
         <div class="tab-pane" data-tab-panel="downloads">
             <div class="alert alert--info" style="margin-bottom:12px">Download the full validated result set. Excel and CSV include all rows. SQL includes the audit query.</div>
@@ -553,10 +558,10 @@ window.toggleAccordion = function(s) {
         const rows = summary.failRows || [];
         els.flaggedPane.innerHTML = `
             <div class="card" style="padding:16px;margin-bottom:12px">
-                <strong>FLAGGED Rows</strong> — ${fmt(summary.failCount)} FAIL row(s) + ${fmt(summary.missingPqmCount)} row(s) with no PQM record.
+                <strong>FLAGGED Rows</strong> — ${fmt(summary.failCount)} FAIL row(s) + ${fmt(summary.missingPqmCount)} row(s) with no PQM record.
                 ${summary.isPreviewOnly ? ` <span class="badge badge--neutral">Preview limited to ${fmt(summary.previewLimit)} rows</span>` : ''}
             </div>
-            ${tableHtml(rows, 'No flagged rows — all Masters/Doctoral students passed the research time check.')}`;
+            ${tableHtml(rows, 'No flagged rows — all Masters/Doctoral students passed the research time check.')}`;
     }
 
     function renderClear(summary) {
@@ -564,7 +569,7 @@ window.toggleAccordion = function(s) {
         const rows = summary.passRows || [];
         els.clearPane.innerHTML = `
             <div class="card" style="padding:16px;margin-bottom:12px">
-                <strong>CLEAR Rows</strong> — ${fmt(summary.passCount)} student(s) where QUAL._003 matches PQM.Authorised_Qualification_Name and STUD._073 agrees with PQM.Research_1.
+                <strong>CLEAR Rows</strong> — ${fmt(summary.passCount)} student(s) where QUAL._003 matches PQM.Authorised_Qualification_Name and STUD._073 agrees with PQM.Research_1.
                 ${rows.length < summary.passCount ? ` <span class="badge badge--neutral">Sample of ${fmt(rows.length)} shown</span>` : ''}
             </div>
             ${tableHtml(rows, 'No clear rows in this run.')}`;
@@ -725,7 +730,7 @@ window.toggleAccordion = function(s) {
             const data = await postJson(`${apiBase}/VerifyTables`, getRequest());
             if (!data.success) throw new Error(data.error || 'Verification failed.');
             els.configOutput.innerHTML = `<div class="alert alert--success">
-                Filtered STUD×QUAL rows (${esc(formatInFilter(`STUD.${els.cm_studStatusCol?.value || '_010'}`, els.cm_studStatusValue?.value || 'N'))}): <strong>${fmt(data.mastersDoctCount)}</strong> &nbsp;|&nbsp;
+                Filtered STUDÃƒÆ’—QUAL rows (${esc(formatInFilter(`STUD.${els.cm_studStatusCol?.value || '_010'}`, els.cm_studStatusValue?.value || 'N'))}): <strong>${fmt(data.mastersDoctCount)}</strong> &nbsp;|&nbsp;
                 PQM rows: <strong>${fmt(data.pqmCount)}</strong>
             </div>`;
         } finally { hideSpinner(); }
@@ -755,6 +760,18 @@ window.toggleAccordion = function(s) {
             els.sqlText.value = state.sql;
             setActiveTab('sql');
         } finally { hideSpinner(); }
+    }
+    async function generateRScript() {
+        showSpinner('Generating R script...');
+        try {
+            const data = await postJson(`${apiBasePath}/GenerateRScript`, getRequest());
+            if (!data.success) throw new Error(data.error || 'R script generation failed.');
+            const pane = document.getElementById('rscriptPane');
+            pane.innerHTML = `<div style="padding:8px 0 8px"><button class="btn btn-sm btn-primary" onclick="(function(){const e=document.getElementById('rCode');if(e)navigator.clipboard.writeText(e.textContent)})()">Copy</button></div><pre id="rCode" style="white-space:pre-wrap;font-family:monospace;font-size:12px;padding:12px;overflow:auto;max-height:600px">${escapeHtml(data.sql)}</pre>`;
+            setActiveTab('rscript');
+        } finally {
+            hideSpinner();
+        }
     }
 
     async function saveWorkspace() {
@@ -807,7 +824,9 @@ window.toggleAccordion = function(s) {
     els.database?.addEventListener('change',   () => loadTables().catch(err => { els.configOutput.innerHTML = `<div class="alert alert--error">${esc(err.message)}</div>`; }));
     document.getElementById('verifyBtn')?.addEventListener('click', () => verifyTables().catch(err => { hideSpinner(); els.configOutput.innerHTML = `<div class="alert alert--error">${esc(err.message)}</div>`; }));
     document.getElementById('runBtn')?.addEventListener('click',    () => runValidation().catch(err => { hideSpinner(); setWorkspaceState(err.message, 'error'); }));
-    document.getElementById('sqlBtn')?.addEventListener('click',    () => generateSql().catch(err  => { hideSpinner(); els.sqlText.value = err.message; }));
+    document.getElementById('sqlBtn')?.addEventListener('click',    () => generateSql().catch(err  => { hideSpinner(); els.sqlText.value = err.message; }))
+    document.getElementById('rScriptBtn')?.addEventListener('click', () => generateRScript().catch(err => setWorkspaceState(err.message, 'error')));;
+    document.getElementById('rScriptBtn')?.addEventListener('click', () => generateRScript().catch(err => setWorkspaceState(err.message, 'error')));
     document.getElementById('saveWorkspaceBtn')?.addEventListener('click', () => saveWorkspace().catch(err => { hideSpinner(); setWorkspaceState(err.message, 'error'); }));
     document.getElementById('beginEditBtn')?.addEventListener('click',     () => beginEdit().catch(err    => { hideSpinner(); setWorkspaceState(err.message, 'error'); }));
     document.getElementById('signoffBtn')?.addEventListener('click',       () => signoffWorkspace().catch(err => { hideSpinner(); setWorkspaceState(err.message, 'error'); }));
@@ -822,5 +841,23 @@ window.toggleAccordion = function(s) {
     renderAnalysis(null); renderFlagged(null); renderClear(null); updateWorkspaceButtons();
     if (state.clientId) loadWorkspace().catch(err => setWorkspaceState(err.message, 'error'));
     else if (isResultsOnlyRole) setWorkspaceState('Select an engagement to load the saved Rule 61 results.', 'info');
+        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
+        ? apiBasePath
+        : (typeof apiBase !== 'undefined'
+            ? apiBase
+            : (typeof API !== 'undefined'
+                ? API
+                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
+    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
+    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
+    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
+        window.ruleRScriptUi.install({
+            apiBase: __ruleRApiBase,
+            requestBuilder: __ruleRRequestBuilder,
+            postJson: __ruleRPost,
+            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
+            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
+        });
+    }
 })();
 </script>
