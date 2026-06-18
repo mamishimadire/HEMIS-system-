@@ -6059,37 +6059,56 @@ namespace HemisAudit.Services
             using var wb = new XLWorkbook();
             var e051Col = summary.CregE051Col ?? "_051";
             var e051Filter = string.IsNullOrWhiteSpace(summary.E051FilterValues) ? "ALL — no filter applied" : summary.E051FilterValues;
-            var wsResults = wb.Worksheets.Add("Validation Results");
-            StyleHeaderRow(wsResults, 1, $"RULE 67: CREG [{summary.CregStudentNoCol ?? "_007"}]+[{summary.CregQualCol ?? "_001"}] Pair in STUD | [{e051Col}] Filter: {e051Filter}", 8);
+            var titleText = $"RULE 67: CREG [{summary.CregStudentNoCol ?? "_007"}]+[{summary.CregQualCol ?? "_001"}] Pair in STUD | [{e051Col}] Filter: {e051Filter}";
             var headers = new[] { "Validation #", "CREG [_007] Student No", "CREG [_001] Qual", $"CREG [{e051Col}] E051", "STUD [_007]", "STUD [_001] Qual", "In STUD", "E051 Valid", "Result", "Exception Code" };
-            for (int i = 0; i < headers.Length; i++)
+
+            void WriteRule67Sheet(IXLWorksheet ws, IEnumerable<Rule67ValidationRowRecord> sheetRows, string headerBg)
             {
-                var cell = wsResults.Cell(2, i + 1);
-                cell.Value = headers[i]; cell.Style.Font.Bold = true;
-                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#1A237E");
-                cell.Style.Font.FontColor = XLColor.White;
+                StyleHeaderRow(ws, 1, titleText, 10);
+                for (int i = 0; i < headers.Length; i++)
+                {
+                    var hc = ws.Cell(2, i + 1);
+                    hc.Value = headers[i]; hc.Style.Font.Bold = true;
+                    hc.Style.Fill.BackgroundColor = XLColor.FromHtml(headerBg);
+                    hc.Style.Font.FontColor = XLColor.White;
+                }
+                int r = 3;
+                foreach (var row in sheetRows)
+                {
+                    var v = row.DisplayValues;
+                    string DV(string k) => v.TryGetValue(k, out var val) ? val ?? "" : "";
+                    var isFail = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase);
+                    ws.Cell(r, 1).Value = row.ValidationNumber;
+                    ws.Cell(r, 2).Value = DV("CREG_STUD_NO");
+                    ws.Cell(r, 3).Value = DV("CREG_QUAL");
+                    ws.Cell(r, 4).Value = DV("CREG_E051");
+                    ws.Cell(r, 5).Value = DV("STUD_NO");
+                    ws.Cell(r, 6).Value = DV("STUD_QUAL");
+                    ws.Cell(r, 7).Value = DV("IN_STUD");
+                    ws.Cell(r, 8).Value = DV("E051_VALID");
+                    ws.Cell(r, 9).Value = row.ValidationResult;
+                    ws.Cell(r, 10).Value = isFail ? row.ExceptionCode : "";
+                    ws.Range(r, 1, r, 10).Style.Fill.BackgroundColor = isFail ? XLColor.FromHtml("#FFF3F3") : XLColor.FromHtml("#F3FFF3");
+                    r++;
+                }
+                for (int c = 1; c <= 10; c++) ws.Column(c).AdjustToContents();
             }
-            int rowIndex = 3;
-            foreach (var row in summary.ReviewRows)
+
+            static string GetFailReason(Rule67ValidationRowRecord row)
             {
-                var v = row.DisplayValues;
-                string DV(string k) => v.TryGetValue(k, out var val) ? val ?? "" : "";
-                var isFail = string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase);
-                wsResults.Cell(rowIndex, 1).Value = row.ValidationNumber;
-                wsResults.Cell(rowIndex, 2).Value = DV("CREG_STUD_NO");
-                wsResults.Cell(rowIndex, 3).Value = DV("CREG_QUAL");
-                wsResults.Cell(rowIndex, 4).Value = DV("CREG_E051");
-                wsResults.Cell(rowIndex, 5).Value = DV("STUD_NO");
-                wsResults.Cell(rowIndex, 6).Value = DV("STUD_QUAL");
-                wsResults.Cell(rowIndex, 7).Value = DV("IN_STUD");
-                wsResults.Cell(rowIndex, 8).Value = DV("E051_VALID");
-                wsResults.Cell(rowIndex, 9).Value = row.ValidationResult;
-                wsResults.Cell(rowIndex, 10).Value = isFail ? row.ExceptionCode : "";
-                wsResults.Range(rowIndex, 1, rowIndex, 10).Style.Fill.BackgroundColor =
-                    isFail ? XLColor.FromHtml("#FFF3F3") : XLColor.FromHtml("#F3FFF3");
-                rowIndex++;
+                row.DisplayValues.TryGetValue("FailReason", out var fr);
+                return fr ?? "";
             }
-            for (int c = 1; c <= 10; c++) wsResults.Column(c).AdjustToContents();
+
+            var allRows         = summary.ReviewRows;
+            var passRows        = allRows.Where(r => string.Equals(r.ValidationResult, "PASS", StringComparison.OrdinalIgnoreCase)).ToList();
+            var notInStudRows   = allRows.Where(r => string.Equals(GetFailReason(r), "Not found in STUD", StringComparison.OrdinalIgnoreCase)).ToList();
+            var e051InvalidRows = allRows.Where(r => string.Equals(GetFailReason(r), "E051 code not in expected values", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            WriteRule67Sheet(wb.Worksheets.Add("All Results"),          allRows,         "#1A237E");
+            WriteRule67Sheet(wb.Worksheets.Add("PASS"),                 passRows,         "#1B5E20");
+            WriteRule67Sheet(wb.Worksheets.Add("FAIL - Not in STUD"),   notInStudRows,    "#B71C1C");
+            WriteRule67Sheet(wb.Worksheets.Add("FAIL - E051 Invalid"),  e051InvalidRows,  "#E65100");
 
             var wsSummary = wb.Worksheets.Add("Summary");
             StyleHeaderRow(wsSummary, 1, "HEMIS RULE 67: CREG-STUD PAIR VALIDATION", 2);

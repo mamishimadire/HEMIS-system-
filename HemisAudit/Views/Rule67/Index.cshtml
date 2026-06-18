@@ -28,6 +28,15 @@
     .R67-filterbar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:18px; }
     .R67-filterbar label { font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); display:block; margin-bottom:6px; }
     .R67-summary-grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); }
+    .R67-cat-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:4px; }
+    .R67-cat-tab { padding:7px 14px; border-radius:20px; border:2px solid var(--border,#ddd); background:var(--card-bg,#fff); color:var(--text,#333); font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:background .15s,border-color .15s; }
+    .R67-cat-tab:hover { border-color:var(--primary,#1a237e); color:var(--primary,#1a237e); }
+    .R67-cat-tab.active { background:var(--primary,#1a237e); border-color:var(--primary,#1a237e); color:#fff; }
+    .R67-cat-tab[data-cat="PASS"].active { background:#1b5e20; border-color:#1b5e20; }
+    .R67-cat-tab[data-cat="NOT_IN_STUD"].active { background:#b71c1c; border-color:#b71c1c; }
+    .R67-cat-tab[data-cat="E051_INVALID"].active { background:#e65100; border-color:#e65100; }
+    .R67-cat-count { background:rgba(255,255,255,.25); border-radius:10px; padding:1px 7px; font-size:11px; font-weight:700; }
+    .R67-cat-tab:not(.active) .R67-cat-count { background:var(--border,#e5e7eb); color:var(--text-muted,#666); }
 </style>
 
 <div id="app" class="rule-page-shell">
@@ -220,7 +229,7 @@ window.toggleAccordion = function (section) {
         resultsVisible: false, hasPendingValidation: false,
         currentUserEngagementRole: '', currentUserHasSignedOff: false,
         isWorkspaceSaved: false, hasDataAnalystSignoff: false,
-        currentStatus: '', resultFilter: 'ALL'
+        currentStatus: '', categoryTab: 'ALL'
     };
 
     const els = {
@@ -486,89 +495,107 @@ window.toggleAccordion = function (section) {
     function renderAnalysis(summary) {
         if (!summary) { els.analysisPane.innerHTML='<div class="empty-card"><p>No Rule 67 results loaded.</p></div>'; return; }
         const controlRows = (summary.controlSummaries||[]).map(i=>`<tr><td>${escapeHtml(i.controlLabel)}</td><td>${escapeHtml(i.criteriaText)}</td><td>${i.totalCount.toLocaleString()}</td><td>${i.passCount.toLocaleString()}</td><td>${i.failCount.toLocaleString()}</td><td>${escapeHtml(i.status)}</td></tr>`).join('');
-        const failRows = (summary.reviewRows||[]).filter(r=>String(r.validationResult||'').toUpperCase()==='FAIL');
-        const passRows = (summary.reviewRows||[]).filter(r=>String(r.validationResult||'').toUpperCase()==='PASS');
         const e051Col = summary.cregE051Col||'_051';
         const e051Filter = summary.e051FilterValues||'E';
+        const allRows = summary.reviewRows||[];
 
-        const failRowHtml = failRows.map(row=>{
+        const passRows        = allRows.filter(r=>String(r.validationResult||'').toUpperCase()==='PASS');
+        const notInStudRows   = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='not found in stud');
+        const e051InvalidRows = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='e051 code not in expected values');
+
+        const rowHeaders = `<tr><th>#</th><th>CREG [_007] Student No</th><th>CREG [_001] Qual</th><th>CREG [${escapeHtml(e051Col)}] E051</th><th>STUD [_007]</th><th>STUD [_001] Qual</th><th>In STUD</th><th>E051 Valid</th><th>Result</th></tr>`;
+
+        const buildPreviewTable = (rowList, rowBg, textColor) => rowList.map(row=>{
             const v=Object.fromEntries(Object.entries(row.displayValues||{}).map(([k,val])=>[k.toUpperCase(),val]));
-            return `<tr style="background:#FFF3F3">
+            return `<tr style="background:${rowBg}">
                 <td>${row.validationNumber}</td>
-                <td style="font-weight:700;color:var(--rule15-fail)">${escapeHtml(v.CREG_STUD_NO||'')}</td>
+                <td style="font-weight:700;color:${textColor}">${escapeHtml(v.CREG_STUD_NO||'')}</td>
                 <td>${escapeHtml(v.CREG_QUAL||'')}</td>
                 <td>${escapeHtml(v.CREG_E051||'')}</td>
-                <td style="color:var(--rule15-fail)">${escapeHtml(v.IN_STUD||'No')}</td>
-                <td style="color:var(--rule15-fail)">${escapeHtml(v.E051_VALID||'No')}</td>
-                <td style="color:var(--rule15-fail);font-style:italic">${escapeHtml(v.FAILREASON||row.exceptionCode||'00708')}</td>
+                <td style="color:${textColor}">${escapeHtml(v.STUD_NO||'—')}</td>
+                <td>${escapeHtml(v.STUD_QUAL||'—')}</td>
+                <td style="color:${textColor}">${escapeHtml(v.IN_STUD||'')}</td>
+                <td style="color:${textColor}">${escapeHtml(v.E051_VALID||'')}</td>
+                <td style="color:${textColor};font-weight:700">${escapeHtml(String(row.validationResult||''))}</td>
             </tr>`;
         }).join('');
 
-        const passRowHtml = passRows.map(row=>{
-            const v=Object.fromEntries(Object.entries(row.displayValues||{}).map(([k,val])=>[k.toUpperCase(),val]));
-            return `<tr style="background:#F3FFF3">
-                <td>${row.validationNumber}</td>
-                <td style="font-weight:700;color:var(--rule15-pass,#2e7d32)">${escapeHtml(v.CREG_STUD_NO||'')}</td>
-                <td>${escapeHtml(v.CREG_QUAL||'')}</td>
-                <td>${escapeHtml(v.CREG_E051||'')}</td>
-                <td style="color:var(--rule15-pass)">${escapeHtml(v.IN_STUD||'Yes')}</td>
-                <td style="color:var(--rule15-pass)">${escapeHtml(v.E051_VALID||'Yes')}</td>
-                <td>PASS</td>
-            </tr>`;
-        }).join('');
-
-        const rowHeaders = `<tr><th>#</th><th>CREG [_007] Student No</th><th>CREG [_001] Qual</th><th>CREG [${escapeHtml(e051Col)}] E051</th><th>In STUD</th><th>E051 Valid</th><th>Reason / Code</th></tr>`;
+        const goToResultsTab = (cat) => `
+            document.querySelectorAll('.R67-cat-tab').forEach(b=>b.classList.remove('active'));
+            const t=document.querySelector('.R67-cat-tab[data-cat="${cat}"]');
+            if(t){t.classList.add('active');}
+            if(typeof state!=='undefined') state.categoryTab='${cat}';`;
 
         els.analysisPane.innerHTML = `
-            ${summary.isPreviewOnly?`<div class="alert alert--warning" style="margin-bottom:16px">Browser shows a preview of ${summary.previewLimit.toLocaleString()} rows (split FAIL/PASS). Download for complete result set.</div>`:''}
+            ${summary.isPreviewOnly?`<div class="alert alert--warning" style="margin-bottom:16px">Browser preview shows ${summary.previewLimit.toLocaleString()} rows. Download Excel for complete categorised results.</div>`:''}
             <div class="R67-summary-grid">
                 <div class="stat-card"><div class="stat-card__label">CREG Total Records</div><div class="stat-card__value">${(summary.cregRecordCount||0).toLocaleString()}</div></div>
                 <div class="stat-card"><div class="stat-card__label">STUD Total Records</div><div class="stat-card__value">${(summary.studRecordCount||0).toLocaleString()}</div></div>
                 <div class="stat-card"><div class="stat-card__label">Distinct CREG Pairs Checked</div><div class="stat-card__value">${(summary.totalValidated||0).toLocaleString()}</div></div>
-                <div class="stat-card stat-card--pass"><div class="stat-card__label">PASS (in STUD + E051 valid)</div><div class="stat-card__value">${(summary.passCount||0).toLocaleString()}</div></div>
-                <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL — Not in STUD</div><div class="stat-card__value">${(summary.notInStudCount||0).toLocaleString()}</div></div>
-                <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL — E051 Invalid</div><div class="stat-card__value">${(summary.invalidE051Count||0).toLocaleString()}</div></div>
+                <div class="stat-card stat-card--pass" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='PASS';renderResults(true);" title="Click to view PASS rows">
+                    <div class="stat-card__label">PASS (in STUD + E051 valid)</div><div class="stat-card__value">${(summary.passCount||0).toLocaleString()}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">Click to view in Results tab &rarr;</div>
+                </div>
+                <div class="stat-card stat-card--fail" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='NOT_IN_STUD';renderResults(true);" title="Click to view FAIL — Not in STUD rows">
+                    <div class="stat-card__label">FAIL — Not in STUD</div><div class="stat-card__value">${(summary.notInStudCount||0).toLocaleString()}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">Click to view in Results tab &rarr;</div>
+                </div>
+                <div class="stat-card stat-card--fail" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='E051_INVALID';renderResults(true);" title="Click to view FAIL — E051 Invalid rows">
+                    <div class="stat-card__label">FAIL — E051 Invalid</div><div class="stat-card__value">${(summary.invalidE051Count||0).toLocaleString()}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">Click to view in Results tab &rarr;</div>
+                </div>
             </div>
 
-            ${summary.failCount > 0 ? `
-            <div class="card" style="padding:20px;margin-top:20px;border-left:4px solid var(--rule15-fail,#c62828)">
-                <h3 class="section-title" style="margin-top:0;color:var(--rule15-fail,#c62828)">
-                    FAIL (00708) — ${formatNumber(summary.failCount)} exception(s) found
-                    ${summary.isPreviewOnly ? `<small style="font-weight:normal;font-size:13px"> (showing ${failRows.length} in preview)</small>` : ''}
+            ${summary.notInStudCount > 0 ? `
+            <div class="card" style="padding:20px;margin-top:20px;border-left:4px solid #b71c1c">
+                <h3 class="section-title" style="margin-top:0;color:#b71c1c">
+                    FAIL — Not in STUD &nbsp;<span class="badge badge--fail">${formatNumber(summary.notInStudCount)}</span>
+                    ${summary.isPreviewOnly&&notInStudRows.length<summary.notInStudCount?`<small style="font-weight:normal;font-size:13px"> (showing ${notInStudRows.length} in preview)</small>`:''}
                 </h3>
-                ${failRows.length === 0
-                    ? `<div class="alert alert--info">No FAIL rows in this browser preview. Download for full list of ${formatNumber(summary.failCount)} exception(s).</div>`
-                    : `<div class="table-wrapper" style="overflow-x:auto">
-                        <table class="data-table" style="min-width:700px;font-size:12px;font-family:Consolas,monospace">
-                            <thead>${rowHeaders}</thead>
-                            <tbody>${failRowHtml}</tbody>
-                        </table>
-                    </div>`
+                <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">CREG pair not found in STUD table at all — exception code <strong>00708</strong></p>
+                ${notInStudRows.length === 0
+                    ? `<div class="alert alert--info">No preview rows for this category. Download Excel for full data.</div>`
+                    : `<div class="table-wrapper" style="overflow-x:auto"><table class="data-table" style="min-width:700px;font-size:12px;font-family:Consolas,monospace"><thead>${rowHeaders}</thead><tbody>${buildPreviewTable(notInStudRows,'#FFF3F3','var(--rule15-fail,#c62828)')}</tbody></table></div>`
                 }
                 <div style="margin-top:12px">
-                    <button type="button" class="btn btn-info" onclick="document.querySelector('[data-tab=\\'results\\']')?.click()">View in Results tab &rarr;</button>
-                    <button type="button" class="btn btn-info" id="dlFailBtn" style="margin-left:8px">Download FAIL rows (CSV)</button>
+                    <button type="button" class="btn btn-info" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='NOT_IN_STUD';renderResults(true);">View in Results tab &rarr;</button>
                 </div>
-            </div>` : `
+            </div>` : ''}
+
+            ${summary.invalidE051Count > 0 ? `
+            <div class="card" style="padding:20px;margin-top:20px;border-left:4px solid #e65100">
+                <h3 class="section-title" style="margin-top:0;color:#e65100">
+                    FAIL — E051 Invalid &nbsp;<span class="badge badge--fail">${formatNumber(summary.invalidE051Count)}</span>
+                    ${summary.isPreviewOnly&&e051InvalidRows.length<summary.invalidE051Count?`<small style="font-weight:normal;font-size:13px"> (showing ${e051InvalidRows.length} in preview)</small>`:''}
+                </h3>
+                <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">CREG pair found in STUD but <code>_051</code> value is not in the configured filter — exception code <strong>00708</strong></p>
+                ${e051InvalidRows.length === 0
+                    ? `<div class="alert alert--info">No preview rows for this category. Download Excel for full data.</div>`
+                    : `<div class="table-wrapper" style="overflow-x:auto"><table class="data-table" style="min-width:700px;font-size:12px;font-family:Consolas,monospace"><thead>${rowHeaders}</thead><tbody>${buildPreviewTable(e051InvalidRows,'#FFF8F3','#e65100')}</tbody></table></div>`
+                }
+                <div style="margin-top:12px">
+                    <button type="button" class="btn btn-info" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='E051_INVALID';renderResults(true);">View in Results tab &rarr;</button>
+                </div>
+            </div>` : ''}
+
+            ${summary.failCount === 0 ? `
             <div class="alert alert--success" style="margin-top:16px">
-                All ${formatNumber(summary.totalValidated)} CREG pairs were found in STUD with valid E051 codes. No exceptions.
-            </div>`}
+                All ${formatNumber(summary.totalValidated)} CREG pairs found in STUD with valid E051 codes. No exceptions.
+            </div>` : ''}
 
             ${summary.passCount > 0 ? `
             <div class="card" style="padding:20px;margin-top:20px;border-left:4px solid var(--rule15-pass,#2e7d32)">
                 <h3 class="section-title" style="margin-top:0;color:var(--rule15-pass,#2e7d32)">
                     PASS — ${formatNumber(summary.passCount)} pair(s) valid
-                    ${summary.isPreviewOnly ? `<small style="font-weight:normal;font-size:13px"> (showing ${passRows.length} in preview)</small>` : ''}
+                    ${summary.isPreviewOnly&&passRows.length<summary.passCount?`<small style="font-weight:normal;font-size:13px"> (showing ${passRows.length} in preview)</small>`:''}
                 </h3>
                 ${passRows.length === 0
-                    ? `<div class="alert alert--info">No PASS rows in this browser preview (preview splits FAIL/PASS). Download for all ${formatNumber(summary.passCount)} valid pair(s).</div>`
-                    : `<div class="table-wrapper" style="overflow-x:auto">
-                        <table class="data-table" style="min-width:700px;font-size:12px;font-family:Consolas,monospace">
-                            <thead>${rowHeaders}</thead>
-                            <tbody>${passRowHtml}</tbody>
-                        </table>
-                    </div>`
+                    ? `<div class="alert alert--info">No PASS rows in preview. Download Excel for all ${formatNumber(summary.passCount)} valid pair(s).</div>`
+                    : `<div class="table-wrapper" style="overflow-x:auto"><table class="data-table" style="min-width:700px;font-size:12px;font-family:Consolas,monospace"><thead>${rowHeaders}</thead><tbody>${buildPreviewTable(passRows,'#F3FFF3','var(--rule15-pass,#2e7d32)')}</tbody></table></div>`
                 }
+                <div style="margin-top:12px">
+                    <button type="button" class="btn btn-info" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='PASS';renderResults(true);">View in Results tab &rarr;</button>
+                </div>
             </div>` : ''}
 
             <div class="card" style="padding:20px;margin-top:20px">
@@ -593,13 +620,33 @@ window.toggleAccordion = function (section) {
         if (!state.summary) { els.resultsPane.innerHTML='<div class="empty-card"><p>No Rule 67 results loaded.</p></div>'; return; }
         if (!force && getActiveTab()!=='results') { els.resultsPane.innerHTML='<div class="empty-card"><p>Open the Results tab to load the browser preview.</p></div>'; return; }
         const summary = state.summary;
-        const rows = (summary.reviewRows||[]).filter(r => state.resultFilter==='ALL'||String(r.validationResult||'').toUpperCase()===state.resultFilter);
+        const allRows = summary.reviewRows||[];
         const e051Col = summary.cregE051Col||'_051';
 
-        const rowHtml = rows.map(row => {
+        const passRows        = allRows.filter(r => String(r.validationResult||'').toUpperCase()==='PASS');
+        const notInStudRows   = allRows.filter(r => {
+            const fr = String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase();
+            return fr === 'not found in stud';
+        });
+        const e051InvalidRows = allRows.filter(r => {
+            const fr = String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase();
+            return fr === 'e051 code not in expected values';
+        });
+
+        const catMap = {
+            ALL:         { rows: allRows,         label: 'All Results',           badgeClass: '',              count: allRows.length },
+            PASS:        { rows: passRows,         label: 'PASS',                  badgeClass: 'badge--pass',   count: passRows.length },
+            NOT_IN_STUD: { rows: notInStudRows,    label: 'FAIL — Not in STUD',    badgeClass: 'badge--fail',   count: notInStudRows.length },
+            E051_INVALID:{ rows: e051InvalidRows,  label: 'FAIL — E051 Invalid',   badgeClass: 'badge--fail',   count: e051InvalidRows.length }
+        };
+
+        const rows = catMap[state.categoryTab]?.rows || allRows;
+
+        const buildRowHtml = (rowList) => rowList.map(row => {
             const v=Object.fromEntries(Object.entries(row.displayValues||{}).map(([k,val])=>[k.toUpperCase(),val]));
             const isFail=String(row.validationResult||'').toUpperCase()==='FAIL';
-            return `<tr>
+            return `<tr style="background:${isFail?'#FFF3F3':'#F3FFF3'}">
+                <td>${escapeHtml(String(row.validationNumber||''))}</td>
                 <td class="group-creg">${escapeHtml(v.CREG_STUD_NO||'')}</td>
                 <td class="group-creg">${escapeHtml(v.CREG_QUAL||'')}</td>
                 <td class="group-creg">${escapeHtml(v.CREG_E051||'')}</td>
@@ -609,30 +656,27 @@ window.toggleAccordion = function (section) {
                 <td class="${isFail&&v.E051_VALID!=='Yes'?'is-fail':'is-pass'}">${escapeHtml(v.E051_VALID||'')}</td>
                 <td class="group-final ${isFail?'is-fail':'is-pass'}">
                     <span class="result-text">${escapeHtml(isFail?'FAIL':'PASS')} ${isFail?'(00708)':''}</span>
-                    <span class="message-text">${escapeHtml(v.FINAL_RESULT_MESSAGE||'')}</span>
                 </td>
             </tr>`;
         }).join('');
 
+        const catTabsHtml = Object.entries(catMap).map(([key, cfg]) =>
+            `<button type="button" class="R67-cat-tab${state.categoryTab===key?' active':''}" data-cat="${key}">
+                ${escapeHtml(cfg.label)} <span class="R67-cat-count">${cfg.count.toLocaleString()}</span>
+            </button>`
+        ).join('');
+
         els.resultsPane.innerHTML=`
-            <div class="R67-filterbar">
-                <div class="field-group" style="margin:0;min-width:200px">
-                    <label>Result Filter</label>
-                    <select id="liveResultFilter">
-                        <option value="ALL">All results (PASS &amp; FAIL)</option>
-                        <option value="FAIL">FAIL — Exceptions (00708)</option>
-                        <option value="PASS">PASS — Valid pairs</option>
-                    </select>
-                </div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:auto">
-                    Showing ${rows.length.toLocaleString()} of ${summary.totalValidated.toLocaleString()} rows
-                    ${summary.isPreviewOnly?`<em>(browser preview only)</em>`:''}
-                </div>
+            <div class="R67-cat-tabs">${catTabsHtml}</div>
+            <div style="font-size:12px;color:var(--text-muted);padding:6px 0 8px">
+                Showing ${rows.length.toLocaleString()} rows
+                ${summary.isPreviewOnly?`<em style="margin-left:4px">(browser preview — download for full data)</em>`:''}
             </div>
             <div class="R67-table-wrap">
                 <table class="R67-grid">
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th class="group-creg">CREG [_007] Student No</th>
                             <th class="group-creg">CREG [_001] Qual</th>
                             <th class="group-creg">CREG [${escapeHtml(e051Col)}] E051</th>
@@ -643,11 +687,16 @@ window.toggleAccordion = function (section) {
                             <th class="group-final">Result</th>
                         </tr>
                     </thead>
-                    <tbody>${rowHtml||'<tr><td colspan="8" style="text-align:center;color:var(--text-muted)">No rows match the current filter.</td></tr>'}</tbody>
+                    <tbody>${buildRowHtml(rows)||'<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:16px">No rows in this category.</td></tr>'}</tbody>
                 </table>
             </div>`;
 
-        document.getElementById('liveResultFilter')?.addEventListener('change', e => { state.resultFilter = e.target.value; renderResults(true); });
+        els.resultsPane.querySelectorAll('.R67-cat-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                state.categoryTab = btn.dataset.cat;
+                renderResults(true);
+            });
+        });
     }
 
     // ─── Wire up buttons ─────────────────────────────────────────────────────
