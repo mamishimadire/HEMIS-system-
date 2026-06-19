@@ -35,9 +35,12 @@
     .R67-cat-tab[data-cat="PASS"].active         { background:#1b5e20; border-color:#1b5e20; }
     .R67-cat-tab[data-cat="NOT_IN_STUD"].active  { background:#b71c1c; border-color:#b71c1c; }
     .R67-cat-tab[data-cat="E051_INVALID"].active { background:#e65100; border-color:#e65100; }
-    .R67-cat-tab[data-cat="CONFIRMED"].active    { background:#2e7d32; border-color:#2e7d32; }
-    .R67-cat-tab[data-cat="NOT_CONFIRMED"].active{ background:#f57f17; border-color:#f57f17; }
-    .R67-cat-tab[data-cat="RULE29_ONLY"].active  { background:#880e4f; border-color:#880e4f; }
+    .R67-cat-tab[data-cat="CONFIRMED"].active         { background:#2e7d32; border-color:#2e7d32; }
+    .R67-cat-tab[data-cat="NOT_CONFIRMED"].active     { background:#f57f17; border-color:#f57f17; }
+    .R67-cat-tab[data-cat="RULE29_ONLY"].active       { background:#880e4f; border-color:#880e4f; }
+    .R67-cat-tab[data-cat="RULE29_CONFIRMED"].active    { background:#1565c0; border-color:#1565c0; }
+    .R67-cat-tab[data-cat="RULE29_NOT_CONFIRMED"].active{ background:#6a1b9a; border-color:#6a1b9a; }
+    .R67-cat-tab[data-cat="RULE29_NOT_IN_CREG"].active  { background:#b71c1c; border-color:#b71c1c; }
     .R67-cat-count { background:rgba(255,255,255,.25); border-radius:10px; padding:1px 7px; font-size:11px; font-weight:700; }
     .R67-cat-tab:not(.active) .R67-cat-count { background:var(--border,#e5e7eb); color:var(--text-muted,#666); }
     .R67-recon { display:inline-block; border-radius:10px; padding:2px 8px; font-size:11px; font-weight:700; white-space:nowrap; }
@@ -127,8 +130,10 @@
                         <div class="field-group"><label>STUD Student No Column <small>(_007)</small></label><select id="studStudentNoCol"><option value="_007">_007</option></select></div>
                         <div class="field-group"><label>STUD Qualification Column <small>(_001)</small></label><select id="studQualCol"><option value="_001">_001</option></select></div>
                         <div class="field-group"><label for="e051FilterValues">E051 Filter Values <small>(comma separated, e.g. E,N,G)</small></label><input id="e051FilterValues" type="text" value="E" placeholder="e.g. E,N,G" /></div>
-                        <div class="field-group"><label for="detailTable">Rule 29 Detail Table <small>(for reconciliation — leave blank to skip)</small></label><input id="detailTable" type="text" value="dbo_CREG_VALIDATION_DETAIL" placeholder="dbo_CREG_VALIDATION_DETAIL" /></div>
+                        <div class="field-group"><label for="detailTable">Rule 29 Detail Table <small>(for reconciliation — select none to skip)</small></label><select id="detailTable"><option value="">(none — skip reconciliation)</option></select></div>
                         <div class="field-group"><label for="detailErrorCode">Detail Error Code(s) <small>(comma separated, e.g. 00708,00159 — leading zeros ignored)</small></label><input id="detailErrorCode" type="text" value="00708" placeholder="e.g. 00708,00159" /></div>
+                        <div class="field-group"><label for="detailErrorCol">Detail Error Column <small>(column in detail table holding the error code)</small></label><select id="detailErrorCol"><option value="Error">Error</option></select></div>
+                        <div class="field-group"><label for="detailElementInfoCol">Detail Element Info Column <small>(column holding E007: StudentNo E001: QualCode)</small></label><select id="detailElementInfoCol"><option value="Element_Information">Element_Information</option></select></div>
                     </div>
                     <div class="action-bar" style="justify-content:flex-start;margin:10px 0 0">
                         <button type="button" class="btn btn-secondary" onclick="autoDetectColumns()">Auto-Detect Columns</button>
@@ -268,7 +273,7 @@ window.toggleAccordion = function (section) {
     function showSpinner(msg) { document.getElementById('spinnerMsg').textContent = msg || 'Processing...'; document.getElementById('spinner').style.display = 'flex'; }
     function hideSpinner() { document.getElementById('spinner').style.display = 'none'; }
     function escapeHtml(v) { return String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
-    function formatNumber(v) { return Number(v || 0).toLocaleString(); }
+    function formatNumber(v) { return Number(v || 0).toLocaleString('en-US'); }
     function normalizeRole(v) { return String(v || '').replace(/[^a-z0-9]+/gi,'').toLowerCase(); }
     function setAlert(target, type, message) { if (target) target.innerHTML = `<div class="alert alert--${type}">${message}</div>`; }
     function setWorkspaceState(message, type) { els.workspaceInfo.className = `alert alert--${type}`; els.workspaceInfo.textContent = message || ''; }
@@ -325,8 +330,10 @@ window.toggleAccordion = function (section) {
             studStudentNoCol:  els.studStudentNoCol?.value||'_007',
             studQualCol:       els.studQualCol?.value||'_001',
             e051FilterValues:  els.e051FilterValues?.value?.trim()||'E',
-            detailTable:       els.detailTable?.value?.trim()||'dbo_CREG_VALIDATION_DETAIL',
-            detailErrorCode:   els.detailErrorCode?.value?.trim()||'00708'
+            detailTable:          els.detailTable?.value?.trim()||'',
+            detailErrorCode:      els.detailErrorCode?.value?.trim()||'00708',
+            detailErrorCol:       els.detailErrorCol?.value?.trim()||'Error',
+            detailElementInfoCol: els.detailElementInfoCol?.value?.trim()||'Element_Information'
         };
     }
 
@@ -351,8 +358,35 @@ window.toggleAccordion = function (section) {
         } catch (e) { /* silently ignore */ }
     }
 
+    async function loadDetailCols(tableName) {
+        const server = els.server?.value?.trim(); const db = els.database?.value;
+        if (!server || !db || !tableName) return;
+        try {
+            const req = { server, database: db, driver: els.driver?.value||'ODBC Driver 17 for SQL Server', cregTable: tableName, studTable: tableName };
+            const data = await postJson(`${apiBase}/GetCregColumns`, req);
+            if (!data.success || !data.columns) return;
+            const cols = data.columns || [];
+            const errColEl  = document.getElementById('detailErrorCol');
+            const elemColEl = document.getElementById('detailElementInfoCol');
+            if (errColEl) {
+                const currentErr = errColEl.value;
+                fillColSel(errColEl, cols, cols.find(c => /error/i.test(c)) || 'Error');
+                if (cols.includes(currentErr)) errColEl.value = currentErr;
+            }
+            if (elemColEl) {
+                const currentElem = elemColEl.value;
+                fillColSel(elemColEl, cols, cols.find(c => /element/i.test(c)) || 'Element_Information');
+                if (cols.includes(currentElem)) elemColEl.value = currentElem;
+            }
+        } catch (e) { /* silently ignore */ }
+    }
+
     window.autoDetectColumns = async function() {
-        await Promise.all([loadCols('creg', els.cregTable?.value), loadCols('stud', els.studTable?.value)]);
+        await Promise.all([
+            loadCols('creg', els.cregTable?.value),
+            loadCols('stud', els.studTable?.value),
+            loadDetailCols(els.detailTable?.value)
+        ]);
     };
 
     function updateWorkspaceButtons() {
@@ -404,16 +438,22 @@ window.toggleAccordion = function (section) {
         if (els.server) els.server.value=workspace.server||'';
         if (els.driver) els.driver.value=workspace.driver||'ODBC Driver 17 for SQL Server';
         populateSelect(els.database, workspace.database?[workspace.database]:[], workspace.database);
-        populateSelect(els.cregTable, workspace.cregTable?[workspace.cregTable]:[], workspace.cregTable||'');
-        populateSelect(els.studTable, workspace.studTable?[workspace.studTable]:[], workspace.studTable||'dbo_STUD_VALPAC');
+        populateSelect(els.cregTable,   workspace.cregTable?[workspace.cregTable]:[], workspace.cregTable||'');
+        populateSelect(els.studTable,   workspace.studTable?[workspace.studTable]:[], workspace.studTable||'dbo_STUD_VALPAC');
+        if (els.detailTable) {
+            const savedDt = workspace.detailTable||'';
+            els.detailTable.innerHTML = '<option value="">(none — skip reconciliation)</option>';
+            if (savedDt) { const o=document.createElement('option'); o.value=o.textContent=savedDt; els.detailTable.appendChild(o); els.detailTable.value=savedDt; }
+        }
         if (workspace.cregStudentNoCol) setColSel(els.cregStudentNoCol, workspace.cregStudentNoCol);
         if (workspace.cregQualCol) setColSel(els.cregQualCol, workspace.cregQualCol);
         if (workspace.cregE051Col) setColSel(els.cregE051Col, workspace.cregE051Col);
         if (workspace.studStudentNoCol) setColSel(els.studStudentNoCol, workspace.studStudentNoCol);
         if (workspace.studQualCol) setColSel(els.studQualCol, workspace.studQualCol);
         if (els.e051FilterValues) els.e051FilterValues.value = workspace.e051FilterValues ?? 'E';
-        if (els.detailTable) els.detailTable.value = workspace.detailTable ?? 'dbo_CREG_VALIDATION_DETAIL';
-        if (els.detailErrorCode) els.detailErrorCode.value = workspace.detailErrorCode ?? '00708';
+        if (els.detailErrorCode)      els.detailErrorCode.value      = workspace.detailErrorCode      ?? '00708';
+        if (workspace.detailErrorCol)       setColSel(els.detailErrorCol, workspace.detailErrorCol);
+        if (workspace.detailElementInfoCol) setColSel(els.detailElementInfoCol, workspace.detailElementInfoCol);
         els.workspaceRunState.textContent=workspace.runId?`Run #${workspace.runId}`:'No saved run loaded';
         els.workspaceRunLabel.textContent=workspace.runId?`Rule 67 Run #${workspace.runId}`:'No saved run yet';
         els.workspaceStatusLabel.textContent=workspace.currentStatus||'-';
@@ -455,6 +495,17 @@ window.toggleAccordion = function (section) {
         if (!data.success) throw new Error(data.error||'Could not load tables.');
         populateSelect(els.cregTable, data.tables||[], data.autoCregTable);
         populateSelect(els.studTable, data.tables||[], data.autoStudTable);
+        // Populate detail table dropdown — auto-detect CREG_VALIDATION_DETAIL or similar
+        const tables = data.tables||[];
+        const autoDetailTable = tables.find(t=>t.toLowerCase()==='dbo_creg_validation_detail')
+            || tables.find(t=>t.toLowerCase().includes('creg_validation_detail'))
+            || tables.find(t=>t.toLowerCase().includes('validation_detail'))
+            || '';
+        if (els.detailTable) {
+            els.detailTable.innerHTML = '<option value="">(none — skip reconciliation)</option>';
+            tables.forEach(v => { const o=document.createElement('option'); o.value=o.textContent=v; els.detailTable.appendChild(o); });
+            if (autoDetailTable) els.detailTable.value = autoDetailTable;
+        }
         setAlert(els.configOutput,'success',`Loaded ${data.tables.length} table(s). Auto-detecting columns...`);
         await window.autoDetectColumns();
     }
@@ -509,14 +560,17 @@ window.toggleAccordion = function (section) {
 
     function renderAnalysis(summary) {
         if (!summary) { els.analysisPane.innerHTML='<div class="empty-card"><p>No Rule 67 results loaded.</p></div>'; return; }
-        const controlRows = (summary.controlSummaries||[]).map(i=>`<tr><td>${escapeHtml(i.controlLabel)}</td><td>${escapeHtml(i.criteriaText)}</td><td>${i.totalCount.toLocaleString()}</td><td>${i.passCount.toLocaleString()}</td><td>${i.failCount.toLocaleString()}</td><td>${escapeHtml(i.status)}</td></tr>`).join('');
+        const controlRows = (summary.controlSummaries||[]).map(i=>`<tr><td>${escapeHtml(i.controlLabel)}</td><td>${escapeHtml(i.criteriaText)}</td><td>${formatNumber(i.totalCount)}</td><td>${formatNumber(i.passCount)}</td><td>${formatNumber(i.failCount)}</td><td>${escapeHtml(i.status)}</td></tr>`).join('');
         const e051Col = summary.cregE051Col||'_051';
         const e051Filter = summary.e051FilterValues||'E';
         const allRows = summary.reviewRows||[];
 
-        const passRows        = allRows.filter(r=>String(r.validationResult||'').toUpperCase()==='PASS');
-        const notInStudRows   = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='not found in stud');
-        const e051InvalidRows = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='e051 code not in expected values');
+        const passRows         = allRows.filter(r=>String(r.validationResult||'').toUpperCase()==='PASS');
+        const notInStudRows    = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='not found in stud');
+        const e051InvalidRows  = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='e051 code not in expected values');
+        const confirmedRows    = summary.detailTable ? allRows.filter(r=>{ const rs=String((r.displayValues||{}).Reconciliation_Status||(r.displayValues||{}).RECONCILIATION_STATUS||''); return rs==='Confirmed by Rule 29'; }) : [];
+        const notConfirmedRows = summary.detailTable ? allRows.filter(r=>{ const rs=String((r.displayValues||{}).Reconciliation_Status||(r.displayValues||{}).RECONCILIATION_STATUS||''); return rs==='Not in Rule 29'; }) : [];
+        const rule29OnlyRowsList = summary.rule29OnlyRows||[];
 
         const rowHeaders = `<tr><th>#</th><th>CREG [_007] Student No</th><th>CREG [_001] Qual</th><th>CREG [${escapeHtml(e051Col)}] E051</th><th>STUD [_007]</th><th>STUD [_001] Qual</th><th>In STUD</th><th>E051 Valid</th><th>Result</th></tr>`;
 
@@ -542,22 +596,26 @@ window.toggleAccordion = function (section) {
             if(typeof state!=='undefined') state.categoryTab='${cat}';`;
 
         els.analysisPane.innerHTML = `
-            ${summary.isPreviewOnly?`<div class="alert alert--warning" style="margin-bottom:16px">Browser preview shows ${summary.previewLimit.toLocaleString()} rows. Download Excel for complete categorised results.</div>`:''}
+            ${summary.isPreviewOnly?`<div class="alert alert--warning" style="margin-bottom:16px">Browser preview shows ${formatNumber(summary.previewLimit)} rows. Download Excel for complete categorised results.</div>`:''}
             <div class="R67-summary-grid">
-                <div class="stat-card"><div class="stat-card__label">CREG Total Records</div><div class="stat-card__value">${(summary.cregRecordCount||0).toLocaleString()}</div></div>
-                <div class="stat-card"><div class="stat-card__label">STUD Total Records</div><div class="stat-card__value">${(summary.studRecordCount||0).toLocaleString()}</div></div>
-                <div class="stat-card"><div class="stat-card__label">Distinct CREG Pairs Checked</div><div class="stat-card__value">${(summary.totalValidated||0).toLocaleString()}</div></div>
+                <div class="stat-card"><div class="stat-card__label">CREG Total Records</div><div class="stat-card__value">${formatNumber(summary.cregRecordCount)}</div></div>
+                <div class="stat-card"><div class="stat-card__label">STUD Total Records</div><div class="stat-card__value">${formatNumber(summary.studRecordCount)}</div></div>
+                <div class="stat-card"><div class="stat-card__label">All Results (Pairs Checked)</div><div class="stat-card__value">${formatNumber(summary.totalValidated)}</div><div style="font-size:11px;margin-top:4px;opacity:.7">= Excel &ldquo;All Results&rdquo; tab</div></div>
                 <div class="stat-card stat-card--pass" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='PASS';renderResults(true);" title="Click to view PASS rows">
-                    <div class="stat-card__label">PASS (in STUD + E051 valid)</div><div class="stat-card__value">${(summary.passCount||0).toLocaleString()}</div>
-                    <div style="font-size:11px;margin-top:4px;opacity:.75">Click to view in Results tab &rarr;</div>
+                    <div class="stat-card__label">PASS</div><div class="stat-card__value">${formatNumber(summary.passCount)}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;PASS&rdquo; tab &nbsp;|&nbsp; Click to view &rarr;</div>
+                </div>
+                <div class="stat-card stat-card--fail">
+                    <div class="stat-card__label">FAIL (Total)</div><div class="stat-card__value">${formatNumber(summary.failCount)}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">Exception rate: ${Number(summary.exceptionRate||0).toFixed(2)}%</div>
                 </div>
                 <div class="stat-card stat-card--fail" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='NOT_IN_STUD';renderResults(true);" title="Click to view FAIL — Not in STUD rows">
-                    <div class="stat-card__label">FAIL — Not in STUD</div><div class="stat-card__value">${(summary.notInStudCount||0).toLocaleString()}</div>
-                    <div style="font-size:11px;margin-top:4px;opacity:.75">Click to view in Results tab &rarr;</div>
+                    <div class="stat-card__label">FAIL — Not in STUD</div><div class="stat-card__value">${formatNumber(summary.notInStudCount)}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;FAIL - Not in STUD&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
                 </div>
                 <div class="stat-card stat-card--fail" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='E051_INVALID';renderResults(true);" title="Click to view FAIL — E051 Invalid rows">
-                    <div class="stat-card__label">FAIL — E051 Invalid</div><div class="stat-card__value">${(summary.invalidE051Count||0).toLocaleString()}</div>
-                    <div style="font-size:11px;margin-top:4px;opacity:.75">Click to view in Results tab &rarr;</div>
+                    <div class="stat-card__label">FAIL — E051 Invalid</div><div class="stat-card__value">${formatNumber(summary.invalidE051Count)}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;FAIL - E051 Invalid&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
                 </div>
             </div>
 
@@ -613,30 +671,57 @@ window.toggleAccordion = function (section) {
                 </div>
             </div>` : ''}
 
-            ${(summary.detailTable&&(summary.confirmedByRule29Count>0||summary.notInRule29Count>0||summary.rule29OnlyCount>0)) ? `
+            ${(summary.detailTable&&(summary.confirmedByRule29Count>0||summary.notInRule29Count>0||rule29OnlyRowsList.length>0)) ? `
             <div class="card" style="padding:20px;margin-top:20px;border-left:4px solid #880e4f">
                 <h3 class="section-title" style="margin-top:0;color:#880e4f">Reconciliation vs Rule 29 (${escapeHtml(summary.detailTable||'')})</h3>
                 <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px">
                     Cross-reference of Rule 67 FAIL results against <strong>${escapeHtml(summary.detailTable||'')}</strong> records with error code(s) <code>${escapeHtml(summary.detailErrorCode||'00708')}</code>
-                    (${(summary.detailRecordCount||0).toLocaleString()} detail records found).
+                    (${formatNumber(summary.detailRecordCount)} detail records found &mdash; ${formatNumber(rule29OnlyRowsList.length)} distinct pairs in preview).
                 </p>
                 <div class="R67-summary-grid">
                     <div class="stat-card" style="border-left:4px solid #2e7d32;cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='CONFIRMED';renderResults(true);" title="Click to view confirmed rows">
                         <div class="stat-card__label">Confirmed by Rule 29</div>
-                        <div class="stat-card__value" style="color:#2e7d32">${(summary.confirmedByRule29Count||0).toLocaleString()}</div>
-                        <div style="font-size:11px;margin-top:4px;opacity:.75">In both Rule 67 FAIL <em>and</em> Rule 29 — findings confirmed</div>
+                        <div class="stat-card__value" style="color:#2e7d32">${formatNumber(summary.confirmedByRule29Count)}</div>
+                        <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;Confirmed by Rule 29&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
                     </div>
                     <div class="stat-card" style="border-left:4px solid #f57f17;cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='NOT_CONFIRMED';renderResults(true);" title="Click to view unconfirmed rows">
                         <div class="stat-card__label">Not Confirmed (Rule 67 Only)</div>
-                        <div class="stat-card__value" style="color:#f57f17">${(summary.notInRule29Count||0).toLocaleString()}</div>
-                        <div style="font-size:11px;margin-top:4px;opacity:.75">In Rule 67 FAIL but <em>not</em> in Rule 29 detail table</div>
+                        <div class="stat-card__value" style="color:#f57f17">${formatNumber(summary.notInRule29Count)}</div>
+                        <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;Not Confirmed (R67 Only)&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
                     </div>
-                    <div class="stat-card" style="border-left:4px solid #880e4f;cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='RULE29_ONLY';renderResults(true);" title="Click to view Rule 29-only rows">
-                        <div class="stat-card__label">Rule 29 Only (not in Rule 67)</div>
-                        <div class="stat-card__value" style="color:#880e4f">${(summary.rule29OnlyCount||0).toLocaleString()}</div>
-                        <div style="font-size:11px;margin-top:4px;opacity:.75">In Rule 29 detail (00708) but <em>not</em> matched in Rule 67 FAIL</div>
+                    <div class="stat-card" style="border-left:4px solid #880e4f;cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='RULE29_ONLY';renderResults(true);" title="Click to view Rule 29 detail rows">
+                        <div class="stat-card__label">Rule 29 Detail (${escapeHtml(summary.detailErrorCode||'00708')})</div>
+                        <div class="stat-card__value" style="color:#880e4f">${formatNumber(rule29OnlyRowsList.filter(r=>r.confirmedByR67!=='Yes').length||summary.rule29OnlyCount)}</div>
+                        <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;Rule 29 Only (${escapeHtml(summary.detailErrorCode||'00708')})&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
+                    </div>
+                    <div class="stat-card" style="border-left:4px solid #1565c0;cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='RULE29_CONFIRMED';renderResults(true);" title="Click to view Rule 29 confirmed rows">
+                        <div class="stat-card__label">Rule 29 Confirmed by Rule 67</div>
+                        <div class="stat-card__value" style="color:#1565c0">${formatNumber(rule29OnlyRowsList.filter(r=>r.confirmedByR67==='Yes').length||summary.confirmedByRule29Count)}</div>
+                        <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;R29 Confirmed by R67&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
                     </div>
                 </div>
+                ${confirmedRows.length > 0 ? `
+                <div style="margin-top:18px;border-top:1px solid #e0e0e0;padding-top:16px">
+                    <h4 style="margin:0 0 8px;color:#2e7d32">Confirmed by Rule 29 — ${formatNumber(summary.confirmedByRule29Count)} pair(s) ${summary.isPreviewOnly&&confirmedRows.length<summary.confirmedByRule29Count?`<small style="font-weight:normal;font-size:12px">(showing ${confirmedRows.length} in preview)</small>`:''}</h4>
+                    <div class="table-wrapper" style="overflow-x:auto"><table class="data-table" style="min-width:700px;font-size:12px;font-family:Consolas,monospace"><thead>${rowHeaders}</thead><tbody>${buildPreviewTable(confirmedRows,'#E8F5E9','#2e7d32')}</tbody></table></div>
+                    <div style="margin-top:8px"><button type="button" class="btn btn-info" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='CONFIRMED';renderResults(true);">View all in Results tab &rarr;</button></div>
+                </div>` : ''}
+                ${notConfirmedRows.length > 0 ? `
+                <div style="margin-top:18px;border-top:1px solid #e0e0e0;padding-top:16px">
+                    <h4 style="margin:0 0 8px;color:#f57f17">Not Confirmed (Rule 67 Only) — ${formatNumber(summary.notInRule29Count)} pair(s) ${summary.isPreviewOnly&&notConfirmedRows.length<summary.notInRule29Count?`<small style="font-weight:normal;font-size:12px">(showing ${notConfirmedRows.length} in preview)</small>`:''}</h4>
+                    <div class="table-wrapper" style="overflow-x:auto"><table class="data-table" style="min-width:700px;font-size:12px;font-family:Consolas,monospace"><thead>${rowHeaders}</thead><tbody>${buildPreviewTable(notConfirmedRows,'#FFF3E0','#f57f17')}</tbody></table></div>
+                    <div style="margin-top:8px"><button type="button" class="btn btn-info" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='NOT_CONFIRMED';renderResults(true);">View all in Results tab &rarr;</button></div>
+                </div>` : ''}
+                ${rule29OnlyRowsList.length > 0 ? `
+                <div style="margin-top:18px;border-top:1px solid #e0e0e0;padding-top:16px">
+                    <h4 style="margin:0 0 8px;color:#880e4f">Rule 29 Detail (error ${escapeHtml(summary.detailErrorCode||'00708')}) — ${formatNumber(rule29OnlyRowsList.length)} pair(s) in preview</h4>
+                    <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px">All records from <strong>${escapeHtml(summary.detailTable||'')}</strong> matching the error code. <span style="color:#2e7d32;font-weight:700">Green</span> = confirmed by Rule 67 FAIL &nbsp; <span style="color:#880e4f;font-weight:700">Pink</span> = not in Rule 67 FAIL</p>
+                    <div class="table-wrapper" style="overflow-x:auto"><table class="data-table" style="min-width:500px;font-size:12px;font-family:Consolas,monospace">
+                        <thead><tr><th>#</th><th>Student No (Rule 29)</th><th>Qual Code (Rule 29)</th><th>Confirmed by Rule 67?</th></tr></thead>
+                        <tbody>${rule29OnlyRowsList.map((row,i)=>{const conf=row.confirmedByR67==='Yes';return `<tr style="background:${conf?'#E8F5E9':'#FCE4EC'}"><td>${i+1}</td><td style="font-weight:700;color:${conf?'#2e7d32':'#880e4f'}">${escapeHtml(String(row.studentNo||''))}</td><td>${escapeHtml(String(row.qualCode||''))}</td><td style="font-weight:700;color:${conf?'#2e7d32':'#880e4f'}">${conf?'Yes':'No'}</td></tr>`;}).join('')}</tbody>
+                    </table></div>
+                    <div style="margin-top:8px"><button type="button" class="btn btn-info" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='RULE29_ONLY';renderResults(true);">View all Rule 29 detail in Results tab &rarr;</button></div>
+                </div>` : ''}
             </div>` : ''}
 
             <div class="card" style="padding:20px;margin-top:20px">
@@ -673,15 +758,22 @@ window.toggleAccordion = function (section) {
         const notConfirmedRows = hasDetail ? allRows.filter(r=>getRecon(r)==='Not in Rule 29') : [];
         const rule29OnlyRows   = hasDetail ? (summary.rule29OnlyRows||[]) : [];
 
+        const rule29ConfirmedRows    = rule29OnlyRows.filter(r => r.confirmedByR67 === 'Yes');
+        const rule29InCregPassRows   = rule29OnlyRows.filter(r => r.confirmedByR67 === 'No');
+        const rule29NotInCregRows    = rule29OnlyRows.filter(r => r.confirmedByR67 === 'Not in CREG');
+        const rule29NotConfirmedRows = rule29OnlyRows.filter(r => r.confirmedByR67 !== 'Yes');
         const catMap = {
-            ALL:           { rows: allRows,          label: 'All Results',              count: allRows.length,          isRule29: false },
-            PASS:          { rows: passRows,          label: 'PASS',                     count: passRows.length,         isRule29: false },
-            NOT_IN_STUD:   { rows: notInStudRows,     label: 'FAIL — Not in STUD',       count: notInStudRows.length,    isRule29: false },
-            E051_INVALID:  { rows: e051InvalidRows,   label: 'FAIL — E051 Invalid',      count: e051InvalidRows.length,  isRule29: false },
+            ALL:               { rows: allRows,             label: 'All Results',                    count: summary.totalValidated||allRows.length,          isRule29: false },
+            PASS:              { rows: passRows,             label: 'PASS',                           count: summary.passCount||passRows.length,              isRule29: false },
+            NOT_IN_STUD:       { rows: notInStudRows,        label: 'FAIL — Not in STUD',             count: summary.notInStudCount||notInStudRows.length,    isRule29: false },
+            E051_INVALID:      { rows: e051InvalidRows,      label: 'FAIL — E051 Invalid',            count: summary.invalidE051Count||e051InvalidRows.length, isRule29: false },
             ...(hasDetail ? {
-                CONFIRMED:     { rows: confirmedRows,    label: 'Confirmed by Rule 29',     count: confirmedRows.length,    isRule29: false },
-                NOT_CONFIRMED: { rows: notConfirmedRows, label: 'Not Confirmed (R67 Only)', count: notConfirmedRows.length, isRule29: false },
-                RULE29_ONLY:   { rows: rule29OnlyRows,   label: 'Rule 29 Only (00708)',     count: rule29OnlyRows.length,   isRule29: true  }
+                CONFIRMED:            { rows: confirmedRows,       label: 'Confirmed by Rule 29',           count: summary.confirmedByRule29Count||confirmedRows.length,    isRule29: false },
+                NOT_CONFIRMED:        { rows: notConfirmedRows,    label: 'Not Confirmed (R67 Only)',       count: summary.notInRule29Count||notConfirmedRows.length,       isRule29: false },
+                RULE29_ONLY:          { rows: rule29OnlyRows,      label: `Rule 29 Only (${escapeHtml(summary.detailErrorCode||'00708')})`, count: rule29OnlyRows.length, isRule29: true },
+                RULE29_CONFIRMED:     { rows: rule29ConfirmedRows, label: 'R29 Confirmed by Rule 67',      count: rule29ConfirmedRows.length,    isRule29: true },
+                RULE29_NOT_CONFIRMED: { rows: rule29InCregPassRows,label: 'R29 In CREG — Not Confirmed',  count: rule29InCregPassRows.length,   isRule29: true },
+                RULE29_NOT_IN_CREG:   { rows: rule29NotInCregRows, label: 'R29 Not in CREG',              count: rule29NotInCregRows.length,    isRule29: true }
             } : {})
         };
 
@@ -720,16 +812,20 @@ window.toggleAccordion = function (section) {
             </tr>`;
         }).join('');
 
-        const buildRule29OnlyRowHtml = (rowList) => rowList.map((row,i) =>
-            `<tr style="background:#FCE4EC">
+        const buildRule29OnlyRowHtml = (rowList) => rowList.map((row,i) => {
+            const status = row.confirmedByR67 || 'Not in CREG';
+            let bg, clr, lbl;
+            if (status === 'Yes')           { bg='#E8F5E9'; clr='#2e7d32'; lbl='&#10003; Yes — Rule 67 also FAIL'; }
+            else if (status === 'No')       { bg='#FFF8E1'; clr='#f57f17'; lbl='&#9888; No — Rule 67 = PASS (student is in CREG)'; }
+            else                            { bg='#FCE4EC'; clr='#b71c1c'; lbl='&#10007; Not in CREG — Rule 67 did not validate this student'; }
+            const msg = row.errorMessage ? `<br><span style="font-size:10px;opacity:.8">${escapeHtml(String(row.errorMessage))}</span>` : '';
+            return `<tr style="background:${bg}">
                 <td>${i+1}</td>
-                <td style="font-weight:700;color:#880e4f">${escapeHtml(String(row.studentNo||''))}</td>
+                <td style="font-weight:700;color:${clr}">${escapeHtml(String(row.studentNo||''))}</td>
                 <td>${escapeHtml(String(row.qualCode||''))}</td>
-                <td colspan="${hasDetail?7:6}" style="color:var(--text-muted);font-size:11px;font-style:italic">
-                    In Rule 29 (00708) — not matched in Rule 67 FAIL results
-                </td>
-            </tr>`
-        ).join('');
+                <td colspan="${hasDetail?7:6}" style="color:${clr};font-size:11px;font-weight:700">${lbl}${msg}</td>
+            </tr>`;
+        }).join('');
 
         const colSpan = hasDetail ? 10 : 9;
         const catTabsHtml = Object.entries(catMap).map(([key, cfg]) =>
@@ -753,15 +849,28 @@ window.toggleAccordion = function (section) {
                 ${hasDetail?'<th>Reconciliation</th>':''}
               </tr>`;
 
+        const activeCat = catMap[state.categoryTab];
+        const activeCatTotal = activeCat?.count || 0;
+        const noPreviewMsg = activeCatTotal > 0 && rows.length === 0
+            ? `<tr><td colspan="${colSpan}" style="text-align:center;padding:20px">
+                  <div class="alert alert--info" style="display:inline-block;text-align:left;max-width:600px">
+                      <strong>${formatNumber(activeCatTotal)} records</strong> in this category — browser preview does not include rows for this tab.<br>
+                      <button type="button" class="btn btn-primary btn-sm" style="margin-top:8px"
+                          onclick="downloadBlob(\`\${apiBase}/DownloadExcel\`,state.summary,'Rule67_CREG_STUD_Pair.xlsx').catch(e=>setWorkspaceState(e.message,'error'))">
+                          Download Excel for full data &darr;
+                      </button>
+                  </div>
+              </td></tr>`
+            : '';
         const bodyHtml = isRule29Tab
-            ? (buildRule29OnlyRowHtml(rows)||`<tr><td colspan="${colSpan}" style="text-align:center;color:var(--text-muted);padding:16px">No Rule 29-only records.</td></tr>`)
-            : (buildRowHtml(rows)||`<tr><td colspan="${colSpan}" style="text-align:center;color:var(--text-muted);padding:16px">No rows in this category.</td></tr>`);
+            ? (buildRule29OnlyRowHtml(rows)||(noPreviewMsg||`<tr><td colspan="${colSpan}" style="text-align:center;color:var(--text-muted);padding:16px">No Rule 29 records in this category.</td></tr>`))
+            : (buildRowHtml(rows)||(noPreviewMsg||`<tr><td colspan="${colSpan}" style="text-align:center;color:var(--text-muted);padding:16px">No rows in this category.</td></tr>`));
 
         els.resultsPane.innerHTML=`
             <div class="R67-cat-tabs">${catTabsHtml}</div>
             <div style="font-size:12px;color:var(--text-muted);padding:6px 0 8px">
-                Showing ${rows.length.toLocaleString()} rows
-                ${summary.isPreviewOnly?`<em style="margin-left:4px">(browser preview — download for full data)</em>`:''}
+                Showing ${formatNumber(rows.length)} of ${formatNumber(activeCatTotal)} rows
+                ${summary.isPreviewOnly||rows.length<activeCatTotal?`<em style="margin-left:4px">(browser preview — download Excel for complete data)</em>`:''}
             </div>
             <div class="R67-table-wrap">
                 <table class="R67-grid">
@@ -788,6 +897,7 @@ window.toggleAccordion = function (section) {
     });
     els.cregTable?.addEventListener('change', async () => { await loadCols('creg', els.cregTable.value).catch(()=>{}); });
     els.studTable?.addEventListener('change', async () => { await loadCols('stud', els.studTable.value).catch(()=>{}); });
+    els.detailTable?.addEventListener('change', async () => { await loadDetailCols(els.detailTable.value).catch(()=>{}); });
     document.getElementById('connectBtn')?.addEventListener('click', async () => { try { await connect(); } catch(e) { setAlert(els.connectionOutput,'error',e.message); } });
     document.getElementById('verifyBtn')?.addEventListener('click', async () => { try { await verifyTables(); } catch(e) { setAlert(els.configOutput,'error',e.message); } });
     document.getElementById('runBtn')?.addEventListener('click', async () => { try { await runValidation(); } catch(e) { setWorkspaceState(e.message,'error'); hideSpinner(); } });

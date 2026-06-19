@@ -6137,10 +6137,10 @@ namespace HemisAudit.Services
                 WriteRule67Sheet(wb.Worksheets.Add("Confirmed by Rule 29"),   confirmedRows!,    "#2E7D32");
                 WriteRule67Sheet(wb.Worksheets.Add("Not Confirmed (R67 Only)"), notConfirmedRows!, "#F57F17");
 
-                // Rule 29 Only sheet — different column structure
+                // Rule 29 Only sheet — ALL detail pairs with ConfirmedByR67 column
                 var wsR29 = wb.Worksheets.Add("Rule 29 Only (00708)");
-                StyleHeaderRow(wsR29, 1, $"RULE 29 ONLY: Records in [{summary.DetailTable}] (error 00708) not matched in Rule 67 FAIL results", 3);
-                var r29Headers = new[] { "#", "Student No (from Rule 29)", "Qualification Code (from Rule 29)" };
+                StyleHeaderRow(wsR29, 1, $"RULE 29 DETAIL (error {summary.DetailErrorCode}): All records from [{summary.DetailTable}] — with Rule 67 confirmation status", 4);
+                var r29Headers = new[] { "#", "Student No (from Rule 29)", "Qualification Code (from Rule 29)", "Rule 29 Error Message", "Confirmed by Rule 67?" };
                 for (int i = 0; i < r29Headers.Length; i++)
                 {
                     var hc = wsR29.Cell(2, i + 1);
@@ -6151,13 +6151,96 @@ namespace HemisAudit.Services
                 int rr = 3;
                 foreach (var row in summary.Rule29OnlyRows)
                 {
+                    var isConf      = string.Equals(row.ConfirmedByR67, "Yes", StringComparison.OrdinalIgnoreCase);
+                    var isNotInCreg = string.Equals(row.ConfirmedByR67, "Not in CREG", StringComparison.OrdinalIgnoreCase);
                     wsR29.Cell(rr, 1).Value = row.RowNumber;
                     wsR29.Cell(rr, 2).Value = row.StudentNo;
                     wsR29.Cell(rr, 3).Value = row.QualCode;
-                    wsR29.Range(rr, 1, rr, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FCE4EC");
+                    wsR29.Cell(rr, 4).Value = row.ErrorMessage;
+                    wsR29.Cell(rr, 5).Value = isConf      ? "Yes — Rule 67 also FAIL"
+                                            : isNotInCreg ? "Not in CREG"
+                                            :               "No — Rule 67 = PASS";
+                    var rowColor = isConf      ? XLColor.FromHtml("#E8F5E9")
+                                 : isNotInCreg ? XLColor.FromHtml("#FCE4EC")
+                                 :               XLColor.FromHtml("#FFF8E1");
+                    wsR29.Range(rr, 1, rr, 5).Style.Fill.BackgroundColor = rowColor;
+                    var confCell = wsR29.Cell(rr, 5);
+                    confCell.Style.Font.Bold = true;
+                    confCell.Style.Font.FontColor = isConf      ? XLColor.FromHtml("#2E7D32")
+                                                  : isNotInCreg ? XLColor.FromHtml("#B71C1C")
+                                                  :               XLColor.FromHtml("#F57F17");
                     rr++;
                 }
-                for (int c = 1; c <= 3; c++) wsR29.Column(c).AdjustToContents();
+                for (int c = 1; c <= 5; c++) wsR29.Column(c).AdjustToContents();
+
+                // Rule 29 Confirmed by Rule 67 sheet — subset of detail pairs confirmed in Rule 67 FAIL
+                var wsR29Conf = wb.Worksheets.Add("R29 Confirmed by R67");
+                StyleHeaderRow(wsR29Conf, 1, $"RULE 29 CONFIRMED BY RULE 67: Records from [{summary.DetailTable}] (error {summary.DetailErrorCode}) also found as FAIL in Rule 67", 3);
+                var r29ConfHeaders = new[] { "#", "Student No (from Rule 29)", "Qualification Code (from Rule 29)" };
+                for (int i = 0; i < r29ConfHeaders.Length; i++)
+                {
+                    var hc = wsR29Conf.Cell(2, i + 1);
+                    hc.Value = r29ConfHeaders[i]; hc.Style.Font.Bold = true;
+                    hc.Style.Fill.BackgroundColor = XLColor.FromHtml("#1565C0");
+                    hc.Style.Font.FontColor = XLColor.White;
+                }
+                int rrc = 3;
+                int r29ConfNum = 1;
+                foreach (var row in summary.Rule29OnlyRows.Where(r => string.Equals(r.ConfirmedByR67, "Yes", StringComparison.OrdinalIgnoreCase)))
+                {
+                    wsR29Conf.Cell(rrc, 1).Value = r29ConfNum++;
+                    wsR29Conf.Cell(rrc, 2).Value = row.StudentNo;
+                    wsR29Conf.Cell(rrc, 3).Value = row.QualCode;
+                    wsR29Conf.Range(rrc, 1, rrc, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#E3F2FD");
+                    rrc++;
+                }
+                for (int c = 1; c <= 3; c++) wsR29Conf.Column(c).AdjustToContents();
+
+                // R29 In CREG - Not Confirmed — detail pairs in CREG but Rule 67 = PASS
+                var wsR29NotConf = wb.Worksheets.Add("R29 In CREG - Not Confirmed");
+                StyleHeaderRow(wsR29NotConf, 1, $"RULE 29 IN CREG — NOT CONFIRMED BY RULE 67: From [{summary.DetailTable}] (error {summary.DetailErrorCode}) — student IS in CREG but Rule 67 result = PASS", 3);
+                var r29NotConfHeaders = new[] { "#", "Student No (from Rule 29)", "Qualification Code (from Rule 29)" };
+                for (int i = 0; i < r29NotConfHeaders.Length; i++)
+                {
+                    var hc = wsR29NotConf.Cell(2, i + 1);
+                    hc.Value = r29NotConfHeaders[i]; hc.Style.Font.Bold = true;
+                    hc.Style.Fill.BackgroundColor = XLColor.FromHtml("#6A1B9A");
+                    hc.Style.Font.FontColor = XLColor.White;
+                }
+                int rrNc = 3;
+                int r29NotConfNum = 1;
+                foreach (var row in summary.Rule29OnlyRows.Where(r => string.Equals(r.ConfirmedByR67, "No", StringComparison.OrdinalIgnoreCase)))
+                {
+                    wsR29NotConf.Cell(rrNc, 1).Value = r29NotConfNum++;
+                    wsR29NotConf.Cell(rrNc, 2).Value = row.StudentNo;
+                    wsR29NotConf.Cell(rrNc, 3).Value = row.QualCode;
+                    wsR29NotConf.Range(rrNc, 1, rrNc, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF8E1");
+                    rrNc++;
+                }
+                for (int c = 1; c <= 3; c++) wsR29NotConf.Column(c).AdjustToContents();
+
+                // R29 Not in CREG — detail pairs where student is NOT in CREG at all (cannot be validated by Rule 67)
+                var wsR29NotInCreg = wb.Worksheets.Add("R29 Not in CREG");
+                StyleHeaderRow(wsR29NotInCreg, 1, $"RULE 29 NOT IN CREG: From [{summary.DetailTable}] (error {summary.DetailErrorCode}) — student NOT in CREG, cannot be validated by Rule 67", 3);
+                var r29NotInCregHeaders = new[] { "#", "Student No (from Rule 29)", "Qualification Code (from Rule 29)" };
+                for (int i = 0; i < r29NotInCregHeaders.Length; i++)
+                {
+                    var hc = wsR29NotInCreg.Cell(2, i + 1);
+                    hc.Value = r29NotInCregHeaders[i]; hc.Style.Font.Bold = true;
+                    hc.Style.Fill.BackgroundColor = XLColor.FromHtml("#B71C1C");
+                    hc.Style.Font.FontColor = XLColor.White;
+                }
+                int rrNic = 3;
+                int r29NotInCregNum = 1;
+                foreach (var row in summary.Rule29OnlyRows.Where(r => string.Equals(r.ConfirmedByR67, "Not in CREG", StringComparison.OrdinalIgnoreCase)))
+                {
+                    wsR29NotInCreg.Cell(rrNic, 1).Value = r29NotInCregNum++;
+                    wsR29NotInCreg.Cell(rrNic, 2).Value = row.StudentNo;
+                    wsR29NotInCreg.Cell(rrNic, 3).Value = row.QualCode;
+                    wsR29NotInCreg.Range(rrNic, 1, rrNic, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFEBEE");
+                    rrNic++;
+                }
+                for (int c = 1; c <= 3; c++) wsR29NotInCreg.Column(c).AdjustToContents();
             }
 
             var wsSummary = wb.Worksheets.Add("Summary");
@@ -6184,12 +6267,18 @@ namespace HemisAudit.Services
             };
             if (hasDetail)
             {
+                var r29ConfCount      = summary.Rule29OnlyRows.Count(r => string.Equals(r.ConfirmedByR67, "Yes",         StringComparison.OrdinalIgnoreCase));
+                var r29InCregPassCount = summary.Rule29OnlyRows.Count(r => string.Equals(r.ConfirmedByR67, "No",          StringComparison.OrdinalIgnoreCase));
+                var r29NotInCregCount  = summary.Rule29OnlyRows.Count(r => string.Equals(r.ConfirmedByR67, "Not in CREG", StringComparison.OrdinalIgnoreCase));
                 summaryRows.Add(("", ""));
                 summaryRows.Add(("RECONCILIATION vs RULE 29", ""));
-                summaryRows.Add(($"Detail Table ({summary.DetailTable})", summary.DetailRecordCount.ToString("N0") + " records (error 00708)"));
-                summaryRows.Add(("Confirmed by Rule 29 (in both)", summary.ConfirmedByRule29Count.ToString("N0")));
+                summaryRows.Add(($"Detail Table ({summary.DetailTable})", summary.DetailRecordCount.ToString("N0") + $" records (error {summary.DetailErrorCode})"));
+                summaryRows.Add(("Confirmed by Rule 29 (Rule 67 FAIL ∩ Rule 29)", summary.ConfirmedByRule29Count.ToString("N0")));
                 summaryRows.Add(("Not Confirmed (Rule 67 FAIL only)", summary.NotInRule29Count.ToString("N0")));
-                summaryRows.Add(("Rule 29 Only (not in Rule 67 FAIL)", summary.Rule29OnlyCount.ToString("N0")));
+                summaryRows.Add(("Rule 29 All Detail Pairs", summary.Rule29OnlyRows.Count.ToString("N0")));
+                summaryRows.Add(("  → R29 Yes — Rule 67 also FAIL", r29ConfCount.ToString("N0")));
+                summaryRows.Add(("  → R29 In CREG — Not Confirmed (Rule 67 PASS)", r29InCregPassCount.ToString("N0")));
+                summaryRows.Add(("  → R29 Not in CREG (cannot be validated by Rule 67)", r29NotInCregCount.ToString("N0")));
             }
             int sRow = 2;
             foreach (var (label, value) in summaryRows)

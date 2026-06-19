@@ -24,6 +24,8 @@ namespace HemisAudit.ViewModels
         public string E051FilterValues { get; set; } = "E";
         public string DetailTable { get; set; } = "dbo_CREG_VALIDATION_DETAIL";
         public string DetailErrorCode { get; set; } = "00708";
+        public string DetailErrorCol { get; set; } = "Error";
+        public string DetailElementInfoCol { get; set; } = "Element_Information";
     }
 
     public class Rule67VerifyResult
@@ -51,6 +53,8 @@ namespace HemisAudit.ViewModels
         public string E051FilterValues { get; set; } = "E";
         public string DetailTable { get; set; } = "dbo_CREG_VALIDATION_DETAIL";
         public string DetailErrorCode { get; set; } = "00708";
+        public string DetailErrorCol { get; set; } = "Error";
+        public string DetailElementInfoCol { get; set; } = "Element_Information";
     }
 
     public class Rule67ControlSummaryItemViewModel
@@ -102,6 +106,8 @@ namespace HemisAudit.ViewModels
         public string E051FilterValues { get; set; } = "E";
         public string DetailTable { get; set; } = "";
         public string DetailErrorCode { get; set; } = "00708";
+        public string DetailErrorCol { get; set; } = "Error";
+        public string DetailElementInfoCol { get; set; } = "Element_Information";
         public string TableLinkageText { get; set; } = "";
         public string RuleModeText { get; set; } = "";
         public List<string> ProcedureSteps { get; set; } = new();
@@ -203,5 +209,7 @@ namespace HemisAudit.ViewModels
         public int RowNumber { get; set; }
         public string StudentNo { get; set; } = "";
         public string QualCode { get; set; } = "";
+        public string ConfirmedByR67 { get; set; } = "No";
+        public string ErrorMessage { get; set; } = "";
     }
 }

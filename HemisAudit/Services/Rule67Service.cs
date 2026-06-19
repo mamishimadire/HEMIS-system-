@@ -479,21 +479,23 @@ SELECT
             await using var conn = new SqlConnection(connStr);
             await conn.OpenAsync();
 
-            var cregTable      = Sanitise(request.CregTable);
-            var studTable      = Sanitise(request.StudTable);
-            var detailTable    = Sanitise(request.DetailTable ?? "");
-            var detailErrCodes = ParseDetailErrorCodes(request.DetailErrorCode ?? "00708");
-            var cregStudentCol = Sanitise(request.CregStudentNoCol);
-            var cregQualCol    = Sanitise(request.CregQualCol);
-            var cregE051Col    = Sanitise(string.IsNullOrWhiteSpace(request.CregE051Col) ? "_051" : request.CregE051Col);
-            var studStudentCol = Sanitise(request.StudStudentNoCol);
-            var studQualCol    = Sanitise(request.StudQualCol);
-            var e051Values     = ParseFilterValues(request.E051FilterValues);
-            var e051ValuesText = e051Values.Count > 0 ? string.Join(", ", e051Values) : "ALL — no filter applied";
+            var cregTable           = Sanitise(request.CregTable);
+            var studTable           = Sanitise(request.StudTable);
+            var detailTable         = Sanitise(request.DetailTable ?? "");
+            var detailErrCodes      = ParseDetailErrorCodes(request.DetailErrorCode ?? "00708");
+            var detailErrorCol      = Sanitise(string.IsNullOrWhiteSpace(request.DetailErrorCol)      ? "Error"               : request.DetailErrorCol);
+            var detailElementInfoCol= Sanitise(string.IsNullOrWhiteSpace(request.DetailElementInfoCol)? "Element_Information" : request.DetailElementInfoCol);
+            var cregStudentCol      = Sanitise(request.CregStudentNoCol);
+            var cregQualCol         = Sanitise(request.CregQualCol);
+            var cregE051Col         = Sanitise(string.IsNullOrWhiteSpace(request.CregE051Col) ? "_051" : request.CregE051Col);
+            var studStudentCol      = Sanitise(request.StudStudentNoCol);
+            var studQualCol         = Sanitise(request.StudQualCol);
+            var e051Values          = ParseFilterValues(request.E051FilterValues);
+            var e051ValuesText      = e051Values.Count > 0 ? string.Join(", ", e051Values) : "ALL — no filter applied";
 
             // Single batch: RS1=source counts, RS2=validation+reconciliation counts, RS3=rows, RS4=Rule29-only
             await using var batchCmd = conn.CreateConfiguredCommand();
-            batchCmd.CommandText = BuildSingleBatchSql(cregTable, studTable, detailTable, detailErrCodes, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values, includeAllReviewRows ? null : BrowserPreviewRowLimit);
+            batchCmd.CommandText = BuildSingleBatchSql(cregTable, studTable, detailTable, detailErrCodes, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values, includeAllReviewRows ? null : BrowserPreviewRowLimit, detailErrorCol, detailElementInfoCol);
             await using var batchReader = await batchCmd.ExecuteReaderAsync();
 
             // RS 1: source table row counts + detail count
@@ -549,11 +551,14 @@ SELECT
             {
                 while (await batchReader.ReadAsync())
                 {
+                    // RS4 columns: 0=RowNum, 1=DETAIL_STUD_NO, 2=DETAIL_QUAL, 3=DETAIL_ERROR_MSG, 4=ConfirmedByR67
                     rule29OnlyRows.Add(new Rule67Rule29OnlyRow
                     {
-                        RowNumber  = rule29OnlyRows.Count + 1,
-                        StudentNo  = batchReader.IsDBNull(1) ? "" : Convert.ToString(batchReader.GetValue(1), CultureInfo.InvariantCulture) ?? "",
-                        QualCode   = batchReader.IsDBNull(2) ? "" : Convert.ToString(batchReader.GetValue(2), CultureInfo.InvariantCulture) ?? ""
+                        RowNumber      = rule29OnlyRows.Count + 1,
+                        StudentNo      = batchReader.IsDBNull(1) ? "" : Convert.ToString(batchReader.GetValue(1), CultureInfo.InvariantCulture) ?? "",
+                        QualCode       = batchReader.IsDBNull(2) ? "" : Convert.ToString(batchReader.GetValue(2), CultureInfo.InvariantCulture) ?? "",
+                        ErrorMessage   = batchReader.FieldCount > 3 && !batchReader.IsDBNull(3) ? Convert.ToString(batchReader.GetValue(3), CultureInfo.InvariantCulture) ?? "" : "",
+                        ConfirmedByR67 = batchReader.FieldCount > 4 && !batchReader.IsDBNull(4) ? Convert.ToString(batchReader.GetValue(4), CultureInfo.InvariantCulture) ?? "No" : "No"
                     });
                 }
             }
@@ -603,6 +608,8 @@ SELECT
                 E051FilterValues       = e051Values.Count > 0 ? string.Join(",", e051Values) : "",
                 DetailTable            = detailTable,
                 DetailErrorCode        = detailErrCodes.Count > 0 ? string.Join(",", detailErrCodes.Select(c => c.ToString())) : "00708",
+                DetailErrorCol         = detailErrorCol,
+                DetailElementInfoCol   = detailElementInfoCol,
                 DetailRecordCount      = detailCount,
                 ConfirmedByRule29Count = confirmedByRule29Count,
                 NotInRule29Count       = notInRule29Count,
@@ -631,7 +638,7 @@ SELECT
         // ─── SQL Builders ─────────────────────────────────────────────────────
 
         // Materialise temp tables once, return RS1=source counts, RS2=validation counts, RS3=rows, RS4=Rule29-only.
-        private static string BuildSingleBatchSql(string cregTable, string studTable, string detailTable, IReadOnlyList<long> detailErrCodes, string cregStudentCol, string cregQualCol, string cregE051Col, string studStudentCol, string studQualCol, IReadOnlyList<string> e051Values, int? maxRows)
+        private static string BuildSingleBatchSql(string cregTable, string studTable, string detailTable, IReadOnlyList<long> detailErrCodes, string cregStudentCol, string cregQualCol, string cregE051Col, string studStudentCol, string studQualCol, IReadOnlyList<string> e051Values, int? maxRows, string detailErrorCol = "Error", string detailElementInfoCol = "Element_Information")
         {
             var e051ValidExpr = e051Values.Count > 0
                 ? $"CASE WHEN CP.CREG_E051 IN ({BuildInClauseSql(e051Values)}) THEN 'Yes' ELSE 'No' END"
@@ -655,7 +662,7 @@ SELECT
             var detailJoin    = hasDetail ? "LEFT JOIN #R67DetailPairs DP ON DP.DETAIL_STUD_NO = CP.CREG_STUD_NO AND DP.DETAIL_QUAL = CP.CREG_QUAL" : "";
             var detailErrInSql  = hasDetail ? BuildDetailErrInSql(detailErrCodes) : "0";
             var detailCountExpr = hasDetail
-                ? $"(SELECT COUNT(*) FROM [{detailTable}] WITH (NOLOCK) WHERE TRY_CAST(LTRIM(RTRIM(CAST([Error] AS nvarchar(50)))) AS bigint) IN ({detailErrInSql}))"
+                ? $"(SELECT COUNT(*) FROM [{detailTable}] WITH (NOLOCK) WHERE TRY_CAST(LTRIM(RTRIM(CAST([{detailErrorCol}] AS nvarchar(50)))) AS bigint) IN ({detailErrInSql}))"
                 : "0";
             var reconCountsSql  = hasDetail
                 ? @"SUM(CASE WHEN Reconciliation_Status = 'Confirmed by Rule 29' THEN 1 ELSE 0 END) AS ConfirmedByRule29Count,
@@ -664,55 +671,83 @@ SELECT
                 : "0 AS ConfirmedByRule29Count, 0 AS NotInRule29Count, 0 AS Rule29OnlyCount";
             var detailSetupSql  = hasDetail ? $@"
 IF OBJECT_ID('tempdb..#R67DetailPairs') IS NOT NULL DROP TABLE #R67DetailPairs;
+IF OBJECT_ID('tempdb..#R67DetailRaw')   IS NOT NULL DROP TABLE #R67DetailRaw;
 
--- Materialise Rule 29 (00708) pairs from dbo_CREG_VALIDATION_DETAIL
--- Element_Information format: 'E007: <StudentNo>       E001: <QualCode>'
-SELECT DISTINCT
+-- Step 1: parse E007/E001 from [{detailElementInfoCol}] — no reference to other columns
+SELECT
     LTRIM(RTRIM(CONVERT(nvarchar(255), CASE
-        WHEN CHARINDEX('E007:', CONVERT(nvarchar(500), [Element_Information])) > 0
-         AND CHARINDEX('E001:', CONVERT(nvarchar(500), [Element_Information])) > 0
-        THEN SUBSTRING(CONVERT(nvarchar(500), [Element_Information]),
-            CHARINDEX('E007:', CONVERT(nvarchar(500), [Element_Information])) + 5,
-            CHARINDEX('E001:', CONVERT(nvarchar(500), [Element_Information]))
-                - (CHARINDEX('E007:', CONVERT(nvarchar(500), [Element_Information])) + 5)
-        )
-    END))) AS DETAIL_STUD_NO,
+        WHEN CHARINDEX('E007:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) > 0
+         AND CHARINDEX('E001:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) > 0
+        THEN SUBSTRING(CONVERT(nvarchar(500), [{detailElementInfoCol}]),
+            CHARINDEX('E007:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) + 5,
+            CHARINDEX('E001:', CONVERT(nvarchar(500), [{detailElementInfoCol}]))
+                - (CHARINDEX('E007:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) + 5))
+    END)))                                         AS RAW_STUD_NO,
     UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), CASE
-        WHEN CHARINDEX('E001:', CONVERT(nvarchar(500), [Element_Information])) > 0
-        THEN SUBSTRING(CONVERT(nvarchar(500), [Element_Information]),
-            CHARINDEX('E001:', CONVERT(nvarchar(500), [Element_Information])) + 5,
-            LEN(CONVERT(nvarchar(500), [Element_Information]))
-        )
-    END)))) AS DETAIL_QUAL
-INTO #R67DetailPairs
+        WHEN CHARINDEX('E001:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) > 0
+        THEN SUBSTRING(CONVERT(nvarchar(500), [{detailElementInfoCol}]),
+            CHARINDEX('E001:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) + 5,
+            LEN(CONVERT(nvarchar(500), [{detailElementInfoCol}])))
+    END))))                                        AS RAW_QUAL
+INTO #R67DetailRaw
 FROM [{detailTable}] WITH (NOLOCK)
-WHERE CHARINDEX('E007:', CONVERT(nvarchar(500), [Element_Information])) > 0
-  AND CHARINDEX('E001:', CONVERT(nvarchar(500), [Element_Information])) > 0
-  AND TRY_CAST(LTRIM(RTRIM(CAST([Error] AS nvarchar(50)))) AS bigint) IN ({detailErrInSql})
+WHERE CHARINDEX('E007:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) > 0
+  AND CHARINDEX('E001:', CONVERT(nvarchar(500), [{detailElementInfoCol}])) > 0
+  AND TRY_CAST(LTRIM(RTRIM(CAST([{detailErrorCol}] AS nvarchar(50)))) AS bigint) IN ({detailErrInSql})
 OPTION (MAXDOP 4);
 
-CREATE INDEX IX_R67DP ON #R67DetailPairs (DETAIL_STUD_NO, DETAIL_QUAL);" : "";
+-- Step 2: deduplicate by student+qual
+SELECT RAW_STUD_NO AS DETAIL_STUD_NO, RAW_QUAL AS DETAIL_QUAL
+INTO #R67DetailPairs
+FROM #R67DetailRaw
+WHERE RAW_STUD_NO IS NOT NULL AND RAW_STUD_NO <> '' AND RAW_QUAL IS NOT NULL AND RAW_QUAL <> ''
+GROUP BY RAW_STUD_NO, RAW_QUAL
+OPTION (MAXDOP 4);
+DROP TABLE #R67DetailRaw;" : "";
             var rule29OnlySql   = hasDetail ? $@"
--- RS 4: Rule 29 records (00708) whose student+qual pair is not in Rule 67 FAIL results
-SELECT {top}
+-- RS 4: Rule 29 Only pairs — LEFT JOIN to CREG (same pattern as detailJoin/reconExpr for 'Not in Rule 29')
+-- CS.CREG_STUD_NO IS NULL  → student number not found in CREG at all  → 'Not in CREG'
+-- FailR.CREG_STUD_NO IS NOT NULL → found in CREG and Rule 67 is FAIL  → 'Yes'
+-- Otherwise                → found in CREG but Rule 67 is PASS         → 'No'
+SELECT
     ROW_NUMBER() OVER (ORDER BY DP.DETAIL_STUD_NO, DP.DETAIL_QUAL) AS RowNum,
-    DP.DETAIL_STUD_NO, DP.DETAIL_QUAL
+    DP.DETAIL_STUD_NO, DP.DETAIL_QUAL,
+    CAST('' AS nvarchar(2000))                                      AS DETAIL_ERROR_MSG,
+    CASE
+        WHEN CS.CREG_STUD_NO IS NULL         THEN 'Not in CREG'
+        WHEN FailR.CREG_STUD_NO IS NOT NULL  THEN 'Yes'
+        ELSE                                      'No'
+    END AS ConfirmedByR67
 FROM #R67DetailPairs DP
-WHERE DP.DETAIL_STUD_NO IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM #R67Results R
-    WHERE R.CREG_STUD_NO = DP.DETAIL_STUD_NO
-      AND R.CREG_QUAL    = DP.DETAIL_QUAL
-      AND R.ValidationResult = 'FAIL'
-  )
-ORDER BY DP.DETAIL_STUD_NO, DP.DETAIL_QUAL;"
-                : "SELECT CAST(0 AS int) AS RowNum, CAST('' AS nvarchar(255)) AS DETAIL_STUD_NO, CAST('' AS nvarchar(255)) AS DETAIL_QUAL WHERE 1=0;";
+LEFT JOIN #R67CregStudNos CS
+    ON CS.CREG_STUD_NO = DP.DETAIL_STUD_NO
+LEFT JOIN (
+    SELECT DISTINCT CREG_STUD_NO, CREG_QUAL
+    FROM   #R67Results
+    WHERE  ValidationResult = 'FAIL'
+) AS FailR
+    ON FailR.CREG_STUD_NO = DP.DETAIL_STUD_NO
+   AND FailR.CREG_QUAL    = DP.DETAIL_QUAL
+ORDER BY DP.DETAIL_STUD_NO, DP.DETAIL_QUAL
+OPTION (MAXDOP 4);"
+                : "SELECT CAST(0 AS int) AS RowNum, CAST('' AS nvarchar(255)) AS DETAIL_STUD_NO, CAST('' AS nvarchar(255)) AS DETAIL_QUAL, CAST('' AS nvarchar(2000)) AS DETAIL_ERROR_MSG, CAST('' AS nvarchar(12)) AS ConfirmedByR67 WHERE 1=0;";
             var detailDropSql   = hasDetail ? "DROP TABLE IF EXISTS #R67DetailPairs;" : "";
 
             return $@"
-IF OBJECT_ID('tempdb..#R67CregPairs') IS NOT NULL DROP TABLE #R67CregPairs;
-IF OBJECT_ID('tempdb..#R67StudPairs') IS NOT NULL DROP TABLE #R67StudPairs;
-IF OBJECT_ID('tempdb..#R67Results')   IS NOT NULL DROP TABLE #R67Results;
+IF OBJECT_ID('tempdb..#R67CregPairs')    IS NOT NULL DROP TABLE #R67CregPairs;
+IF OBJECT_ID('tempdb..#R67StudPairs')    IS NOT NULL DROP TABLE #R67StudPairs;
+IF OBJECT_ID('tempdb..#R67Results')      IS NOT NULL DROP TABLE #R67Results;
+IF OBJECT_ID('tempdb..#R67CregStudNos') IS NOT NULL DROP TABLE #R67CregStudNos;
+
+-- All CREG student numbers (no E051 or qual filter) — used for direct 'Not in CREG' detection
+SELECT DISTINCT LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregStudentCol}]))) AS CREG_STUD_NO
+INTO #R67CregStudNos
+FROM [{cregTable}] C WITH (NOLOCK)
+WHERE C.[{cregStudentCol}] IS NOT NULL
+  AND LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregStudentCol}]))) <> ''
+OPTION (MAXDOP 4);
+CREATE INDEX IX_R67CSN ON #R67CregStudNos (CREG_STUD_NO);
+
 {detailSetupSql}
 
 -- RS 1: source table row counts + optional detail count
@@ -721,9 +756,9 @@ SELECT
     (SELECT COUNT(*) FROM [{studTable}] WITH (NOLOCK)) AS StudCount,
     {detailCountExpr}                                  AS DetailCount;
 
--- Materialise CREG distinct pairs
+-- Materialise CREG distinct pairs (LTRIM/RTRIM on student no ensures match with parsed detail values)
 SELECT DISTINCT
-    CONVERT(nvarchar(255), C.[{cregStudentCol}])                       AS CREG_STUD_NO,
+    LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregStudentCol}])))         AS CREG_STUD_NO,
     UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregQualCol}]))))     AS CREG_QUAL,
     UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregE051Col}]))))     AS CREG_E051
 INTO #R67CregPairs
@@ -793,6 +828,7 @@ ORDER BY {orderBy};
 DROP TABLE IF EXISTS #R67CregPairs;
 DROP TABLE IF EXISTS #R67StudPairs;
 DROP TABLE IF EXISTS #R67Results;
+DROP TABLE IF EXISTS #R67CregStudNos;
 {detailDropSql}";
         }
 
@@ -953,6 +989,7 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             CregTable = s.CregTable, StudTable = s.StudTable,
             CregStudentNoCol = s.CregStudentNoCol, CregQualCol = s.CregQualCol, CregE051Col = s.CregE051Col,
             StudStudentNoCol = s.StudStudentNoCol, StudQualCol = s.StudQualCol, E051FilterValues = s.E051FilterValues,
+            DetailTable = s.DetailTable, DetailErrorCode = s.DetailErrorCode, DetailErrorCol = s.DetailErrorCol, DetailElementInfoCol = s.DetailElementInfoCol,
             TableLinkageText = s.TableLinkageText, RuleModeText = s.RuleModeText, ProcedureSteps = s.ProcedureSteps.ToList(),
             ClientId = s.ClientId, SavedRunId = s.SavedRunId,
             ControlSummaries = s.ControlSummaries.Select(i => new Rule67ControlSummaryItemViewModel
@@ -967,6 +1004,13 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
                 ExceptionCode = r.ExceptionCode,
                 DisplayValues = new Dictionary<string, string?>(r.DisplayValues, StringComparer.OrdinalIgnoreCase)
             }).ToList(),
+            DetailRecordCount = s.DetailRecordCount, ConfirmedByRule29Count = s.ConfirmedByRule29Count,
+            NotInRule29Count = s.NotInRule29Count, Rule29OnlyCount = s.Rule29OnlyCount,
+            Rule29OnlyRows = s.Rule29OnlyRows.Select(r => new Rule67Rule29OnlyRow
+            {
+                RowNumber = r.RowNumber, StudentNo = r.StudentNo, QualCode = r.QualCode,
+                ErrorMessage = r.ErrorMessage, ConfirmedByR67 = r.ConfirmedByR67
+            }).ToList(),
             Warning = s.Warning, Error = s.Error
         };
 
@@ -975,7 +1019,9 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             ClientId = r.ClientId, RunId = r.RunId, Server = r.Server, Database = r.Database, Driver = r.Driver,
             CregTable = r.CregTable, StudTable = r.StudTable,
             CregStudentNoCol = r.CregStudentNoCol, CregQualCol = r.CregQualCol, CregE051Col = r.CregE051Col,
-            StudStudentNoCol = r.StudStudentNoCol, StudQualCol = r.StudQualCol, E051FilterValues = r.E051FilterValues
+            StudStudentNoCol = r.StudStudentNoCol, StudQualCol = r.StudQualCol, E051FilterValues = r.E051FilterValues,
+            DetailTable = r.DetailTable, DetailErrorCode = r.DetailErrorCode,
+            DetailErrorCol = r.DetailErrorCol, DetailElementInfoCol = r.DetailElementInfoCol
         };
 
         private static bool RequestsMatch(Rule67ValidationRequest a, Rule67ValidationRequest b) =>
