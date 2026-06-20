@@ -586,6 +586,11 @@ app.MapControllerRoute(
     defaults: new { controller = "Messages", action = "Index" });
 
 app.MapControllerRoute(
+    name: "directives-short",
+    pattern: "Directives",
+    defaults: new { controller = "Directives", action = "Index" });
+
+app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Account}/{action=Login}/{id?}");
 
