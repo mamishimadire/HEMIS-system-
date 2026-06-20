@@ -57,7 +57,9 @@
         <div class="stat-card"><div class="stat-card__label">STUD Total Records</div><div class="stat-card__value">@Model.Summary.StudRecordCount.ToString("N0")</div></div>
         <div class="stat-card"><div class="stat-card__label">Distinct CREG Pairs Checked</div><div class="stat-card__value">@Model.Summary.TotalValidated.ToString("N0")</div></div>
         <div class="stat-card stat-card--pass"><div class="stat-card__label">PASS (pair in STUD + E051 valid)</div><div class="stat-card__value">@Model.Summary.PassCount.ToString("N0")</div></div>
-        <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL — Not in STUD</div><div class="stat-card__value">@Model.Summary.NotInStudCount.ToString("N0")</div></div>
+        <div class="stat-card stat-card--fail"><div class="stat-card__label">Fail (E051 Yes)</div><div class="stat-card__value">@Model.Summary.NotInStudE051ValidCount.ToString("N0")</div></div>
+        <div class="stat-card stat-card--fail"><div class="stat-card__label">Fail (E051 No)</div><div class="stat-card__value">@Model.Summary.NotInStudE051InvalidCount.ToString("N0")</div></div>
+        <div class="stat-card stat-card--fail"><div class="stat-card__label">Fail</div><div class="stat-card__value">@Model.Summary.NotInStudCount.ToString("N0")</div></div>
         <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL — E051 Invalid</div><div class="stat-card__value">@Model.Summary.InvalidE051Count.ToString("N0")</div></div>
     </div>
 </div>

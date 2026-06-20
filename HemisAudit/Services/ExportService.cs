@@ -6061,8 +6061,8 @@ namespace HemisAudit.Services
             var e051Filter = string.IsNullOrWhiteSpace(summary.E051FilterValues) ? "ALL — no filter applied" : summary.E051FilterValues;
             var titleText  = $"RULE 67: CREG [{summary.CregStudentNoCol ?? "_007"}]+[{summary.CregQualCol ?? "_001"}] Pair in STUD | [{e051Col}] Filter: {e051Filter}";
             var hasDetail  = !string.IsNullOrWhiteSpace(summary.DetailTable);
-            var headers    = new[] { "Validation #", "CREG [_007] Student No", "CREG [_001] Qual", $"CREG [{e051Col}] E051", "STUD [_007]", "STUD [_001] Qual", "In STUD", "E051 Valid", "Result", "Exception Code", "Reconciliation" };
-            var colCount   = hasDetail ? 11 : 10;
+            var headers    = new[] { "Validation #", "CREG [_007] Student No", "CREG [_001] Qual", $"CREG [{e051Col}] E051", "STUD [_007]", "STUD [_001] Qual", "In STUD", "Ghost Student", "Note", "E051 Valid", "Result", "Exception Code", "Reconciliation" };
+            var colCount   = hasDetail ? 13 : 12;
 
             void WriteRule67Sheet(IXLWorksheet ws, IEnumerable<Rule67ValidationRowRecord> sheetRows, string headerBg)
             {
@@ -6088,22 +6088,26 @@ namespace HemisAudit.Services
                     ws.Cell(r, 5).Value = DV("STUD_NO");
                     ws.Cell(r, 6).Value = DV("STUD_QUAL");
                     ws.Cell(r, 7).Value = DV("IN_STUD");
-                    ws.Cell(r, 8).Value = DV("E051_VALID");
-                    ws.Cell(r, 9).Value = row.ValidationResult;
-                    ws.Cell(r, 10).Value = isFail ? row.ExceptionCode : "";
+                    ws.Cell(r, 8).Value = DV("GHOST_STUDENT");
+                    ws.Cell(r, 9).Value = DV("GHOST_STUDENT_NOTE");
+                    ws.Cell(r, 10).Value = DV("E051_VALID");
+                    ws.Cell(r, 11).Value = row.ValidationResult;
+                    ws.Cell(r, 12).Value = isFail ? row.ExceptionCode : "";
                     if (hasDetail)
                     {
-                        ws.Cell(r, 11).Value = recon;
+                        ws.Cell(r, 13).Value = recon;
                         if (recon == "Confirmed by Rule 29")
-                            ws.Cell(r, 11).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F5E9");
+                            ws.Cell(r, 13).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F5E9");
                         else if (recon == "Not in Rule 29")
-                            ws.Cell(r, 11).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF8E1");
+                            ws.Cell(r, 13).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF8E1");
                     }
                     ws.Range(r, 1, r, colCount).Style.Fill.BackgroundColor = isFail ? XLColor.FromHtml("#FFF3F3") : XLColor.FromHtml("#F3FFF3");
+                    if (string.Equals(DV("GHOST_STUDENT"), "Yes", StringComparison.OrdinalIgnoreCase))
+                        ws.Cell(r, 8).Style.Fill.BackgroundColor = XLColor.FromHtml("#FDECEC");
                     if (hasDetail && recon == "Confirmed by Rule 29")
-                        ws.Cell(r, 11).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F5E9");
+                        ws.Cell(r, 13).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F5E9");
                     else if (hasDetail && recon == "Not in Rule 29")
-                        ws.Cell(r, 11).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF8E1");
+                        ws.Cell(r, 13).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF8E1");
                     r++;
                 }
                 for (int c = 1; c <= colCount; c++) ws.Column(c).AdjustToContents();
@@ -6119,17 +6123,26 @@ namespace HemisAudit.Services
                 row.DisplayValues.TryGetValue("Reconciliation_Status", out var rc);
                 return rc ?? "";
             }
+            static string GetE051Valid(Rule67ValidationRowRecord row)
+            {
+                row.DisplayValues.TryGetValue("E051_VALID", out var ev);
+                return ev ?? "";
+            }
 
             var allRows             = summary.ReviewRows;
             var passRows            = allRows.Where(r => string.Equals(r.ValidationResult, "PASS", StringComparison.OrdinalIgnoreCase)).ToList();
             var notInStudRows       = allRows.Where(r => string.Equals(GetFailReason(r), "Not found in STUD", StringComparison.OrdinalIgnoreCase)).ToList();
+            var notInStudE051YesRows = notInStudRows.Where(r => string.Equals(GetE051Valid(r), "Yes", StringComparison.OrdinalIgnoreCase)).ToList();
+            var notInStudE051NoRows  = notInStudRows.Where(r => string.Equals(GetE051Valid(r), "No", StringComparison.OrdinalIgnoreCase)).ToList();
             var e051InvalidRows     = allRows.Where(r => string.Equals(GetFailReason(r), "E051 code not in expected values", StringComparison.OrdinalIgnoreCase)).ToList();
             var confirmedRows       = hasDetail ? allRows.Where(r => string.Equals(GetRecon(r), "Confirmed by Rule 29", StringComparison.OrdinalIgnoreCase)).ToList() : null;
             var notConfirmedRows    = hasDetail ? allRows.Where(r => string.Equals(GetRecon(r), "Not in Rule 29", StringComparison.OrdinalIgnoreCase)).ToList() : null;
 
             WriteRule67Sheet(wb.Worksheets.Add("All Results"),         allRows,         "#1A237E");
             WriteRule67Sheet(wb.Worksheets.Add("PASS"),                passRows,        "#1B5E20");
-            WriteRule67Sheet(wb.Worksheets.Add("FAIL - Not in STUD"),  notInStudRows,   "#B71C1C");
+            WriteRule67Sheet(wb.Worksheets.Add("Fail"),              notInStudRows,        "#B71C1C");
+            WriteRule67Sheet(wb.Worksheets.Add("Fail (E051 Yes)"),   notInStudE051YesRows, "#C62828");
+            WriteRule67Sheet(wb.Worksheets.Add("Fail (E051 No)"),    notInStudE051NoRows,  "#AD1457");
             WriteRule67Sheet(wb.Worksheets.Add("FAIL - E051 Invalid"), e051InvalidRows, "#E65100");
 
             if (hasDetail)
@@ -6259,12 +6272,20 @@ namespace HemisAudit.Services
                 ("STUD Total Records", summary.StudRecordCount.ToString("N0")),
                 ("Distinct CREG Pairs Checked", summary.TotalValidated.ToString("N0")),
                 ("PASS (in STUD + E051 valid)", summary.PassCount.ToString("N0")),
-                ("FAIL — Not in STUD", summary.NotInStudCount.ToString("N0")),
+                ("Fail", summary.NotInStudCount.ToString("N0")),
+                ("  -> Fail (E051 Yes)", summary.NotInStudE051ValidCount.ToString("N0")),
+                ("  -> Fail (E051 No)", summary.NotInStudE051InvalidCount.ToString("N0")),
                 ("FAIL — E051 Invalid", summary.InvalidE051Count.ToString("N0")),
                 ("Total FAIL (exception 00708)", summary.FailCount.ToString("N0")),
                 ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
                 ("Status", summary.Status)
             };
+            summaryRows = summaryRows
+                .Where(item =>
+                    !(item.label.Contains("E051 Invalid", StringComparison.Ordinal) &&
+                      !item.label.StartsWith("FAIL - E051 Invalid", StringComparison.Ordinal)))
+                .ToList();
+            summaryRows.Insert(summaryRows.FindIndex(item => item.label.StartsWith("Total FAIL", StringComparison.Ordinal)), ("FAIL - E051 Invalid", summary.InvalidE051Count.ToString("N0")));
             if (hasDetail)
             {
                 var r29ConfCount      = summary.Rule29OnlyRows.Count(r => string.Equals(r.ConfirmedByR67, "Yes",         StringComparison.OrdinalIgnoreCase));

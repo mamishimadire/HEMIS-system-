@@ -613,9 +613,9 @@ window.toggleAccordion = function (section) {
                     <div class="stat-card__label">FAIL (Total)</div><div class="stat-card__value">${formatNumber(summary.failCount)}</div>
                     <div style="font-size:11px;margin-top:4px;opacity:.75">Exception rate: ${Number(summary.exceptionRate||0).toFixed(2)}%</div>
                 </div>
-                <div class="stat-card stat-card--fail" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='NOT_IN_STUD';renderResults(true);" title="Click to view FAIL — Not in STUD rows">
-                    <div class="stat-card__label">FAIL — Not in STUD</div><div class="stat-card__value">${formatNumber(summary.notInStudCount)}</div>
-                    <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;FAIL - Not in STUD&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
+                <div class="stat-card stat-card--fail" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='NOT_IN_STUD';renderResults(true);" title="Click to view Fail rows">
+                    <div class="stat-card__label">Fail</div><div class="stat-card__value">${formatNumber(summary.notInStudCount)}</div>
+                    <div style="font-size:11px;margin-top:4px;opacity:.75">= Excel &ldquo;Fail&rdquo; tab &nbsp;|&nbsp; Click &rarr;</div>
                 </div>
                 <div class="stat-card stat-card--fail" style="cursor:pointer" onclick="document.querySelector('[data-tab=\\'results\\']')?.click();state.categoryTab='E051_INVALID';renderResults(true);" title="Click to view FAIL — E051 Invalid rows">
                     <div class="stat-card__label">FAIL — E051 Invalid</div><div class="stat-card__value">${formatNumber(summary.invalidE051Count)}</div>
@@ -626,7 +626,7 @@ window.toggleAccordion = function (section) {
             ${summary.notInStudCount > 0 ? `
             <div class="card" style="padding:20px;margin-top:20px;border-left:4px solid #b71c1c">
                 <h3 class="section-title" style="margin-top:0;color:#b71c1c">
-                    FAIL — Not in STUD &nbsp;<span class="badge badge--fail">${formatNumber(summary.notInStudCount)}</span>
+                    Fail &nbsp;<span class="badge badge--fail">${formatNumber(summary.notInStudCount)}</span>
                     ${summary.isPreviewOnly&&notInStudRows.length<summary.notInStudCount?`<small style="font-weight:normal;font-size:13px"> (showing ${notInStudRows.length} in preview)</small>`:''}
                 </h3>
                 <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">CREG pair not found in STUD table at all — exception code <strong>00708</strong></p>
