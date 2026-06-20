@@ -827,7 +827,7 @@ SELECT
     CASE WHEN SP.STUD_QUAL IS NOT NULL THEN SP.STUD_QUAL
          WHEN SSN.STUD_STUDENT_NO IS NOT NULL THEN SPF.STUD_ACTUAL_QUAL
          ELSE NULL END AS STUD_QUAL,
-    CASE WHEN SP.STUD_NO IS NOT NULL THEN 'Yes' ELSE 'No' END AS IN_STUD,
+    CASE WHEN SSN.STUD_STUDENT_NO IS NOT NULL THEN 'Yes' ELSE 'No' END AS IN_STUD,
     {studStudentExistsExpr}                                     AS STUD_STUDENT_EXISTS,
     {ghostStudentExpr}                                          AS GHOST_STUDENT,
     {ghostStudentNoteExpr}                                      AS GHOST_STUDENT_NOTE,
@@ -945,7 +945,7 @@ ValidationResults AS
         CASE WHEN SP.STUD_QUAL IS NOT NULL THEN SP.STUD_QUAL
              WHEN SSN.STUD_STUDENT_NO IS NOT NULL THEN SPF.STUD_ACTUAL_QUAL
              ELSE NULL END AS STUD_QUAL,
-        CASE WHEN SP.STUD_NO IS NOT NULL THEN 'Yes' ELSE 'No' END AS IN_STUD,
+        CASE WHEN SSN.STUD_STUDENT_NO IS NOT NULL THEN 'Yes' ELSE 'No' END AS IN_STUD,
         {studStudentExistsExpr} AS STUD_STUDENT_EXISTS,
         {ghostStudentExpr} AS GHOST_STUDENT,
         {ghostStudentNoteExpr} AS GHOST_STUDENT_NOTE,
