@@ -1,0 +1,1122 @@
+@{
+    ViewData["Title"] = "SAQA Search";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    const string SaqaUrl = "https://allqs.saqa.org.za/search.php";
+}
+
+@section Styles {
+<style>
+/* Anchor the main area to 100dvh so the flex chain has a fixed ceiling */
+.main-content.main-area {
+    height: 100dvh !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.page-content {
+    flex: 1 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.rule-preview-notice { display: none !important; }
+
+/* ── Shell ── */
+.dir-shell {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #222;
+    position: relative;
+}
+
+.dir-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #e8eaf0;
+}
+
+/* ── Toolbar ── */
+.dir-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #1e2a3a;
+    flex-shrink: 0;
+    height: 40px;
+}
+
+.dir-tbtn {
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 5px;
+    padding: 3px 9px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #ccc;
+    white-space: nowrap;
+    transition: all .12s;
+}
+
+.dir-tbtn:hover { background: rgba(255,255,255,.22); color: #fff; }
+
+.dir-tbtn--guide {
+    background: rgba(255,200,50,.15);
+    border-color: rgba(255,200,50,.35);
+    color: #f5d060;
+}
+
+.dir-tbtn--guide:hover {
+    background: rgba(255,200,50,.28);
+    color: #ffe080;
+}
+
+.dir-urlbar {
+    flex: 1;
+    background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 12px;
+    padding: 3px 12px;
+    font-size: 11px;
+    font-family: monospace;
+    color: #7fb8e8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.dir-livebadge {
+    background: #1a6634;
+    color: #6ee8a0;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+/* ── Live bar ── */
+.dir-live-bar {
+    background: #0d2a1a;
+    color: #6ee8a0;
+    font-size: 11px;
+    padding: 3px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    border-bottom: 1px solid #1a4a2a;
+}
+
+.dir-dot-live {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #28c840;
+    animation: dir-pulse 2s infinite;
+}
+
+@@keyframes dir-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── Frame ── */
+.dir-frame-wrap {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.dir-saqa-frame {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #fff;
+    display: block;
+}
+
+.dir-blocked-msg {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 16px;
+    background: #f5f5f7;
+    color: #555;
+    padding: 30px;
+    text-align: center;
+}
+
+.dir-blocked-msg strong { font-size: 16px; color: #1a3a5c; }
+.dir-blocked-msg p { font-size: 13px; color: #666; max-width: 400px; line-height: 1.6; }
+
+.dir-open-btn {
+    background: #2c5282; color: #fff; border: none;
+    border-radius: 6px; padding: 10px 22px; font-size: 13px;
+    cursor: pointer; text-decoration: none; display: inline-block;
+}
+.dir-open-btn:hover { background: #1a3a6a; color: #fff; }
+
+/* ── Status bar ── */
+.dir-statusbar {
+    height: 22px;
+    background: #0d1520;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 10px;
+    color: #4a7a9a;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.dir-sdot { width:7px; height:7px; border-radius:50%; background:#28c840; flex-shrink:0; }
+.dir-sdot.red { background:#e24b4a; }
+
+/* ════════════════════════════════════════
+   GUIDE PANEL
+════════════════════════════════════════ */
+.saqa-guide-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 900;
+}
+.saqa-guide-overlay.open { display: block; }
+
+.saqa-guide-panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 620px;
+    max-width: 98vw;
+    background: #fff;
+    z-index: 901;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -6px 0 40px rgba(0,0,0,.22);
+    transform: translateX(100%);
+    transition: transform .28s cubic-bezier(.4,0,.2,1);
+}
+.saqa-guide-panel.open { transform: translateX(0); }
+
+.sgp-head {
+    background: #6b1f1f;
+    color: #fff;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+.sgp-head-icon { font-size: 22px; }
+.sgp-head h2 { font-size: 15px; font-weight: 700; margin: 0; }
+.sgp-head p { font-size: 11px; color: rgba(255,255,255,.7); margin: 2px 0 0; }
+.sgp-close {
+    margin-left: auto;
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.3);
+    color: #fff;
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.sgp-close:hover { background: rgba(255,255,255,.28); }
+
+/* Step tabs */
+.sgp-tabs {
+    display: flex;
+    background: #f5f5f7;
+    border-bottom: 2px solid #e0e0e8;
+    flex-shrink: 0;
+}
+.sgp-tab {
+    flex: 1;
+    padding: 10px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    color: #666;
+    border: none;
+    background: none;
+    border-bottom: 3px solid transparent;
+    transition: all .15s;
+    line-height: 1.4;
+}
+.sgp-tab:hover { color: #6b1f1f; background: rgba(107,31,31,.05); }
+.sgp-tab.active {
+    color: #6b1f1f;
+    border-bottom-color: #6b1f1f;
+    background: #fff;
+}
+.sgp-tab-num {
+    display: block;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: #ddd;
+    color: #555;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 20px;
+    margin: 0 auto 4px;
+}
+.sgp-tab.active .sgp-tab-num { background: #6b1f1f; color: #fff; }
+
+/* Body */
+.sgp-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 22px 30px;
+}
+.sgp-body::-webkit-scrollbar { width: 5px; }
+.sgp-body::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+
+.sgp-step { display: none; }
+.sgp-step.active { display: block; }
+
+/* Section heading */
+.sgp-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #6b1f1f;
+    margin: 18px 0 8px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid #f0e0e0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.sgp-section-title:first-child { margin-top: 0; }
+
+/* Tip box */
+.sgp-tip {
+    background: #fffbec;
+    border: 1px solid #f0d060;
+    border-radius: 7px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #6b5a00;
+    margin-bottom: 14px;
+    line-height: 1.6;
+}
+.sgp-tip strong { color: #5a4800; }
+
+/* ── SAQA MOCKUP SCREENS ── */
+.saqa-mock {
+    border: 2px solid #c8cad0;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.1);
+}
+
+.saqa-mock-topbar {
+    background: #e8e8d8;
+    padding: 5px 10px;
+    border-bottom: 1px solid #c8c8b0;
+    font-size: 11px;
+}
+
+.saqa-mock-topbar a {
+    color: #00008b;
+    text-decoration: underline;
+    margin-right: 10px;
+    cursor: default;
+}
+
+.saqa-mock-header {
+    background: #7b2d00;
+    color: #fff;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.saqa-mock-body {
+    background: #fff;
+    padding: 8px 10px;
+}
+
+.saqa-mock-tab {
+    display: inline-block;
+    background: #d8d8e8;
+    border: 1px solid #a8a8c8;
+    border-bottom: none;
+    padding: 3px 12px;
+    font-size: 11px;
+    color: #00008b;
+    margin-bottom: -1px;
+}
+
+.saqa-form-row {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    align-items: center;
+    border-bottom: 1px solid #e8e8e8;
+    min-height: 28px;
+}
+
+.saqa-form-label {
+    padding: 4px 8px;
+    font-size: 11.5px;
+    background: #f0f0e8;
+    border-right: 1px solid #d8d8cc;
+    color: #00008b;
+    cursor: default;
+}
+
+.saqa-form-label a { color: #00008b; text-decoration: underline; cursor: default; }
+
+.saqa-form-val {
+    padding: 3px 8px;
+}
+
+.saqa-mock-input {
+    border: 1px solid #a0a0c0;
+    padding: 2px 5px;
+    font-size: 11.5px;
+    width: 100%;
+    background: #fff;
+    font-family: Arial, sans-serif;
+    pointer-events: none;
+}
+
+.saqa-mock-select {
+    border: 1px solid #a0a0c0;
+    padding: 2px 5px;
+    font-size: 11.5px;
+    width: 100%;
+    background: #fff;
+    font-family: Arial, sans-serif;
+    pointer-events: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    padding-right: 20px;
+}
+
+.saqa-mock-btn {
+    background: #6b3000;
+    color: #fff;
+    border: none;
+    padding: 5px 18px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: default;
+    margin: 8px 0 4px;
+}
+
+/* Annotation callout */
+.ann {
+    display: flex;
+    gap: 8px;
+    margin: 4px 0 8px;
+    font-size: 11.5px;
+    color: #444;
+    line-height: 1.5;
+    align-items: flex-start;
+}
+.ann-badge {
+    background: #6b1f1f;
+    color: #fff;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+/* Results table mockup */
+.saqa-results-tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+.saqa-results-tbl th {
+    background: #d8d8e8;
+    border: 1px solid #a8a8c8;
+    padding: 4px 6px;
+    text-align: left;
+    color: #00008b;
+    font-size: 10.5px;
+    font-weight: bold;
+    vertical-align: bottom;
+    line-height: 1.3;
+}
+.saqa-results-tbl th a { color: #00008b; text-decoration: underline; cursor: default; }
+.saqa-results-tbl td {
+    border: 1px solid #c8c8d8;
+    padding: 4px 6px;
+    vertical-align: top;
+    line-height: 1.4;
+}
+.saqa-results-tbl td a { color: #00008b; text-decoration: underline; cursor: default; font-weight: bold; }
+.saqa-results-tbl tr:nth-child(even) td { background: #f4f4fc; }
+
+/* Detail table mockup */
+.saqa-detail-tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin-bottom: 10px;
+}
+.saqa-detail-tbl th {
+    background: #1a1a1a;
+    color: #fff;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: bold;
+    border: 1px solid #444;
+    text-align: left;
+}
+.saqa-detail-tbl td {
+    border: 1px solid #c0c0c0;
+    padding: 5px 8px;
+    vertical-align: top;
+    line-height: 1.4;
+}
+
+/* Field explanation table */
+.sgp-field-tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-bottom: 16px;
+}
+.sgp-field-tbl th {
+    background: #6b1f1f;
+    color: #fff;
+    padding: 7px 10px;
+    text-align: left;
+    font-size: 12px;
+}
+.sgp-field-tbl td {
+    border: 1px solid #e0d0d0;
+    padding: 7px 10px;
+    vertical-align: top;
+    line-height: 1.55;
+}
+.sgp-field-tbl tr:nth-child(even) td { background: #fdf6f6; }
+.sgp-field-tbl td:first-child { font-weight: 700; color: #4a1010; width: 38%; }
+
+/* Timeline */
+.sgp-timeline {
+    margin: 12px 0 18px;
+    position: relative;
+    padding-left: 0;
+}
+.sgp-tl-line {
+    height: 6px;
+    background: linear-gradient(to right, #28a745, #fd7e14, #dc3545, #6c757d);
+    border-radius: 3px;
+    margin: 10px 0 4px;
+}
+.sgp-tl-dates {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    text-align: center;
+}
+.sgp-tl-date { font-size: 10px; color: #444; line-height: 1.4; }
+.sgp-tl-date .tl-d { font-weight: 700; color: #222; font-size: 11px; }
+.sgp-tl-date .tl-l { color: #666; }
+
+.sgp-tl-expl {
+    margin-top: 14px;
+    display: grid;
+    gap: 8px;
+}
+.sgp-tl-item {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 8px;
+    font-size: 12px;
+    align-items: flex-start;
+}
+.sgp-tl-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+.tl-green  { background: #28a745; }
+.tl-orange { background: #fd7e14; }
+.tl-red    { background: #dc3545; }
+.tl-grey   { background: #6c757d; }
+
+/* Footer nav */
+.sgp-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 22px;
+    border-top: 1px solid #e8e0e0;
+    background: #faf8f8;
+    flex-shrink: 0;
+}
+.sgp-nav-btn {
+    background: #6b1f1f;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 18px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .12s;
+}
+.sgp-nav-btn:hover { background: #8b2a2a; }
+.sgp-nav-btn:disabled { background: #ccc; cursor: default; }
+.sgp-step-counter { font-size: 12px; color: #888; }
+</style>
+}
+
+<div class="dir-shell">
+    <div class="dir-main">
+        <div class="dir-toolbar">
+            <button class="dir-tbtn" id="saqaBtnReload" title="Reload">&#8635; Reload</button>
+            <div class="dir-urlbar">allqs.saqa.org.za/search.php</div>
+            <button class="dir-tbtn dir-tbtn--guide" id="saqaGuideBtn">&#128214; Search Guide</button>
+            <a href="@SaqaUrl" target="_blank" class="dir-tbtn" style="text-decoration:none">&#10138; New Tab</a>
+            <span class="dir-livebadge">&#9679; LIVE</span>
+        </div>
+
+        <div class="dir-live-bar">
+            <span class="dir-dot-live"></span>
+            <span>Connected live to <strong>allqs.saqa.org.za</strong> &mdash; South African Qualifications Authority</span>
+        </div>
+
+        <div class="dir-frame-wrap">
+            <iframe id="saqaFrame"
+                    class="dir-saqa-frame"
+                    src="@SaqaUrl"
+                    title="SAQA Qualification Search"
+                    sandbox="allow-forms allow-scripts allow-same-origin allow-popups"
+                    referrerpolicy="no-referrer-when-downgrade">
+            </iframe>
+            <div class="dir-blocked-msg" id="saqaBlockedMsg">
+                <strong>&#128683; SAQA could not be embedded</strong>
+                <p>The SAQA website prevents embedding in external pages. Use the button below to open it directly in a new browser tab.</p>
+                <a href="@SaqaUrl" target="_blank" class="dir-open-btn">&#10138; Open SAQA Search</a>
+            </div>
+        </div>
+
+        <div class="dir-statusbar">
+            <span class="dir-sdot" id="saqaSdot"></span>
+            <span id="saqaStatusTxt">Loading SAQA qualification search&hellip;</span>
+            <span style="margin-left:auto">Source: allqs.saqa.org.za</span>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     GUIDE PANEL
+═══════════════════════════════════════ -->
+<div class="saqa-guide-overlay" id="saqaOverlay"></div>
+
+<div class="saqa-guide-panel" id="saqaGuidePanel">
+    <!-- Header -->
+    <div class="sgp-head">
+        <span class="sgp-head-icon">&#128214;</span>
+        <div>
+            <h2>SAQA Qualification Search Guide</h2>
+            <p>Step-by-step guide to searching and reading SAQA qualification records</p>
+        </div>
+        <button class="sgp-close" id="saqaGuideClose">&#10005; Close</button>
+    </div>
+
+    <!-- Step tabs -->
+    <div class="sgp-tabs">
+        <button class="sgp-tab active" data-step="1">
+            <span class="sgp-tab-num">1</span>
+            Search Form
+        </button>
+        <button class="sgp-tab" data-step="2">
+            <span class="sgp-tab-num">2</span>
+            Search Results
+        </button>
+        <button class="sgp-tab" data-step="3">
+            <span class="sgp-tab-num">3</span>
+            Qualification Detail
+        </button>
+        <button class="sgp-tab" data-step="4">
+            <span class="sgp-tab-num">4</span>
+            Dates &amp; Timeline
+        </button>
+    </div>
+
+    <!-- Body -->
+    <div class="sgp-body">
+
+        <!-- ══ STEP 1: Search Form ══ -->
+        <div class="sgp-step active" id="sgpStep1">
+            <div class="sgp-tip">
+                <strong>Tip:</strong> Leave most fields blank. Only fill in the fields that match what you are looking for. Using too many filters may return no results.
+            </div>
+
+            <div class="sgp-section-title">&#128269; The Search Screen</div>
+
+            <!-- Mockup -->
+            <div class="saqa-mock">
+                <div class="saqa-mock-topbar">
+                    <span class="saqa-mock-tab">SAQA Home</span>
+                </div>
+                <div style="padding:6px 10px 2px; background:#f8f8f0; border-bottom:1px solid #ddd; font-size:11px;">
+                    <a>[All Qualifications and Unit Standards - Home Page]</a>
+                    <a>[Search Unit Standards]</a>
+                </div>
+                <div class="saqa-mock-header">
+                    Search for any Qualification
+                    <span style="font-size:10px; font-weight:normal;">Frequently Asked Questions (FAQ)</span>
+                </div>
+                <div class="saqa-mock-body">
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">Qualification Title</div>
+                        <div class="saqa-form-val"><input class="saqa-mock-input" value="Clinical Technology" readonly></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">Qualification ID</div>
+                        <div class="saqa-form-val"><input class="saqa-mock-input" value="" readonly></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label"><a>Pre-2009 NQF Level</a></div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label"><a>NQF Level</a></div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">ABET Band</div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">Learning Subfield</div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">Qualification Type</div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">NQF Sub-framework</div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">or &nbsp;<a>Originator</a></div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option>Tshwane University of Technology (TUT)</option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label">Field</div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label"><a>Accredited Provider</a></div>
+                        <div class="saqa-form-val"><select class="saqa-mock-select"><option></option></select></div>
+                    </div>
+                    <div class="saqa-form-row">
+                        <div class="saqa-form-label"><a>Word Search</a></div>
+                        <div class="saqa-form-val"><input class="saqa-mock-input" value="re-register" readonly></div>
+                    </div>
+                    <div style="padding:8px;">
+                        <button class="saqa-mock-btn">Go</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Field explanations -->
+            <div class="sgp-section-title">&#128221; Search Field Explanations</div>
+            <div class="ann"><div class="ann-badge">1</div><div><strong>Qualification Title</strong> — Enter a full or partial name of the qualification, e.g. <em>Clinical Technology</em> or just <em>Technology</em>.</div></div>
+            <div class="ann"><div class="ann-badge">2</div><div><strong>Qualification ID</strong> — If you know the exact SAQA ID number (e.g. <em>111828</em>), enter it here for a precise lookup. Leave blank otherwise.</div></div>
+            <div class="ann"><div class="ann-badge">3</div><div><strong>NQF Level</strong> — Filter by level (1–10). Higher education degrees are Level 7 (Bachelor) or Level 8 (Honours/Postgraduate Diploma).</div></div>
+            <div class="ann"><div class="ann-badge">4</div><div><strong>Originator</strong> — Select your institution from the dropdown to see only qualifications registered by that institution.</div></div>
+            <div class="ann"><div class="ann-badge">5</div><div><strong>Word Search</strong> — Searches within the qualification description. Use this to find qualifications that mention terms like <em>re-register</em>.</div></div>
+            <div class="ann"><div class="ann-badge">6</div><div><strong>Go button</strong> — Click to run the search. Results appear on the next page.</div></div>
+        </div>
+
+        <!-- ══ STEP 2: Results ══ -->
+        <div class="sgp-step" id="sgpStep2">
+            <div class="sgp-tip">
+                <strong>Tip:</strong> Results show up to several qualifications. Click on the <strong>Qual/Prog ID</strong> number (underlined blue link) to open full qualification details.
+            </div>
+
+            <div class="sgp-section-title">&#128203; The Results Screen</div>
+
+            <!-- Results mockup -->
+            <div class="saqa-mock">
+                <div class="saqa-mock-topbar">
+                    <span class="saqa-mock-tab">SAQA Home</span>
+                </div>
+                <div style="padding:6px 10px 2px; background:#f8f8f0; border-bottom:1px solid #ddd; font-size:11px;">
+                    <a>[All Qualifications and Unit Standards - Home Page]</a>
+                    <a>[Search Unit Standards]</a>
+                </div>
+                <div class="saqa-mock-header">
+                    All Qualifications – Search Results
+                    <span style="font-size:10px; font-weight:normal;">[Refine search]</span>
+                </div>
+                <div class="saqa-mock-body" style="padding:6px 8px;">
+                    <div style="font-size:11px; margin-bottom:6px; color:#333;">
+                        Searched system for <em>Clinical Technology</em>, <em>re-register</em> &nbsp;&nbsp; Result: 1-8 of 8
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="saqa-results-tbl">
+                            <thead>
+                                <tr>
+                                    <th>Qual /<br>Prog ID</th>
+                                    <th><a>Qualification Title /<br>Learning Programme Title</a></th>
+                                    <th><a>Pre-2009 NQF Level</a></th>
+                                    <th><a>NQF Level</a></th>
+                                    <th>ABET Band</th>
+                                    <th>NQF Sub-Framework</th>
+                                    <th>Originator</th>
+                                    <th>Min Credits</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><a>111828</a></td>
+                                    <td>Bachelor of Health Science in Clinical Technology</td>
+                                    <td>Not Applicable</td>
+                                    <td>NQF Level 08</td>
+                                    <td>Undefined</td>
+                                    <td>HEQSF</td>
+                                    <td>Tshwane University of Technology (TUT)</td>
+                                    <td>480</td>
+                                    <td>Reregistered</td>
+                                </tr>
+                                <tr>
+                                    <td><a>80863</a></td>
+                                    <td>National Diploma: Clinical Technology</td>
+                                    <td>NQF Level 06</td>
+                                    <td>NQF Level 06</td>
+                                    <td>Undefined</td>
+                                    <td>OQSF</td>
+                                    <td>Various</td>
+                                    <td>360</td>
+                                    <td>Reregistered</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sgp-section-title">&#128270; Column Explanations</div>
+            <div class="ann"><div class="ann-badge">A</div><div><strong>Qual/Prog ID</strong> — Unique SAQA qualification number. Click this link to open the full detail page for that qualification.</div></div>
+            <div class="ann"><div class="ann-badge">B</div><div><strong>Qualification Title</strong> — The official registered name. Underlined column headings are sortable — click to sort results.</div></div>
+            <div class="ann"><div class="ann-badge">C</div><div><strong>NQF Level</strong> — The level on the National Qualifications Framework. Level 7 = Bachelor's, Level 8 = Honours or Postgrad Diploma, Level 9 = Master's, Level 10 = Doctoral.</div></div>
+            <div class="ann"><div class="ann-badge">D</div><div><strong>NQF Sub-Framework</strong> — HEQSF (Higher Education), OQSF (Occupational), or GENFETQA (General and Further Education). Most university qualifications are HEQSF.</div></div>
+            <div class="ann"><div class="ann-badge">E</div><div><strong>Min Credits</strong> — The minimum number of credits required to complete the qualification.</div></div>
+            <div class="ann"><div class="ann-badge">F</div><div><strong>Status</strong> — <em>Reregistered</em> means currently active. <em>Passed the End Date</em> means the registration has expired and the institution can no longer offer it to new students.</div></div>
+            <div class="ann"><div class="ann-badge">G</div><div><strong>[Refine search]</strong> — Click this link at the top right of results to go back and change your search criteria.</div></div>
+        </div>
+
+        <!-- ══ STEP 3: Qualification Detail ══ -->
+        <div class="sgp-step" id="sgpStep3">
+            <div class="sgp-tip">
+                <strong>Example:</strong> SAQA ID 111828 — Bachelor of Health Science in Clinical Technology (TUT, NQF Level 8, HEQSF)
+            </div>
+
+            <div class="sgp-section-title">&#128196; Qualification Detail Screen</div>
+
+            <!-- Detail mockup -->
+            <div class="saqa-mock">
+                <div class="saqa-mock-header" style="flex-direction:column; align-items:flex-start; gap:2px;">
+                    <span style="font-size:11px; font-weight:normal;">SOUTH AFRICAN QUALIFICATIONS AUTHORITY</span>
+                    <span>REGISTERED QUALIFICATION:</span>
+                </div>
+                <div class="saqa-mock-body" style="padding:8px;">
+                    <div style="text-align:center; font-size:12px; font-weight:bold; margin-bottom:8px;">Bachelor of Health Science in Clinical Technology</div>
+                    <table class="saqa-detail-tbl">
+                        <tr><th>SAQA QUAL ID</th><th>QUALIFICATION TITLE</th></tr>
+                        <tr><td>111828</td><td>Bachelor of Health Science in Clinical Technology</td></tr>
+                        <tr><th colspan="2">ORIGINATOR</th></tr>
+                        <tr><td colspan="2">Tshwane University of Technology (TUT)</td></tr>
+                        <tr><th>PRIMARY OR DELEGATED QUALITY ASSURANCE FUNCTIONARY</th><th>NQF SUB-FRAMEWORK</th></tr>
+                        <tr><td>-</td><td>HEQSF – Higher Education Qualifications Sub-framework</td></tr>
+                        <tr><th>QUALIFICATION TYPE</th><th>NQF LEVEL</th></tr>
+                        <tr><td>National First Degree (Min 480)</td><td>NQF Level 08</td></tr>
+                        <tr><th>REGISTRATION STATUS</th><th>SAQA DECISION NUMBER</th></tr>
+                        <tr><td>Reregistered</td><td>EXCO 0821/24</td></tr>
+                        <tr><th>REGISTRATION START DATE</th><th>REGISTRATION END DATE</th></tr>
+                        <tr><td>2019-09-03</td><td>2027-06-30</td></tr>
+                        <tr><th>LAST DATE FOR ENROLMENT</th><th>LAST DATE FOR ACHIEVEMENT</th></tr>
+                        <tr><td>2028-06-30</td><td>2034-06-30</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <div class="sgp-section-title">&#128221; Field-by-Field Explanation</div>
+            <table class="sgp-field-tbl">
+                <thead>
+                    <tr><th>Field</th><th>Explanation</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>SAQA QUAL ID</td>
+                        <td>A unique identification number assigned by SAQA to a registered qualification on the NQF. For example, <strong>111828</strong> uniquely identifies this qualification.</td>
+                    </tr>
+                    <tr>
+                        <td>Qualification Title</td>
+                        <td>The official registered name of the qualification as it appears on the NQF.</td>
+                    </tr>
+                    <tr>
+                        <td>Originator</td>
+                        <td>The institution that developed and registered the qualification. Here it is <strong>Tshwane University of Technology (TUT)</strong>.</td>
+                    </tr>
+                    <tr>
+                        <td>Primary or Delegated Quality Assurance Functionary</td>
+                        <td>The Quality Council responsible for quality assurance. A dash (–) means the qualification falls under HEQSF and quality assurance is managed by the <strong>Council on Higher Education (CHE)</strong>.</td>
+                    </tr>
+                    <tr>
+                        <td>NQF Sub-framework</td>
+                        <td>The sub-framework under which the qualification falls. <strong>HEQSF</strong> = Higher Education Qualifications Sub-framework (university qualifications). Others include OQSF (occupational) and GENFETQA (schools and FET).</td>
+                    </tr>
+                    <tr>
+                        <td>Qualification Type</td>
+                        <td>The category of qualification. <em>National First Degree (Minimum 480 credits)</em> means it is a Bachelor's degree requiring at least 480 credits.</td>
+                    </tr>
+                    <tr>
+                        <td>Field</td>
+                        <td>The broad field of learning, e.g. <em>Field 09 – Health Sciences and Social Services</em>.</td>
+                    </tr>
+                    <tr>
+                        <td>Subfield</td>
+                        <td>A more specific academic area within the broad field, e.g. <em>Promotive Health and Developmental Services</em>.</td>
+                    </tr>
+                    <tr>
+                        <td>ABET Band</td>
+                        <td>Adult Basic Education and Training classification. <em>Undefined</em> means this does not apply to the qualification.</td>
+                    </tr>
+                    <tr>
+                        <td>Minimum Credits</td>
+                        <td>The minimum number of credits a student must obtain to complete the qualification. Here: <strong>480 credits</strong>.</td>
+                    </tr>
+                    <tr>
+                        <td>Pre-2009 NQF Level</td>
+                        <td>The qualification level under the old NQF system before 2009 amendments. <em>Not Applicable</em> means it was registered under the revised (post-2009) framework.</td>
+                    </tr>
+                    <tr>
+                        <td>NQF Level</td>
+                        <td>The official NQF level. <strong>Level 8</strong> = Bachelor's Degree / Postgraduate Diploma / Honours. (Level 7 = Bachelor's pass, Level 9 = Master's, Level 10 = Doctoral.)</td>
+                    </tr>
+                    <tr>
+                        <td>Qual Class</td>
+                        <td>Qualification category and delivery mode. <em>Regular-Provider-ELOAC</em> means it is a regular provider qualification offered through a recognised institution.</td>
+                    </tr>
+                    <tr>
+                        <td>Registration Status</td>
+                        <td>Whether the qualification is currently active on the NQF. <strong>Reregistered</strong> = was previously registered and has been renewed. <em>Passed the End Date</em> = registration has expired.</td>
+                    </tr>
+                    <tr>
+                        <td>SAQA Decision Number</td>
+                        <td>The official SAQA Executive Committee (EXCO) approval reference number for the registration or re-registration decision, e.g. <em>EXCO 0821/24</em>.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ══ STEP 4: Dates & Timeline ══ -->
+        <div class="sgp-step" id="sgpStep4">
+            <div class="sgp-tip">
+                <strong>Key insight:</strong> Even after the registration expires, students already enrolled can still complete the qualification — but no new students may be admitted after the enrolment cut-off date.
+            </div>
+
+            <div class="sgp-section-title">&#128197; The Four Critical Dates</div>
+            <table class="sgp-field-tbl">
+                <thead>
+                    <tr><th>Date Field</th><th>Meaning</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Registration Start Date<br><span style="font-weight:400;color:#666;">e.g. 2019-09-03</span></td>
+                        <td>The date on which SAQA officially registered or re-registered the qualification. From this date, the institution may legitimately offer the qualification to students.</td>
+                    </tr>
+                    <tr>
+                        <td>Registration End Date<br><span style="font-weight:400;color:#666;">e.g. 2027-06-30</span></td>
+                        <td>The date until which the qualification remains formally registered on the NQF. Before this date, the qualification should be reviewed and re-registered if the institution wishes to continue offering it. If not renewed, it will move to <em>Passed the End Date</em>.</td>
+                    </tr>
+                    <tr>
+                        <td>Last Date for Enrolment<br><span style="font-weight:400;color:#666;">e.g. 2028-06-30</span></td>
+                        <td>The final date on which new students may be admitted into the qualification if it is <strong>not re-registered</strong>. No new students may register after this date. Existing students may continue studying.</td>
+                    </tr>
+                    <tr>
+                        <td>Last Date for Achievement<br><span style="font-weight:400;color:#666;">e.g. 2034-06-30</span></td>
+                        <td>The final date by which all enrolled students must have completed and been awarded the qualification. After this date, no student may be certified for this qualification unless special arrangements are approved.</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="sgp-section-title">&#9202; Visual Timeline</div>
+
+            <div style="font-size:11px; color:#555; margin-bottom:8px;">Example based on SAQA ID 111828 — Bachelor of Health Science in Clinical Technology (TUT)</div>
+
+            <div class="sgp-timeline">
+                <div class="sgp-tl-line"></div>
+                <div class="sgp-tl-dates">
+                    <div class="sgp-tl-date">
+                        <div class="tl-d">2019-09-03</div>
+                        <div class="tl-l">Registration Start</div>
+                    </div>
+                    <div class="sgp-tl-date">
+                        <div class="tl-d">2027-06-30</div>
+                        <div class="tl-l">Registration End</div>
+                    </div>
+                    <div class="sgp-tl-date">
+                        <div class="tl-d">2028-06-30</div>
+                        <div class="tl-l">Last Enrolment</div>
+                    </div>
+                    <div class="sgp-tl-date">
+                        <div class="tl-d">2034-06-30</div>
+                        <div class="tl-l">Last Achievement</div>
+                    </div>
+                </div>
+                <div class="sgp-tl-expl">
+                    <div class="sgp-tl-item">
+                        <div class="sgp-tl-dot tl-green"></div>
+                        <div><strong>2019–2027:</strong> Qualification is active and registered. TUT may offer the qualification and enrol new students freely.</div>
+                    </div>
+                    <div class="sgp-tl-item">
+                        <div class="sgp-tl-dot tl-orange"></div>
+                        <div><strong>2027–2028:</strong> Registration has expired but TUT can still admit students until 30 June 2028 (if not re-registered by SAQA).</div>
+                    </div>
+                    <div class="sgp-tl-item">
+                        <div class="sgp-tl-dot tl-red"></div>
+                        <div><strong>After 2028-06-30:</strong> No new students may enrol. Only students already registered may continue studying towards the qualification.</div>
+                    </div>
+                    <div class="sgp-tl-item">
+                        <div class="sgp-tl-dot tl-grey"></div>
+                        <div><strong>After 2034-06-30:</strong> No further certifications may be issued. All students must have completed the degree by this date.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sgp-section-title">&#128218; Practical Meaning for Auditors</div>
+            <div class="ann"><div class="ann-badge">&#10003;</div><div>If the Registration End Date has <strong>passed</strong> and the status is <em>Passed the End Date</em>, the institution must have stopped admitting new students by the Last Date for Enrolment.</div></div>
+            <div class="ann" style="margin-top:8px;"><div class="ann-badge">&#10003;</div><div>During an audit, confirm that no student was enrolled <strong>after</strong> the Last Date for Enrolment on an expired qualification.</div></div>
+            <div class="ann" style="margin-top:8px;"><div class="ann-badge">&#10003;</div><div>Students completing the qualification after the Registration End Date but before the Last Date for Achievement are still legitimately finishing — this is normal and permitted.</div></div>
+        </div>
+
+    </div><!-- /sgp-body -->
+
+    <!-- Footer navigation -->
+    <div class="sgp-footer">
+        <button class="sgp-nav-btn" id="sgpPrev" disabled>&#8592; Previous</button>
+        <span class="sgp-step-counter" id="sgpCounter">Step 1 of 4</span>
+        <button class="sgp-nav-btn" id="sgpNext">Next &#8594;</button>
+    </div>
+</div>
+
+<script>
+(function () {
+    /* ── iframe load ── */
+    const frame = document.getElementById('saqaFrame');
+    const blockedMsg = document.getElementById('saqaBlockedMsg');
+    const sdot = document.getElementById('saqaSdot');
+    const statusTxt = document.getElementById('saqaStatusTxt');
+
+    frame.addEventListener('load', function () {
+        try {
+            var doc = frame.contentDocument || frame.contentWindow.document;
+            if (!doc || doc.body === null || doc.body.innerHTML.trim() === '') {
+                showBlocked();
+            } else {
+                sdot.className = 'dir-sdot';
+                statusTxt.textContent = 'SAQA search ready';
+            }
+        } catch (e) {
+            sdot.className = 'dir-sdot';
+            statusTxt.textContent = 'SAQA search ready';
+        }
+    });
+
+    frame.addEventListener('error', showBlocked);
+
+    function showBlocked() {
+        frame.style.display = 'none';
+        blockedMsg.style.display = 'flex';
+        sdot.className = 'dir-sdot red';
+        statusTxt.textContent = 'Embedding blocked by SAQA — use Open in New Tab';
+    }
+
+    document.getElementById('saqaBtnReload').addEventListener('click', function () {
+        frame.style.display = '';
+        blockedMsg.style.display = 'none';
+        sdot.className = 'dir-sdot';
+        statusTxt.textContent = 'Reloading…';
+        frame.src = frame.src;
+    });
+
+    /* ── Guide panel ── */
+    const overlay = document.getElementById('saqaOverlay');
+    const panel   = document.getElementById('saqaGuidePanel');
+    const tabs    = document.querySelectorAll('.sgp-tab');
+    const steps   = document.querySelectorAll('.sgp-step');
+    const btnPrev = document.getElementById('sgpPrev');
+    const btnNext = document.getElementById('sgpNext');
+    const counter = document.getElementById('sgpCounter');
+    let currentStep = 1;
+    const totalSteps = 4;
+
+    function openGuide() {
+        overlay.classList.add('open');
+        panel.classList.add('open');
+    }
+
+    function closeGuide() {
+        overlay.classList.remove('open');
+        panel.classList.remove('open');
+    }
+
+    function goToStep(n) {
+        currentStep = Math.max(1, Math.min(totalSteps, n));
+        tabs.forEach(function(t) { t.classList.toggle('active', +t.dataset.step === currentStep); });
+        steps.forEach(function(s, i) { s.classList.toggle('active', i + 1 === currentStep); });
+        counter.textContent = 'Step ' + currentStep + ' of ' + totalSteps;
+        btnPrev.disabled = currentStep === 1;
+        btnNext.disabled = currentStep === totalSteps;
+        document.querySelector('.sgp-body').scrollTop = 0;
+    }
+
+    document.getElementById('saqaGuideBtn').addEventListener('click', openGuide);
+    document.getElementById('saqaGuideClose').addEventListener('click', closeGuide);
+    overlay.addEventListener('click', closeGuide);
+
+    tabs.forEach(function(t) {
+        t.addEventListener('click', function() { goToStep(+t.dataset.step); });
+    });
+
+    btnPrev.addEventListener('click', function() { goToStep(currentStep - 1); });
+    btnNext.addEventListener('click', function() { goToStep(currentStep + 1); });
+
+    goToStep(1);
+}());
+</script>

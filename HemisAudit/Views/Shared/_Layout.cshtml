@@ -228,6 +228,16 @@
                 </span>
                 <span class="sidebar__nav-label">DEETYAPAC Help</span>
             </a>
+            <a href="/Saqa" class="sidebar__nav-item @(currentPath.StartsWith("/saqa") ? "sidebar__nav-item--active" : "")">
+                <span class="nav-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" class="nav-icon__svg" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M11 8v3l2 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M17 17l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </span>
+                <span class="sidebar__nav-label">SAQA Search</span>
+            </a>
 
             @if (role == "Admin" || role == "Director")
             {

@@ -7,8 +7,19 @@
 
 @section Styles {
 <style>
+.main-content.main-area {
+    height: 100dvh !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
 .page-content {
+    flex: 1 !important;
+    min-height: 0 !important;
     padding: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
@@ -21,8 +32,8 @@
 .dir-shell {
     display: flex;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
-    height: 100%;
     font-family: Arial, sans-serif;
     font-size: 13px;
     color: #222;

@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -589,6 +589,11 @@ app.MapControllerRoute(
     name: "directives-short",
     pattern: "Directives",
     defaults: new { controller = "Directives", action = "Index" });
+
+app.MapControllerRoute(
+    name: "saqa-short",
+    pattern: "Saqa",
+    defaults: new { controller = "Saqa", action = "Index" });
 
 app.MapControllerRoute(
     name: "default",
