@@ -20,19 +20,25 @@ namespace HemisAudit.Filters
             "/account/accessdenied"
         };
 
-        private readonly UserManager<ApplicationUser> _users;
-        private readonly IPasswordPolicyService _policy;
+        private readonly UserManager<ApplicationUser>  _users;
+        private readonly SignInManager<ApplicationUser> _signIn;
+        private readonly IPasswordPolicyService         _policy;
 
-        public PasswordAgeFilter(UserManager<ApplicationUser> users, IPasswordPolicyService policy)
+        public PasswordAgeFilter(UserManager<ApplicationUser> users,
+                                  SignInManager<ApplicationUser> signIn,
+                                  IPasswordPolicyService policy)
         {
-            _users = users;
+            _users  = users;
+            _signIn = signIn;
             _policy = policy;
         }
 
         public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
         {
             var path = context.HttpContext.Request.Path.Value ?? string.Empty;
-            if (AllowedPaths.Contains(path) || path.StartsWith("/css", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/js", StringComparison.OrdinalIgnoreCase))
+            if (AllowedPaths.Contains(path)
+                || path.StartsWith("/css", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/js",  StringComparison.OrdinalIgnoreCase))
             {
                 await next();
                 return;
@@ -51,23 +57,26 @@ namespace HemisAudit.Filters
                 return;
             }
 
-            var now = DateTime.UtcNow;
+            var now     = DateTime.UtcNow;
             var ageDays = _policy.GetPasswordAgeDays(user, now);
+
             if (_policy.IsPasswordExpired(user, now))
             {
-                if (context.Controller is Controller controller)
-                {
-                    controller.TempData["PasswordExpired"] = "Your password has expired. Enter your current password and choose a new one to continue.";
-                }
+                // Sign out so the session cannot be reused; user must change password before re-entering.
+                await _signIn.SignOutAsync();
 
-                context.Result = new RedirectToActionResult("RenewPassword", "Account", new { email = user.Email, expired = true });
+                if (context.Controller is Controller controller)
+                    controller.TempData["PasswordExpired"] = "Your password has expired. Enter your current password and choose a new one to continue.";
+
+                context.Result = new RedirectToActionResult("RenewPassword", "Account",
+                    new { email = user.Email, expired = true });
                 return;
             }
 
             var warningDays = _policy.GetPasswordWarningDays(user, now);
             if (warningDays.HasValue && context.Controller is Controller warningController)
             {
-                warningController.TempData["PasswordWarnDays"] = warningDays.Value;
+                warningController.TempData["PasswordWarnDays"]    = warningDays.Value;
                 warningController.TempData["PasswordWarnAgeDays"] = ageDays;
             }
 

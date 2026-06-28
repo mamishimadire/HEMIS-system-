@@ -121,7 +121,8 @@ namespace HemisAudit.Services
         public int GetPasswordAgeDays(ApplicationUser user, DateTime utcNow)
         {
             var passwordSetDate = GetPasswordReferenceDate(user);
-            return passwordSetDate.HasValue ? Math.Max(0, (utcNow - passwordSetDate.Value).Days) : 0;
+            // No reference date means the account pre-dates the policy — treat as already expired.
+            return passwordSetDate.HasValue ? Math.Max(0, (utcNow - passwordSetDate.Value).Days) : MaxPasswordAgeDays;
         }
 
         private static IEnumerable<string> ReadPasswordHistory(string? json)
