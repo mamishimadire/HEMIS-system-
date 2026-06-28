@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using HemisAudit.Models;
 using System.Text.Json;
 
@@ -24,6 +25,7 @@ namespace HemisAudit.Data
 
             await SeedRolesAsync(roleManager);
             await SeedDefaultAdminAsync(userManager);
+            await RestorePasswordSetDatesAsync(userManager, services);
         }
 
         private static async Task SeedRolesAsync(RoleManager<IdentityRole> roleManager)
@@ -86,6 +88,67 @@ namespace HemisAudit.Data
             }
         }
 
+        // Restores PasswordSetDate for users where it was wiped to NULL by a previous deploy.
+        // Reads the correct dates from the SQL Server mirror and writes them back into SQLite.
+        // Only updates rows where PasswordSetDate IS NULL — never overwrites dates that are already set.
+        private static async Task RestorePasswordSetDatesAsync(UserManager<ApplicationUser> userManager, IServiceProvider services)
+        {
+            // Only run when at least one user has a NULL PasswordSetDate
+            var usersNeedingRepair = userManager.Users
+                .Where(u => u.PasswordSetDate == null)
+                .ToList();
+
+            if (usersNeedingRepair.Count == 0) return;
+
+            var config = services.GetRequiredService<IConfiguration>();
+            var server   = config["SystemDatabase:Server"]   ?? @"(localdb)\MSSQLLocalDB";
+            var database = config["SystemDatabase:Name"]     ?? "HEMISBaseSystem";
+            var trust    = config.GetValue("SystemDatabase:TrustServerCertificate", true);
+
+            var cs = new SqlConnectionStringBuilder
+            {
+                DataSource          = server,
+                InitialCatalog      = database,
+                IntegratedSecurity  = true,
+                TrustServerCertificate = trust,
+                Encrypt             = false,
+                ConnectTimeout      = 30
+            }.ConnectionString;
+
+            // Fetch email → PasswordSetDate from the SQL Server mirror
+            var mirrorDates = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                await using var conn = new SqlConnection(cs);
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT Email, PasswordSetDate FROM dbo.Users WHERE Email IS NOT NULL;";
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var email = reader.IsDBNull(0) ? null : reader.GetString(0);
+                    var date  = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
+                    if (!string.IsNullOrWhiteSpace(email))
+                        mirrorDates[email] = date;
+                }
+            }
+            catch
+            {
+                // If the SQL Server mirror is unreachable, skip — don't crash startup.
+                return;
+            }
+
+            foreach (var user in usersNeedingRepair)
+            {
+                if (string.IsNullOrWhiteSpace(user.Email)) continue;
+                if (!mirrorDates.TryGetValue(user.Email, out var mirrorDate)) continue;
+
+                // Use the mirror date when available; otherwise fall back to CreatedAt.
+                user.PasswordSetDate = mirrorDate ?? (user.CreatedAt != default ? user.CreatedAt : (DateTime?)null);
+                await userManager.UpdateAsync(user);
+            }
+        }
+
         private static async Task EnsureValidationSchemaAsync(ApplicationDbContext db)
         {
             await EnsureColumnAsync(db, "ValidationRuns", "IsCurrent", "INTEGER NOT NULL DEFAULT 1");
@@ -100,52 +163,6 @@ namespace HemisAudit.Data
             await EnsureColumnAsync(db, "AspNetUsers", "Gender", "TEXT NULL");
             await EnsureColumnAsync(db, "AspNetUsers", "Department", "TEXT NULL");
             await EnsureColumnAsync(db, "AspNetUsers", "OfficeAddress", "TEXT NULL");
-
-            // One-shot correction: a previous startup routine was resetting PasswordSetDate to NOW
-            // for any user with an old password, which prevented password-expiry enforcement.
-            // Clear PasswordSetDate for all non-Admin users so the expiry filter forces them through
-            // RenewPassword on their next request. Admins keep their date to avoid locking out setup access.
-            await EnsureColumnAsync(db, "AspNetUsers", "_PwdExpiryCorrected", "INTEGER NOT NULL DEFAULT 0");
-            var connection = db.Database.GetDbConnection();
-            if (connection.State != System.Data.ConnectionState.Open)
-                await connection.OpenAsync();
-            try
-            {
-                int alreadyDone;
-                await using (var chk = connection.CreateCommand())
-                {
-                    chk.CommandText = "SELECT COUNT(1) FROM [AspNetUsers] WHERE [_PwdExpiryCorrected] = 1;";
-                    alreadyDone = Convert.ToInt32(await chk.ExecuteScalarAsync());
-                }
-                if (alreadyDone == 0)
-                {
-                    // Wipe PasswordSetDate for all non-admin users so the filter treats them as expired.
-                    await using var fix = connection.CreateCommand();
-                    fix.CommandText = @"
-UPDATE [AspNetUsers]
-SET    [PasswordSetDate] = NULL,
-       [_PwdExpiryCorrected] = 1
-WHERE  [Id] NOT IN (
-           SELECT ur.[UserId]
-           FROM   [AspNetUserRoles] ur
-           INNER JOIN [AspNetRoles] r ON r.[Id] = ur.[RoleId]
-           WHERE  r.[Name] = 'Admin'
-       );
-UPDATE [AspNetUsers]
-SET    [_PwdExpiryCorrected] = 1
-WHERE  [Id] IN (
-           SELECT ur.[UserId]
-           FROM   [AspNetUserRoles] ur
-           INNER JOIN [AspNetRoles] r ON r.[Id] = ur.[RoleId]
-           WHERE  r.[Name] = 'Admin'
-       );";
-                    await fix.ExecuteNonQueryAsync();
-                }
-            }
-            finally
-            {
-                await connection.CloseAsync();
-            }
         }
 
         private static async Task CreateIndexesAsync(ApplicationDbContext db)
