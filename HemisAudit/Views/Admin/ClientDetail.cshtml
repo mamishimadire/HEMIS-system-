@@ -225,7 +225,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 1-10, 11-32, 34-36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, ClinicalTech (69), Biokinetic (70) and Radiography (71)</span>
+            <span class="collapsible-trigger__meta">Rules 1-10, 11-32, 34-36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, ClinicalTech (69), Biokinetic (70), Radiography (71) and Pharmacy (72)</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -255,7 +255,7 @@
                             </div>
                         }
                     </div>
-                    <div class="module-card-grid" id="module-card-grid" data-scope="@scopeJson" data-archived="@Model.IsArchived.ToString().ToLower()" data-total-rules="71" data-engagement-role="@Model.CurrentUserEngagementRole">
+                    <div class="module-card-grid" id="module-card-grid" data-scope="@scopeJson" data-archived="@Model.IsArchived.ToString().ToLower()" data-total-rules="72" data-engagement-role="@Model.CurrentUserEngagementRole">
                         @foreach (var integrityRule in IntegrityRuleCatalog.GetRuleNumbers().Where(ruleNumber => ruleNumber >= 1 && ruleNumber <= 10).Select(IntegrityRuleCatalog.Get))
                         {
                             <article class="module-card">
@@ -746,6 +746,14 @@
                             <p class="module-card__text">Cross-references a Radiography source table against a clinical production table. Confirms that each <code>QUALIFICATION</code> present in the source exists in production, then verifies the corresponding <code>Surname</code> matches. PASS when both conditions hold.</p>
                             <div class="module-card__actions">
                                 <a href="/Radiography?clientId=@Model.Id" class="btn btn-success">Open Rule 71</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 72</div>
+                            <h4 class="module-card__title">Pharmacy: Qualification &amp; Surname Validation</h4>
+                            <p class="module-card__text">Cross-references a Pharmacy source table against a clinical production table. Confirms that each <code>QUALIFICATION</code> present in the source exists in production, then verifies the corresponding <code>Surname</code> matches. PASS when both conditions hold; FAIL when QUALIFICATION is missing from production.</p>
+                            <div class="module-card__actions">
+                                <a href="/Pharmacy?clientId=@Model.Id" class="btn btn-success">Open Rule 72</a>
                             </div>
                         </article>
                     </div>
