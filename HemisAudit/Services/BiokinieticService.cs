@@ -274,77 +274,68 @@ DROP TABLE #ProdQualifications;";
             {
                 if (clientId <= 0) return null;
 
-                try
-                {
-                    await using var connection = await OpenSystemConnectionAsync();
-                    await using var command = connection.CreateConfiguredCommand();
-                    command.CommandText = @"
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var command = connection.CreateConfiguredCommand();
+                command.CommandText = @"
 SELECT TOP 1
-    vr.RunID,
-    ISNULL(vr.HemisServer, '') AS HemisServer,
-    ISNULL(vr.AuditDatabase, '') AS AuditDatabase,
-    ISNULL(vr.StudTable, '') AS StudTable,
-    ISNULL(vr.DeceasedTable, '') AS DeceasedTable,
-    ISNULL(vr.StudColumn, '') AS StudColumn,
-    ISNULL(vr.DeceasedColumn, '') AS DeceasedColumn,
-    ISNULL(vr.Status, '') AS Status,
-    vr.ResultsJSON,
-    vr.WorkspaceSavedAt
-FROM dbo.ValidationRuns vr
-WHERE vr.ClientID = @ClientID
-  AND vr.RuleNumber = 70
-ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
-                    command.Parameters.AddWithValue("@ClientID", clientId);
+    RunID, HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
+    Status, RunTimestamp, ResultsJSON, WorkspaceSavedAt
+FROM dbo.ValidationRuns
+WHERE ClientID = @ClientID AND RuleNumber = 70
+ORDER BY IsCurrent DESC, RunTimestamp DESC;";
+                command.Parameters.AddWithValue("@ClientID", clientId);
 
-                    await using var reader = await command.ExecuteReaderAsync();
-                    if (await reader.ReadAsync())
+                await using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var runId = reader.GetInt32(0);
+                    var summaryJson = reader.IsDBNull(9) ? null : reader.GetString(9);
+                    BiokinieticValidationSummary? summary = null;
+                    if (summaryJson != null)
                     {
-                        var runId = reader.GetInt32(0);
-                        var summaryJson = reader.IsDBNull(8) ? null : reader.GetString(8);
-                        BiokinieticValidationSummary? summary = null;
-                        if (summaryJson != null)
-                        {
-                            try { summary = JsonConvert.DeserializeObject<BiokinieticValidationSummary>(ValidationPayloadCodec.Decode(summaryJson)); }
-                            catch { }
-                        }
-                        if (summary != null && summary.ReviewRows.Count > BrowserPreviewRowLimit)
-                            summary.ReviewRows = summary.ReviewRows.Take(BrowserPreviewRowLimit).ToList();
-
-                        var ws = new BiokinieticWorkspaceState
-                        {
-                            ClientId = clientId,
-                            Server = reader.GetString(1),
-                            Database = reader.GetString(2),
-                            Driver = "ODBC Driver 17 for SQL Server",
-                            BiokinieticTable = reader.GetString(3),
-                            ProductionTable = reader.GetString(4),
-                            QualificationColumn = reader.GetString(5),
-                            SurnameColumn = reader.GetString(6),
-                            LastRunId = runId,
-                            LastRunStatus = reader.GetString(7),
-                            CurrentStatus = reader.GetString(7),
-                            Summary = summary,
-                            LastRunAt = DateTime.UtcNow
-                        };
-                        await reader.CloseAsync();
-                        ws.IsWorkspaceSaved = await QualSurnameModuleHelper.IsWorkspaceSavedAsync(connection, runId);
-
-                        int? userId = await GetSystemUserIdByEmailAsync(connection, userEmail);
-                        if (userId.HasValue)
-                            ws.CurrentUserEngagementRole = await QualSurnameModuleHelper.GetEngagementRoleAsync(connection, clientId, userId.Value) ?? "";
-
-                        var (hasDA, currentSigned, currentComment) = await QualSurnameModuleHelper.GetSignoffStateAsync(
-                            connection, runId, userId, ws.CurrentUserEngagementRole);
-                        ws.HasDataAnalystSignoff = hasDA;
-                        ws.CurrentUserHasSignedOff = currentSigned;
-                        ws.CurrentUserSignoffComment = currentComment;
-
-                        if (ws.Summary != null) ws.Summary.SavedRunId = runId;
-                        return ws;
+                        try { summary = JsonConvert.DeserializeObject<BiokinieticValidationSummary>(ValidationPayloadCodec.Decode(summaryJson)); }
+                        catch { }
                     }
-                }
-                catch { }
+                    if (summary != null && summary.ReviewRows.Count > BrowserPreviewRowLimit)
+                        summary.ReviewRows = summary.ReviewRows.Take(BrowserPreviewRowLimit).ToList();
 
+                    var ws = new BiokinieticWorkspaceState
+                    {
+                        ClientId = clientId,
+                        Server = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                        Database = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                        Driver = "ODBC Driver 17 for SQL Server",
+                        BiokinieticTable = reader.IsDBNull(3) ? "Biokinetic" : reader.GetString(3),
+                        ProductionTable = reader.IsDBNull(4) ? "Clinical_Production" : reader.GetString(4),
+                        QualificationColumn = reader.IsDBNull(5) ? "QUALIFICATION" : reader.GetString(5),
+                        SurnameColumn = reader.IsDBNull(6) ? "Surname" : reader.GetString(6),
+                        LastRunId = runId,
+                        LastRunStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        CurrentStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        LastRunAt = reader.IsDBNull(8) ? null : reader.GetDateTime(8),
+                        Summary = summary
+                    };
+                    await reader.CloseAsync();
+                    ws.IsWorkspaceSaved = await QualSurnameModuleHelper.IsWorkspaceSavedAsync(connection, runId);
+
+                    int? userId = await GetSystemUserIdByEmailAsync(connection, userEmail);
+                    if (userId.HasValue)
+                        ws.CurrentUserEngagementRole = await QualSurnameModuleHelper.GetEngagementRoleAsync(connection, clientId, userId.Value) ?? "";
+
+                    var (hasDA, currentSigned, currentComment) = await QualSurnameModuleHelper.GetSignoffStateAsync(
+                        connection, runId, userId, ws.CurrentUserEngagementRole);
+                    ws.HasDataAnalystSignoff = hasDA;
+                    ws.CurrentUserHasSignedOff = currentSigned;
+                    ws.CurrentUserSignoffComment = currentComment;
+
+                    if (ws.Summary != null) ws.Summary.SavedRunId = runId;
+                    return ws;
+                }
+            }
+            catch { }
+
+            try
+            {
                 var cached = _pendingValidationCache.GetPending<BiokinieticValidationRequest, BiokinieticValidationSummary>(70, clientId, userEmail ?? "");
                 if (cached?.Request is not null && cached.Summary is not null)
                 {
@@ -363,13 +354,10 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
                         LastRunAt = DateTime.UtcNow
                     };
                 }
+            }
+            catch { }
 
-                return null;
-            }
-            catch
-            {
-                return null;
-            }
+            return null;
         }
 
         public async Task<bool> SaveWorkspaceStateAsync(int clientId, BiokinieticValidationRequest config, string? userEmail = null)

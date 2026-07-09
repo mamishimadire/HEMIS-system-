@@ -269,6 +269,11 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
                         try { summary = JsonConvert.DeserializeObject<NursingValidationSummary>(ValidationPayloadCodec.Decode(resultsJson)); }
                         catch { }
                     }
+                    if (summary != null && summary.ReviewRows.Count > BrowserPreviewRowLimit)
+                        summary.ReviewRows = summary.ReviewRows.Take(BrowserPreviewRowLimit).ToList();
+
+                    var isWorkspaceSaved = !reader.IsDBNull(10);
+                    var currentStatus = reader.IsDBNull(7) ? null : reader.GetString(7);
 
                     var ws = new NursingWorkspaceState
                     {
@@ -280,9 +285,10 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
                         ProductionTable = reader.IsDBNull(4) ? "Clinical_Production" : reader.GetString(4),
                         QualificationColumn = reader.IsDBNull(5) ? "QUALIFICATION" : reader.GetString(5),
                         SurnameColumn = reader.IsDBNull(6) ? "Surname" : reader.GetString(6),
-                        LastRunStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        LastRunStatus = currentStatus,
+                        CurrentStatus = currentStatus,
                         LastRunAt = reader.IsDBNull(8) ? null : reader.GetDateTime(8),
-                        IsWorkspaceSaved = await QualSurnameModuleHelper.IsWorkspaceSavedAsync(connection, runId),
+                        IsWorkspaceSaved = isWorkspaceSaved,
                         Summary = summary
                     };
                     await reader.CloseAsync();

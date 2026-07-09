@@ -269,6 +269,8 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
                         try { summary = JsonConvert.DeserializeObject<PharmacyValidationSummary>(ValidationPayloadCodec.Decode(resultsJson)); }
                         catch { }
                     }
+                    if (summary != null && summary.ReviewRows.Count > BrowserPreviewRowLimit)
+                        summary.ReviewRows = summary.ReviewRows.Take(BrowserPreviewRowLimit).ToList();
 
                     var ws = new PharmacyWorkspaceState
                     {
@@ -281,6 +283,7 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
                         QualificationColumn = reader.IsDBNull(5) ? "QUALIFICATION" : reader.GetString(5),
                         SurnameColumn = reader.IsDBNull(6) ? "Surname" : reader.GetString(6),
                         LastRunStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        CurrentStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
                         LastRunAt = reader.IsDBNull(8) ? null : reader.GetDateTime(8),
                         Summary = summary
                     };
