@@ -1,33 +1,15 @@
-﻿@using HemisAudit.Models
+@using HemisAudit.Models
 @{
-    ViewData["Title"] = "Rule 40 – PROF ASCII Staff Agreement";
+    ViewData["Title"] = "Rule 40 – PROF VALPAC vs 2025H16PROF";
     Layout = "~/Views/Shared/_Layout.cshtml";
-    var clients = ViewBag.Clients as List<Client> ?? new();
-    var selectedClientId = ViewBag.ClientId is int cid ? cid : 0;
+    var clients           = ViewBag.Clients as List<Client> ?? new();
+    var selectedClientId  = ViewBag.ClientId is int cid ? cid : 0;
     var currentSystemRole = ViewBag.CurrentSystemRole as string ?? "";
-    var isResultsOnlyRole =
-        string.Equals(currentSystemRole, "Manager",  StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(currentSystemRole, "Trainee",  StringComparison.OrdinalIgnoreCase);
-    var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
+    var isResultsOnlyRole = string.Equals(currentSystemRole, "Manager",  StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(currentSystemRole, "Director", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(currentSystemRole, "Trainee",  StringComparison.OrdinalIgnoreCase);
+    var moduleNavigation  = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
 }
-
-<style>
-.r40-pair-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; background:#f9f9f9; padding:6px 8px; border-radius:6px; border:1px solid #e8e8e8; }
-.r40-pair-row select,.r40-pair-row input[type=text] { font-size:.82rem; border:1px solid #ccc; border-radius:4px; padding:3px 7px; min-width:100px; max-width:170px; }
-.r40-pair-del { background:#C0392B; color:#fff; border:none; border-radius:4px; padding:2px 8px; cursor:pointer; font-size:.8rem; flex-shrink:0; }
-.r40-tbl { border-collapse:collapse; width:100%; font-size:.81rem; }
-.r40-tbl th { background:#5B2D8E; color:#fff; padding:5px 7px; text-align:center; border:1px solid #bbb; white-space:nowrap; }
-.r40-tbl td { padding:4px 6px; border:1px solid #ddd; text-align:center; vertical-align:middle; }
-.r40-tbl tr.agree    { background:#F1F8E9; }
-.r40-tbl tr.disagree { background:#FFEBEE; }
-.r40-tbl tr.missing  { background:#FFF3E0; }
-.r40-tbl td.oc { background:#DDEEFF; }
-.r40-agree { display:inline-block; padding:2px 7px; border-radius:4px; font-size:.75rem; font-weight:700; background:#E8F5E9; color:#1E8449; }
-.r40-exc   { display:inline-block; padding:2px 7px; border-radius:4px; font-size:.75rem; font-weight:700; background:#FFEBEE; color:#C0392B; }
-.r40-miss  { display:inline-block; padding:2px 7px; border-radius:4px; font-size:.75rem; font-weight:700; background:#FFF3E0; color:#E67E22; }
-.workspace-signoff-actions { display:flex; gap:10px; flex-wrap:wrap; padding-top:4px; }
-</style>
 
 <div id="app" class="rule-page-shell">
     @if (moduleNavigation != null)
@@ -51,671 +33,559 @@
     <div class="rule-header">
         <div class="rule-header__icon">R40</div>
         <div>
-            <h1 class="rule-header__title">HEMIS RULE 40: PROF ASCII Staff Agreement</h1>
+            <h1 class="rule-header__title">Rule 40 — PROF VALPAC vs 2025H16PROF Staff Agreement</h1>
             <p class="rule-header__sub">
-                Procedure 4.5.2 &nbsp;&middot;&nbsp;
-                <strong>&#9398;</strong> <code>dbo_PROF</code> vs <code>2025H16PROF</code> (VALPAC) — field comparison scoped by SFTE &nbsp;&middot;&nbsp;
-                <strong>&#9399;</strong> <code>dbo_PROF</code> vs <code>2025H16SFTE</code> — population check. Join key: <code>_037</code>
+                Compares VALPAC PROF records against the ASCII file using <code>_037</code> (Staff Number) as the key.
+                Checks <code>_011 _012 _013 _014 _038 _039 _040 _041 _042 _046 _047 _048</code> across both files.
+                Result: <strong>AGREE</strong>, <strong>DISAGREE</strong>, or <strong>MISSING</strong>.
             </p>
         </div>
-        <div class="rule-header__badge" id="r40StatusBadge" style="display:none"></div>
     </div>
+
+    <!-- Saved workspace banner -->
+    <div id="r40WorkspaceBanner" style="display:none" class="card" style="margin-bottom:16px;padding:14px 18px"></div>
 
     @if (!isResultsOnlyRole)
     {
-    <div class="accordion-stack">
-        <div class="accordion-item">
-            <button class="accordion-toggle" type="button" onclick="toggleAccordion('r40-conn')">
-                <span class="acc-icon">DB</span><span>Database Connection</span><span class="acc-chevron">v</span>
-            </button>
-            <div class="accordion-body" id="body-r40-conn">
-                <div class="form-grid">
-                    <div class="field-group">
-                        <label for="r40Server">Server Name</label>
-                        <input id="r40Server" type="text" placeholder="SERVER\INSTANCE or (localdb)\MSSQLLocalDB" />
-                    </div>
-                    <div class="field-group">
-                        <label for="r40Driver">Driver</label>
-                        <select id="r40Driver">
-                            <option value="ODBC Driver 17 for SQL Server">ODBC Driver 17 for SQL Server</option>
-                            <option value="ODBC Driver 18 for SQL Server">ODBC Driver 18 for SQL Server</option>
-                            <option value="SQL Server">SQL Server</option>
-                        </select>
-                    </div>
-                    <div class="field-group">
-                        <label for="r40Db">Database</label>
-                        <select id="r40Db" onchange="r40LoadTables()"></select>
-                    </div>
+        <!-- ── Step 1: Connect ───────────────────────────────────────────── -->
+        <div class="card workspace-config-card" id="r40ConnectCard">
+            <h3 class="section-title">Step 1 — Connect to Database</h3>
+            <div class="field-row">
+                <div class="field-group" style="flex:2;min-width:220px">
+                    <label for="r40Server">SQL Server</label>
+                    <input type="text" id="r40Server" placeholder="e.g. HEMIS-SQL\SQLEXPRESS" autocomplete="off" />
                 </div>
-                <div class="action-bar" style="justify-content:flex-start;margin:10px 0 0">
-                    <button type="button" class="btn btn-primary" onclick="r40Connect()">Connect</button>
+                <div style="display:flex;align-items:flex-end">
+                    <button class="btn btn-primary" onclick="r40Connect()">Connect</button>
                 </div>
-                <div id="r40ConnOut" class="status-output"></div>
+                <div class="field-group" style="flex:2;min-width:200px">
+                    <label for="r40Database">Database</label>
+                    <select id="r40Database" onchange="r40LoadTables()">
+                        <option value="">— connect first —</option>
+                    </select>
+                </div>
             </div>
+            <div id="r40ConnectStatus" class="status-msg" style="margin-top:8px"></div>
         </div>
 
-        <div class="accordion-item">
-            <button class="accordion-toggle" type="button" onclick="toggleAccordion('r40-tables')">
-                <span class="acc-icon">TB</span><span>Table Configuration &amp; Join Keys</span><span class="acc-chevron">v</span>
-            </button>
-            <div class="accordion-body" id="body-r40-tables" style="display:none">
-                <div class="info-box info-box--red" style="margin-bottom:12px">
-                    Tables are auto-detected when you select a database. All three tables use <code>_037</code> (Staff No) as the join key.
+        <!-- ── Step 2: Select Tables ─────────────────────────────────────── -->
+        <div class="card workspace-config-card" id="r40TablesCard" style="display:none">
+            <h3 class="section-title">Step 2 — Select VALPAC &amp; ASCII Tables</h3>
+            <div class="field-row">
+                <div class="field-group" style="flex:1;min-width:200px">
+                    <label for="r40ValpacTable">VALPAC Table (Staff VALPAC)</label>
+                    <select id="r40ValpacTable"><option value="">— select —</option></select>
                 </div>
-                <div class="form-grid">
-                    <div class="field-group">
-                        <label>PROF Table (HEMIS ASCII)</label>
-                        <select id="r40ProfTable" onchange="r40LoadCols('prof',this.value)"></select>
-                    </div>
-                    <div class="field-group">
-                        <label>VALPAC Table (2025H16PROF)</label>
-                        <select id="r40ValTable" onchange="r40LoadCols('val',this.value)"></select>
-                    </div>
-                    <div class="field-group">
-                        <label>SFTE Table (scope + Rec B)</label>
-                        <select id="r40SfteTable" onchange="r40LoadCols('sfte',this.value)"></select>
-                    </div>
-                    <div class="field-group">
-                        <label>PROF join key</label>
-                        <select id="r40ProfKey"></select>
-                    </div>
-                    <div class="field-group">
-                        <label>VALPAC join key</label>
-                        <select id="r40ValKey"></select>
-                    </div>
-                    <div class="field-group">
-                        <label>SFTE join key</label>
-                        <select id="r40SfteKey"></select>
-                    </div>
+                <div class="field-group" style="flex:1;min-width:200px">
+                    <label for="r40AsciiTable">ASCII Table (Staff ASCII File)</label>
+                    <select id="r40AsciiTable"><option value="">— select —</option></select>
                 </div>
-                <div id="r40TableOut" class="status-output"></div>
+                <div style="display:flex;align-items:flex-end">
+                    <button class="btn btn-secondary" onclick="r40VerifyTables()">Verify Tables</button>
+                </div>
             </div>
+            <div id="r40VerifyStatus" style="margin-top:10px"></div>
         </div>
 
-        <div class="accordion-item">
-            <button class="accordion-toggle" type="button" onclick="toggleAccordion('r40-colmap')">
-                <span class="acc-icon">CM</span><span>Column Mapping</span><span class="acc-chevron">v</span>
-            </button>
-            <div class="accordion-body" id="body-r40-colmap" style="display:none">
-                <div class="alert alert--info" style="margin-bottom:12px">
-                    Column dropdowns auto-populate from the live database after connecting and selecting a database.
-                </div>
-                <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#5B2D8E;margin-bottom:8px">
-                    &#9398; Reconciliation A — PROF vs VALPAC (field comparison)
-                </div>
-                <div id="r40ValpacPairs"></div>
-                <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:.82rem" onclick="r40AddPair('valpac')">&#65291; Add pair</button>
-                <hr style="margin:14px 0">
-                <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#1E8449;margin-bottom:8px">
-                    &#9399; Reconciliation B — PROF vs SFTE (population check)
-                </div>
-                <div id="r40SftePairs"></div>
-                <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:.82rem" onclick="r40AddPair('sfte')">&#65291; Add pair</button>
+        <!-- ── Run Validation ────────────────────────────────────────────── -->
+        <div class="card workspace-config-card" id="r40RunCard" style="display:none">
+            <h3 class="section-title">Step 3 — Run Validation</h3>
+            <p style="color:var(--text-muted);font-size:.88rem;margin-bottom:12px">
+                Compares every staff record between the VALPAC and ASCII tables on <code>_037</code>.
+                Columns checked: Date of Birth, Gender, Race, Nationality, Empl. Commencement, Personnel Category, Rank, Permanent/Temporary, Full/Part-time, Qualification Type, Joint Appointment, On Payroll Code.
+            </p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <button class="btn btn-primary" id="r40RunBtn" onclick="r40RunValidation()">Run Validation</button>
+                <button class="btn btn-secondary" onclick="r40GenerateSql()">Generate SQL</button>
+                <button class="btn btn-secondary" onclick="r40DownloadSql()">Download SQL</button>
             </div>
+            <div id="r40RunStatus" class="status-msg" style="margin-top:10px"></div>
         </div>
-    </div>
     }
 
-    <div class="workspace-signoff-card">
-        <div class="workspace-signoff-card__header">
-            <div>
-                <div class="workspace-signoff-card__title">Saved Workspace</div>
-                <div class="workspace-signoff-card__subtitle">The last saved Rule 40 configuration, results, and signoffs reload here automatically.</div>
-            </div>
-            <div id="r40RunState" class="badge badge--neutral badge--sm">No saved run loaded</div>
-        </div>
-        <div id="workspaceInfo" class="alert alert--info">Select an engagement to load the saved Rule 40 workspace.</div>
-        <div class="workspace-signoff-grid">
-            <div>
-                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Current Run</div>
-                <div id="r40RunLabel">No saved run yet</div>
-            </div>
-            <div>
-                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
-                <div id="r40StatusLabel">-</div>
-            </div>
-            <div>
-                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Last Edited</div>
-                <div id="r40EditedLabel">-</div>
-            </div>
-            <div>
-                <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Your Role</div>
-                <div id="r40RoleLabel">@(string.IsNullOrWhiteSpace(currentSystemRole) ? "-" : currentSystemRole)</div>
-            </div>
-            <div class="field-group" style="grid-column:1/-1">
-                <label for="r40SignoffComment">Signoff Comment</label>
-                <textarea id="r40SignoffComment" rows="2" placeholder="Add the final review note confirming this validation is complete."></textarea>
-            </div>
-        </div>
-        <div class="workspace-signoff-actions">
-            @if (!isResultsOnlyRole)
-            {
-                <button class="btn btn-success" id="r40SaveBtn" onclick="r40SaveWorkspace()">Save Workspace</button>
-            }
-            <button class="btn btn-primary" id="r40SignoffBtn" onclick="r40SignOff()">Sign Off</button>
-            <button class="btn btn-warning" id="r40RemoveSignoffBtn" onclick="r40RemoveSignoff()" style="display:none">Remove Signoff</button>
-        </div>
-    </div>
+    <!-- ── Results ───────────────────────────────────────────────────────── -->
+    <div id="r40ResultsPanel" style="display:none">
 
-    <div class="action-bar">
+        <!-- Summary stats -->
+        <div class="card" style="margin-bottom:16px;padding:16px 20px">
+            <h3 class="section-title" style="margin:0 0 12px">Validation Summary</h3>
+            <div class="workspace-summary-grid">
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">VALPAC Table</span>
+                    <span class="workspace-summary-item__value" id="r40SumValpac">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">ASCII Table</span>
+                    <span class="workspace-summary-item__value" id="r40SumAscii">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">Total Staff</span>
+                    <span class="workspace-summary-item__value" id="r40SumTotal">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">AGREE</span>
+                    <span class="workspace-summary-item__value text-success" id="r40SumAgree">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">DISAGREE</span>
+                    <span class="workspace-summary-item__value text-danger" id="r40SumDisagree">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">Missing in ASCII</span>
+                    <span class="workspace-summary-item__value text-danger" id="r40SumMissingAscii">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">Missing in VALPAC</span>
+                    <span class="workspace-summary-item__value text-danger" id="r40SumMissingValpac">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">Exception Rate</span>
+                    <span class="workspace-summary-item__value" id="r40SumRate">—</span>
+                </div>
+                <div class="workspace-summary-item">
+                    <span class="workspace-summary-item__label">Status</span>
+                    <span class="workspace-summary-item__value" id="r40SumStatus">—</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exception rows preview -->
+        <div class="card" style="margin-bottom:16px;padding:16px 20px">
+            <h3 class="section-title" style="margin:0 0 6px">Exceptions (DISAGREE &amp; MISSING)</h3>
+            <p style="color:var(--text-muted);font-size:.83rem;margin:0 0 10px">Preview 10 row(s) only — download Excel/CSV for full population.</p>
+            <div style="overflow-x:auto">
+                <table class="data-table" id="r40ExcTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Staff Number (_037)</th>
+                            <th>Result</th>
+                            <th>Disagreeing Fields</th>
+                        </tr>
+                    </thead>
+                    <tbody id="r40ExcTbody">
+                        <tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No exceptions.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- AGREE sample preview -->
+        <div class="card" style="margin-bottom:16px;padding:16px 20px">
+            <h3 class="section-title" style="margin:0 0 6px">AGREE Sample</h3>
+            <p style="color:var(--text-muted);font-size:.83rem;margin:0 0 10px">Preview 10 row(s) only.</p>
+            <div style="overflow-x:auto">
+                <table class="data-table" id="r40AgreeTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Staff Number (_037)</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody id="r40AgreeTbody">
+                        <tr><td colspan="3" style="text-align:center;color:var(--text-muted)">No agree rows.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Downloads -->
+        <div class="card" style="margin-bottom:16px;padding:16px 20px">
+            <h3 class="section-title" style="margin:0 0 10px">Downloads (Full Population)</h3>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <button class="btn btn-success" onclick="r40Download('excel')">Download Excel</button>
+                <button class="btn btn-secondary" onclick="r40Download('csv')">Download CSV</button>
+            </div>
+        </div>
+
+        <!-- Save workspace -->
         @if (!isResultsOnlyRole)
         {
-            <button class="btn btn-info"    onclick="r40Verify()">Verify Tables</button>
-            <button class="btn btn-success" onclick="r40Run()">&#9654; Run Rule 40</button>
-            <button class="btn btn-primary" onclick="r40Sql()">Generate SQL</button>
-        }
-        <button class="btn btn-warning" id="r40DlAllBtn" onclick="r40DlAll()" disabled>Download All</button>
-    </div>
-
-    <div class="results-panel">
-        <div class="results-tabs">
-            <button class="tab-btn active" type="button" data-tab="r40-analysis"  onclick="r40Tab('r40-analysis')">Analysis</button>
-            <button class="tab-btn"        type="button" data-tab="r40-aFlagged"  onclick="r40Tab('r40-aFlagged')">&#9398; FLAGGED</button>
-            <button class="tab-btn"        type="button" data-tab="r40-aClear"    onclick="r40Tab('r40-aClear')">&#9398; CLEAR</button>
-            <button class="tab-btn"        type="button" data-tab="r40-bFlagged"  onclick="r40Tab('r40-bFlagged')">&#9399; FLAGGED</button>
-            <button class="tab-btn"        type="button" data-tab="r40-bClear"    onclick="r40Tab('r40-bClear')">&#9399; CLEAR</button>
-            <button class="tab-btn"        type="button" data-tab="r40-sql"       onclick="r40Tab('r40-sql')">SQL Code</button>
-            <button class="tab-btn"        type="button" data-tab="r40-downloads" onclick="r40Tab('r40-downloads')">Downloads</button>
-        </div>
-        <div class="tab-pane active" data-tab-panel="r40-analysis">
-            <div id="r40AnalysisPane"><div class="empty-state"><p>Run Rule 40 validation to see results here.</p></div></div>
-        </div>
-        <div class="tab-pane" data-tab-panel="r40-aFlagged">
-            <div id="r40AFlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
-        </div>
-        <div class="tab-pane" data-tab-panel="r40-aClear">
-            <div id="r40AClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
-        </div>
-        <div class="tab-pane" data-tab-panel="r40-bFlagged">
-            <div id="r40BFlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
-        </div>
-        <div class="tab-pane" data-tab-panel="r40-bClear">
-            <div id="r40BClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
-        </div>
-        <div class="tab-pane" data-tab-panel="r40-sql">
-            <textarea id="r40SqlText" rows="20" readonly style="width:100%;font-family:monospace;font-size:12px"></textarea>
-        </div>
-        <div class="tab-pane" data-tab-panel="r40-downloads">
-            <div class="alert alert--info" style="margin-bottom:12px">Download the full Rule 40 result set after running validation.</div>
-            <div class="action-bar" style="justify-content:flex-start;margin:0">
-                <button type="button" class="btn btn-info"      id="r40DlExcel">Excel</button>
-                <button type="button" class="btn btn-info"      id="r40DlCsv">CSV (All)</button>
-                <button type="button" class="btn btn-secondary" id="r40DlExcCsv">CSV (Exceptions)</button>
-                <button type="button" class="btn btn-secondary" id="r40DlSql">SQL</button>
+            <div class="card" id="r40SaveCard" style="margin-bottom:16px;padding:16px 20px;display:none">
+                <h3 class="section-title" style="margin:0 0 10px">Save Workspace</h3>
+                <p style="color:var(--text-muted);font-size:.88rem;margin:0 0 12px">
+                    Save this run to make it available for signoff by the review team.
+                </p>
+                <button class="btn btn-primary" onclick="r40SaveWorkspace()">Save Workspace</button>
+                <div id="r40SaveStatus" class="status-msg" style="margin-top:8px"></div>
             </div>
+        }
+
+        <!-- Signoff -->
+        <div class="card" id="r40SignoffCard" style="margin-bottom:16px;padding:16px 20px;display:none">
+            <h3 class="section-title" style="margin:0 0 10px">Signoff</h3>
+            <div id="r40SignoffBody"></div>
         </div>
+
     </div>
 
-    <div id="r40Spinner" class="spinner-overlay" style="display:none">
-        <div class="spinner-box">
-            <div class="spinner-ring"></div>
-            <p id="r40SpinMsg">Processing...</p>
+    <!-- SQL modal -->
+    <div id="r40SqlModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+        <div style="background:var(--surface);border-radius:10px;padding:20px;max-width:90vw;width:700px;max-height:80vh;display:flex;flex-direction:column">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <strong>Generated SQL — Rule 40</strong>
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('r40SqlModal').style.display='none'">Close</button>
+            </div>
+            <textarea id="r40SqlText" readonly style="flex:1;font-family:monospace;font-size:.78rem;resize:none;border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg);color:var(--text);min-height:320px"></textarea>
         </div>
     </div>
 </div>
 
-<form id="r40AntiForgery" method="post" style="display:none">@Html.AntiForgeryToken()</form>
-
 <script>
-window.toggleAccordion = window.toggleAccordion || function(s) {
-    var b = document.getElementById('body-' + s);
-    if (b) b.style.display = b.style.display === 'none' ? '' : 'none';
-};
-
-window.r40Tab = function(tab) {
-    document.querySelectorAll('#app .results-panel .tab-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); });
-    document.querySelectorAll('#app .results-panel .tab-pane').forEach(function(p) { p.classList.toggle('active', p.dataset.tabPanel === tab); });
-};
-
 (function () {
-    var API = '/Rule40';
-    var ROLE = '@currentSystemRole';
-    var IS_RESULTS_ONLY = @(isResultsOnlyRole.ToString().ToLowerInvariant());
-    var TOKEN = (document.querySelector('#r40AntiForgery input[name="__RequestVerificationToken"]') || {}).value || '';
+    'use strict';
 
-    var DEF_VALPAC = [
-        { profCol:'_037', otherCol:'_037', label:'_037 (Staff No)' },
-        { profCol:'_011', otherCol:'_011', label:'_011 (Birth Date)' },
-        { profCol:'_012', otherCol:'_012', label:'_012 (Perm/Temp)' },
-        { profCol:'_013', otherCol:'_013', label:'_013 (Gender)' },
-        { profCol:'_014', otherCol:'_014', label:'_014 (Ethnic)' },
-        { profCol:'_041', otherCol:'_041', label:'_041 (Appt Type)' }
-    ];
-    var DEF_SFTE = [{ profCol:'_037', otherCol:'_037', label:'_037 (Staff No)' }];
-
-    var st = {
-        clientId: @(selectedClientId > 0 ? selectedClientId : 0),
-        runId: null, summary: null,
-        profCols: [], valCols: [], sfteCols: [],
-        isWorkspaceSaved: false, currentUserHasSignedOff: false, resultsVisible: false,
-        currentUserEngagementRole: ''
+    // ── State ───────────────────────────────────────────────────────────────
+    var state = {
+        clientId:    @selectedClientId,
+        server:      '',
+        database:    '',
+        driver:      'ODBC Driver 17 for SQL Server',
+        valpacTable: '',
+        asciiTable:  '',
+        runId:       null,
+        verified:    false
     };
 
-    function g(id)             { return document.getElementById(id); }
-    function gv(id)            { var e = g(id); return e ? e.value : ''; }
-    function esc(v)            { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-    function fmt(n)            { return Number(n || 0).toLocaleString(); }
-    function show(id, v)       { var e = g(id); if (e) e.style.display = v ? '' : 'none'; }
-    function setHtml(id, html) { var e = g(id); if (e) e.innerHTML = html; }
-    function spin(msg)         { var e = g('r40SpinMsg'); if (e) e.textContent = msg || 'Processing...'; show('r40Spinner', true); }
-    function unspin()          { show('r40Spinner', false); }
+    // ── Boot ─────────────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', function () {
+        if (state.clientId > 0) loadWorkspace(state.clientId);
+    });
 
-    function setWs(msg, type) {
-        var e = g('workspaceInfo');
-        if (e) { e.className = 'alert alert--' + (type || 'info'); e.textContent = msg; }
+    window.r40OnClientChange = function (val) {
+        state.clientId = parseInt(val, 10) || 0;
+        clearResults();
+        if (state.clientId > 0) loadWorkspace(state.clientId);
+    };
+
+    // ── Workspace load ───────────────────────────────────────────────────────
+    function loadWorkspace(clientId) {
+        fetch('/Rule40/GetWorkspaceState?clientId=' + clientId)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) return;
+                if (!data.hasWorkspace) return;
+                var ws = data.workspace;
+                if (!ws) return;
+                state.runId       = ws.runId;
+                state.server      = ws.server      || '';
+                state.database    = ws.database    || '';
+                state.valpacTable = ws.valpacTable || '';
+                state.asciiTable  = ws.asciiTable  || '';
+
+                showBanner(ws);
+
+                if (data.resultsVisible && ws.summary) {
+                    renderSummary(ws.summary);
+                    renderTables(ws.summary);
+                    show('r40ResultsPanel');
+                    showSaveCard(ws);
+                    renderSignoff(ws);
+                }
+            });
     }
 
-    function setStatusBadge(status) {
-        var b = g('r40StatusBadge'); if (!b) return;
-        if (!status) { b.style.display = 'none'; return; }
-        b.style.display = ''; b.textContent = status;
-        b.className = 'rule-header__badge ' + (String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail');
+    function showBanner(ws) {
+        var el = document.getElementById('r40WorkspaceBanner');
+        if (!el) return;
+        var saved = ws.isWorkspaceSaved ? ' | <span style="color:#2e7d32">Workspace saved</span>' : ' | <span style="color:#b45309">Workspace not yet saved</span>';
+        var edited = ws.lastEditedByUserName ? ' | Last edited by ' + esc(ws.lastEditedByUserName) : '';
+        el.innerHTML = '<strong>Saved workspace:</strong> VALPAC: <code>' + esc(ws.valpacTable) + '</code> vs ASCII: <code>' + esc(ws.asciiTable) + '</code>'
+            + ' | Status: <strong>' + esc(ws.currentStatus) + '</strong>'
+            + saved + edited;
+        el.style.display = 'block';
     }
 
-    function fillSel(id, items, selected) {
-        var sel = typeof id === 'string' ? g(id) : id; if (!sel) return;
-        sel.innerHTML = '';
-        (items || []).forEach(function(item) {
-            var o = document.createElement('option');
-            o.value = o.textContent = item;
-            if (selected && selected === item) o.selected = true;
+    function showSaveCard(ws) {
+        var saveCard = document.getElementById('r40SaveCard');
+        if (saveCard && !@(isResultsOnlyRole ? "true" : "false")) {
+            saveCard.style.display = 'block';
+        }
+    }
+
+    function clearResults() {
+        hide('r40ResultsPanel');
+        hide('r40WorkspaceBanner');
+        state.runId = null;
+    }
+
+    // ── Connect ──────────────────────────────────────────────────────────────
+    window.r40Connect = function () {
+        state.server = el('r40Server').value.trim();
+        if (!state.server) { setStatus('r40ConnectStatus', 'Enter a server name.', 'error'); return; }
+        setStatus('r40ConnectStatus', 'Connecting…', 'info');
+        post('/Rule40/GetDatabases', { server: state.server, driver: state.driver })
+            .then(function (d) {
+                if (!d.success) { setStatus('r40ConnectStatus', d.error || 'Connection failed.', 'error'); return; }
+                var sel = el('r40Database');
+                sel.innerHTML = '<option value="">— select database —</option>';
+                (d.databases || []).forEach(function (db) {
+                    sel.appendChild(opt(db, db));
+                });
+                setStatus('r40ConnectStatus', 'Connected. Select a database.', 'success');
+            })
+            .catch(function () { setStatus('r40ConnectStatus', 'Connection error.', 'error'); });
+    };
+
+    window.r40LoadTables = function () {
+        state.database = el('r40Database').value;
+        if (!state.database) return;
+        post('/Rule40/GetTables', { server: state.server, database: state.database, driver: state.driver })
+            .then(function (d) {
+                if (!d.success) { setStatus('r40ConnectStatus', d.error || 'Could not load tables.', 'error'); return; }
+                populateTableSelect('r40ValpacTable', d.tables, d.autoValpacTable);
+                populateTableSelect('r40AsciiTable',  d.tables, d.autoAsciiTable);
+                show('r40TablesCard');
+                show('r40RunCard');
+                setStatus('r40ConnectStatus', '', '');
+            });
+    };
+
+    function populateTableSelect(selId, tables, autoVal) {
+        var sel = el(selId);
+        sel.innerHTML = '<option value="">— select —</option>';
+        (tables || []).forEach(function (t) {
+            var o = opt(t, t);
+            if (autoVal && t.toLowerCase() === autoVal.toLowerCase()) o.selected = true;
             sel.appendChild(o);
         });
+    }
+
+    // ── Verify tables ─────────────────────────────────────────────────────────
+    window.r40VerifyTables = function () {
+        state.valpacTable = el('r40ValpacTable').value;
+        state.asciiTable  = el('r40AsciiTable').value;
+        if (!state.valpacTable || !state.asciiTable) {
+            setStatus('r40VerifyStatus', 'Select both tables first.', 'error'); return;
+        }
+        setStatus('r40VerifyStatus', 'Verifying…', 'info');
+        post('/Rule40/VerifyTables', {
+            server: state.server, database: state.database, driver: state.driver,
+            valpacTable: state.valpacTable, asciiTable: state.asciiTable
+        }).then(function (d) {
+            if (!d.success) { setStatus('r40VerifyStatus', d.error || 'Verify failed.', 'error'); return; }
+            state.verified = true;
+            setStatus('r40VerifyStatus',
+                'VALPAC: <strong>' + fmt(d.valpacCount) + ' rows</strong> &nbsp;|&nbsp; ASCII: <strong>' + fmt(d.asciiCount) + ' rows</strong>', 'success');
+        });
+    };
+
+    // ── Run validation ────────────────────────────────────────────────────────
+    window.r40RunValidation = function () {
+        if (!state.clientId) { setStatus('r40RunStatus', 'Select an engagement first.', 'error'); return; }
+        state.valpacTable = el('r40ValpacTable')?.value || state.valpacTable;
+        state.asciiTable  = el('r40AsciiTable')?.value  || state.asciiTable;
+        if (!state.valpacTable || !state.asciiTable) { setStatus('r40RunStatus', 'Select both tables first.', 'error'); return; }
+
+        var btn = el('r40RunBtn');
+        if (btn) btn.disabled = true;
+        setStatus('r40RunStatus', 'Running validation — comparing all staff records…', 'info');
+
+        post('/Rule40/RunValidation', {
+            clientId: state.clientId,
+            server: state.server, database: state.database, driver: state.driver,
+            valpacTable: state.valpacTable, asciiTable: state.asciiTable
+        }).then(function (d) {
+            if (btn) btn.disabled = false;
+            if (!d.success) { setStatus('r40RunStatus', d.error || 'Validation failed.', 'error'); return; }
+            state.runId = d.savedRunId;
+            setStatus('r40RunStatus', '', '');
+            renderSummary(d);
+            renderTables(d);
+            show('r40ResultsPanel');
+            var saveCard = document.getElementById('r40SaveCard');
+            if (saveCard) saveCard.style.display = 'block';
+        }).catch(function () {
+            if (btn) btn.disabled = false;
+            setStatus('r40RunStatus', 'Unexpected error during validation.', 'error');
+        });
+    };
+
+    // ── Render summary ────────────────────────────────────────────────────────
+    function renderSummary(d) {
+        setText('r40SumValpac',       d.valpacTable || '—');
+        setText('r40SumAscii',        d.asciiTable  || '—');
+        setText('r40SumTotal',        fmt(d.totalCount));
+        setText('r40SumAgree',        fmt(d.agreeCount));
+        setText('r40SumDisagree',     fmt(d.disagreeCount));
+        setText('r40SumMissingAscii', fmt(d.missingInAsciiCount));
+        setText('r40SumMissingValpac',fmt(d.missingInValpacCount));
+        setText('r40SumRate',         (d.exceptionRate || 0).toFixed(2) + '%');
+        var statusEl = el('r40SumStatus');
+        if (statusEl) {
+            statusEl.textContent = d.status || '—';
+            statusEl.className   = 'workspace-summary-item__value ' + (d.status === 'PASS' ? 'text-success' : 'text-danger');
+        }
+    }
+
+    // ── Render tables ─────────────────────────────────────────────────────────
+    function renderTables(d) {
+        var excTbody   = el('r40ExcTbody');
+        var agreeTbody = el('r40AgreeTbody');
+        if (!excTbody || !agreeTbody) return;
+
+        var excRows = d.reviewRows || [];
+        if (excRows.length === 0) {
+            excTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No exceptions.</td></tr>';
+        } else {
+            excTbody.innerHTML = excRows.map(function (row) {
+                var badge = row.overallResult === 'AGREE'
+                    ? '<span class="badge badge--pass">AGREE</span>'
+                    : row.overallResult && row.overallResult.startsWith('MISSING')
+                        ? '<span class="badge badge--warning">' + esc(row.overallResult) + '</span>'
+                        : '<span class="badge badge--fail">DISAGREE</span>';
+                return '<tr><td>' + row.rowNumber + '</td><td><code>' + esc(row.staffNumber) + '</code></td><td>' + badge + '</td><td style="font-size:.8rem;color:var(--text-muted)">' + esc(row.disagreeDetail) + '</td></tr>';
+            }).join('');
+        }
+
+        var agreeRows = d.agreeSample || [];
+        if (agreeRows.length === 0) {
+            agreeTbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">No agree rows.</td></tr>';
+        } else {
+            agreeTbody.innerHTML = agreeRows.map(function (row) {
+                return '<tr><td>' + row.rowNumber + '</td><td><code>' + esc(row.staffNumber) + '</code></td><td><span class="badge badge--pass">AGREE</span></td></tr>';
+            }).join('');
+        }
+    }
+
+    // ── Signoff ───────────────────────────────────────────────────────────────
+    function renderSignoff(ws) {
+        var card = el('r40SignoffCard');
+        if (!card) return;
+        if (!ws.isWorkspaceSaved) { hide('r40SignoffCard'); return; }
+        show('r40SignoffCard');
+
+        var html = '';
+
+        if (ws.currentUserHasSignedOff) {
+            html += '<div class="alert alert--success" style="margin-bottom:10px">You have signed off this workspace.'
+                + (ws.currentUserSignoffComment ? ' Comment: <em>' + esc(ws.currentUserSignoffComment) + '</em>' : '') + '</div>';
+            html += '<button class="btn btn-warning btn-sm" onclick="r40RemoveSignoff()">Remove My Signoff</button>';
+        } else {
+            html += '<div class="field-group" style="margin-bottom:8px"><label>Signoff Comment (optional)</label>'
+                + '<input type="text" id="r40SignoffComment" placeholder="Optional comment" style="max-width:400px" /></div>';
+            html += '<button class="btn btn-primary" onclick="r40AddSignoff()">Sign Off</button>';
+        }
+
+        html += '<div id="r40SignoffStatus" class="status-msg" style="margin-top:8px"></div>';
+        el('r40SignoffBody').innerHTML = html;
+    }
+
+    window.r40AddSignoff = function () {
+        if (!state.runId) { setStatus('r40SignoffStatus', 'No saved run to sign off.', 'error'); return; }
+        var comment = (el('r40SignoffComment')?.value || '').trim();
+        post('/Rule40/AddSignoff', { clientId: state.clientId, runId: state.runId, comment: comment })
+            .then(function (d) {
+                if (!d.success) { setStatus('r40SignoffStatus', d.error || 'Signoff failed.', 'error'); return; }
+                loadWorkspace(state.clientId);
+            });
+    };
+
+    window.r40RemoveSignoff = function () {
+        if (!state.runId) return;
+        post('/Rule40/RemoveSignoff', { clientId: state.clientId, runId: state.runId, comment: '' })
+            .then(function (d) {
+                if (!d.success) { setStatus('r40SignoffStatus', d.error || 'Remove failed.', 'error'); return; }
+                loadWorkspace(state.clientId);
+            });
+    };
+
+    // ── Save workspace ────────────────────────────────────────────────────────
+    window.r40SaveWorkspace = function () {
+        if (!state.clientId || !state.runId) {
+            setStatus('r40SaveStatus', 'Run validation first.', 'error'); return;
+        }
+        setStatus('r40SaveStatus', 'Saving…', 'info');
+        post('/Rule40/SaveWorkspace', {
+            clientId: state.clientId, runId: state.runId,
+            server: state.server, database: state.database, driver: state.driver,
+            valpacTable: state.valpacTable, asciiTable: state.asciiTable
+        }).then(function (d) {
+            if (!d.success) { setStatus('r40SaveStatus', d.message || d.error || 'Save failed.', 'error'); return; }
+            setStatus('r40SaveStatus', 'Workspace saved.', 'success');
+            if (d.workspace) {
+                showBanner(d.workspace);
+                renderSignoff(d.workspace);
+                show('r40SignoffCard');
+            }
+        });
+    };
+
+    // ── Downloads ─────────────────────────────────────────────────────────────
+    window.r40Download = function (type) {
+        if (!state.runId) { alert('Run and save validation first.'); return; }
+        var url      = type === 'excel' ? '/Rule40/DownloadExcel' : '/Rule40/DownloadCsv';
+        var filename = type === 'excel' ? 'Rule40_PROF_Agreement.xlsx' : 'Rule40_PROF_Agreement.csv';
+        fetchDownload(url, { clientId: state.clientId, runId: state.runId, comment: '' }, filename);
+    };
+
+    function fetchDownload(url, body, filename) {
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': getAntiForgeryToken() },
+            body: JSON.stringify(body)
+        }).then(function (r) { return r.blob(); })
+          .then(function (blob) {
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+    }
+
+    // ── SQL ───────────────────────────────────────────────────────────────────
+    window.r40GenerateSql = function () {
+        post('/Rule40/GenerateSql', buildRequest())
+            .then(function (d) {
+                if (!d.success) { alert(d.error || 'Could not generate SQL.'); return; }
+                el('r40SqlText').value = d.sql || '';
+                el('r40SqlModal').style.display = 'flex';
+            });
+    };
+
+    window.r40DownloadSql = function () {
+        fetchDownload('/Rule40/DownloadSql', buildRequest(), 'Rule40_PROF_Agreement.sql');
+    };
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
+    function buildRequest() {
+        return {
+            clientId: state.clientId, runId: state.runId,
+            server: state.server, database: state.database, driver: state.driver,
+            valpacTable: state.valpacTable, asciiTable: state.asciiTable
+        };
     }
 
     function post(url, body) {
         return fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': TOKEN },
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': getAntiForgeryToken() },
             body: JSON.stringify(body)
-        }).then(function(r) { return r.json(); });
+        }).then(function (r) { return r.json(); });
     }
 
-    /* ── Pair Management ── */
-    function makePair(which, pc, oc, lbl) {
-        var pCols = st.profCols;
-        var oCols = which === 'valpac' ? st.valCols : st.sfteCols;
-        var mk = function(cols, cur) { return (cols.length ? cols : [cur]).map(function(c) { return '<option ' + (c === cur ? 'selected' : '') + '>' + esc(c) + '</option>'; }).join(''); };
-        var div = document.createElement('div'); div.className = 'r40-pair-row';
-        div.innerHTML = '<select class="pc">' + mk(pCols, pc) + '</select>' +
-            '<span style="color:#999">&harr;</span>' +
-            '<select class="oc">' + mk(oCols, oc) + '</select>' +
-            '<input class="lbl" type="text" value="' + esc(lbl) + '" placeholder="Label">' +
-            '<button class="r40-pair-del" onclick="this.closest(\'.r40-pair-row\').remove()">&#x2715;</button>';
-        return div;
+    function getAntiForgeryToken() {
+        var el = document.querySelector('input[name="__RequestVerificationToken"]');
+        return el ? el.value : '';
     }
 
-    function buildPairs(which, pairs) {
-        var ctr = g(which === 'valpac' ? 'r40ValpacPairs' : 'r40SftePairs'); if (!ctr) return;
-        ctr.innerHTML = '';
-        (pairs || []).forEach(function(p) { ctr.appendChild(makePair(which, p.profCol || p.ProfCol || '_037', p.otherCol || p.OtherCol || '_037', p.label || p.Label || '')); });
+    function el(id) { return document.getElementById(id); }
+    function show(id) { var e = el(id); if (e) e.style.display = ''; }
+    function hide(id) { var e = el(id); if (e) e.style.display = 'none'; }
+    function setText(id, val) { var e = el(id); if (e) e.textContent = val; }
+    function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function fmt(n) { return (n || 0).toLocaleString(); }
+    function opt(val, label) { var o = document.createElement('option'); o.value = val; o.textContent = label; return o; }
+
+    function setStatus(id, msg, type) {
+        var e = el(id);
+        if (!e) return;
+        e.innerHTML = msg;
+        e.className = 'status-msg' + (type === 'error' ? ' status-msg--error' : type === 'success' ? ' status-msg--success' : type === 'info' ? ' status-msg--info' : '');
     }
-
-    function refreshPairSels() {
-        document.querySelectorAll('#r40ValpacPairs .r40-pair-row').forEach(function(r) { refreshSel(r.querySelector('.pc'), st.profCols); refreshSel(r.querySelector('.oc'), st.valCols); });
-        document.querySelectorAll('#r40SftePairs .r40-pair-row').forEach(function(r)  { refreshSel(r.querySelector('.pc'), st.profCols); refreshSel(r.querySelector('.oc'), st.sfteCols); });
-    }
-
-    function refreshSel(sel, cols) {
-        if (!sel || !cols.length) return;
-        var cur = sel.value;
-        sel.innerHTML = cols.map(function(c) { return '<option ' + (c === cur ? 'selected' : '') + '>' + esc(c) + '</option>'; }).join('');
-    }
-
-    function getPairs(which) {
-        return Array.from(document.querySelectorAll((which === 'valpac' ? '#r40ValpacPairs' : '#r40SftePairs') + ' .r40-pair-row')).map(function(row) {
-            return { profCol: (row.querySelector('.pc') || {}).value || '', otherCol: (row.querySelector('.oc') || {}).value || '', label: (row.querySelector('.lbl') || {}).value || '' };
-        }).filter(function(p) { return p.profCol && p.otherCol; });
-    }
-
-    window.r40AddPair = function(which) {
-        var pc = st.profCols[0] || '_037';
-        var oc = (which === 'valpac' ? st.valCols : st.sfteCols)[0] || '_037';
-        var ctr = g(which === 'valpac' ? 'r40ValpacPairs' : 'r40SftePairs');
-        if (ctr) ctr.appendChild(makePair(which, pc, oc, ''));
-    };
-
-    /* ── Connection ── */
-    window.r40Connect = function() {
-        var server = gv('r40Server').trim();
-        if (!server) { setWs('Enter a server name first.', 'warning'); return; }
-        spin('Connecting to server...');
-        post(API + '/GetDatabases', { server: server, driver: gv('r40Driver') })
-        .then(function(d) {
-            unspin();
-            if (!d.success) { setStatus('r40ConnOut', d.error || 'Connection failed.', 'error'); return; }
-            fillSel('r40Db', d.databases || []);
-            setStatus('r40ConnOut', 'Connected — ' + (d.databases || []).length + ' database(s) found.', 'success');
-            if ((d.databases || []).length) r40LoadTables();
-        }).catch(function(e) { unspin(); setStatus('r40ConnOut', e.message, 'error'); });
-    };
-
-    window.r40LoadTables = function() {
-        var db = gv('r40Db'); if (!db) return;
-        spin('Loading tables...');
-        post(API + '/GetTables', { server: gv('r40Server').trim(), database: db, driver: gv('r40Driver') })
-        .then(function(d) {
-            unspin();
-            if (!d.success) { setStatus('r40TableOut', d.error || 'Failed to load tables.', 'error'); return; }
-            var tables = d.tables || [];
-            fillSel('r40ProfTable',  tables, d.autoProfTable);
-            fillSel('r40ValTable',   tables, d.autoValpacTable);
-            fillSel('r40SfteTable',  tables, d.autoSfteTable);
-            show('body-r40-tables', true); show('body-r40-colmap', true);
-            setStatus('r40TableOut', 'Loaded ' + tables.length + ' tables — PROF, VALPAC, SFTE auto-detected.', 'success');
-            return Promise.all([
-                r40LoadColsInner('prof',  gv('r40ProfTable')),
-                r40LoadColsInner('val',   gv('r40ValTable')),
-                r40LoadColsInner('sfte',  gv('r40SfteTable'))
-            ]);
-        }).then(function() { buildPairs('valpac', DEF_VALPAC); buildPairs('sfte', DEF_SFTE); })
-        .catch(function(e) { unspin(); setStatus('r40TableOut', e.message, 'error'); });
-    };
-
-    function r40LoadColsInner(role, tableName) {
-        if (!tableName || !gv('r40Server') || !gv('r40Db')) return Promise.resolve();
-        return post(API + '/GetColumns', { server: gv('r40Server').trim(), database: gv('r40Db'), driver: gv('r40Driver'), tableName: tableName })
-        .then(function(d) {
-            if (!d.success) return;
-            var cols = d.columns || []; var autoKey = d.autoKey || '_037';
-            if (role === 'prof')  { st.profCols  = cols; fillSel('r40ProfKey',  cols, autoKey); }
-            else if (role === 'val')   { st.valCols   = cols; fillSel('r40ValKey',   cols, autoKey); }
-            else if (role === 'sfte')  { st.sfteCols  = cols; fillSel('r40SfteKey',  cols, autoKey); }
-            refreshPairSels();
-        });
-    }
-
-    window.r40LoadCols = function(role, tbl) { r40LoadColsInner(role, tbl); };
-
-    window.r40Verify = function() {
-        spin('Verifying tables...');
-        post(API + '/VerifyTables', {
-            server: gv('r40Server').trim(), database: gv('r40Db'), driver: gv('r40Driver'),
-            profTable: gv('r40ProfTable'), valpacTable: gv('r40ValTable'), sfteTable: gv('r40SfteTable'),
-            profKey: gv('r40ProfKey') || '_037', sfteKey: gv('r40SfteKey') || '_037'
-        }).then(function(d) {
-            unspin();
-            if (!d.success) { setStatus('r40TableOut', d.error || 'Verification failed.', 'error'); return; }
-            setStatus('r40TableOut', 'PROF: ' + fmt(d.profCount) + ' rows | VALPAC: ' + fmt(d.valpacCount) + ' rows | SFTE: ' + fmt(d.sfteCount) + ' rows | Scope: ' + fmt(d.scopeCount) + ' staff', 'success');
-        }).catch(function(e) { unspin(); setStatus('r40TableOut', e.message, 'error'); });
-    };
-
-    /* ── Request Builder ── */
-    function buildReq() {
-        return {
-            clientId: st.clientId, runId: st.runId,
-            server: gv('r40Server').trim(), database: gv('r40Db'), driver: gv('r40Driver') || 'ODBC Driver 17 for SQL Server',
-            profTable: gv('r40ProfTable') || 'dbo_PROF', valpacTable: gv('r40ValTable') || '2025H16PROF', sfteTable: gv('r40SfteTable') || '2025H16SFTE',
-            profKey: gv('r40ProfKey') || '_037', valpacKey: gv('r40ValKey') || '_037', sfteKey: gv('r40SfteKey') || '_037',
-            valpacPairs: getPairs('valpac'), sftePairs: getPairs('sfte')
-        };
-    }
-
-    /* ── Run Validation ── */
-    window.r40Run = function() {
-        if (!st.clientId) { setWs('Select an engagement before running.', 'warning'); return; }
-        spin('Running Rule 40 validation...');
-        post(API + '/RunValidation', buildReq())
-        .then(function(d) {
-            unspin();
-            if (!d.success) { setWs(d.error || 'Validation failed.', 'error'); return; }
-            st.runId = d.savedRunId || st.runId;
-            st.currentUserHasSignedOff = false; st.isWorkspaceSaved = false; st.resultsVisible = true;
-            applySummary(d, false);
-            var a = d.reconcA || {}; var b = d.reconcB || {};
-            setWs('Rule 40 complete. A: ' + fmt(a.totalCount) + ' staff | Agree: ' + fmt(a.agreeCount) + ' | Exceptions: ' + fmt((a.disagreeCount || 0) + (a.missingCount || 0)) + ' | B: ' + fmt(b.totalCount) + ' staff | B Exceptions: ' + fmt((b.disagreeCount || 0) + (b.missingCount || 0)) + '. Overall: ' + d.status, d.status === 'PASS' ? 'success' : 'warning');
-            var dlBtn = g('r40DlAllBtn'); if (dlBtn) dlBtn.disabled = false;
-        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
-    };
-
-    window.r40Sql = function() {
-        spin('Generating SQL...');
-        post(API + '/GenerateSql', buildReq()).then(function(d) {
-            unspin();
-            if (!d.success) { alert('Error: ' + (d.error || 'Failed.')); return; }
-            var t = g('r40SqlText'); if (t) t.value = d.sql || '';
-            r40Tab('r40-sql');
-        }).catch(function(e) { unspin(); alert(e.message); });
-    };
-
-    window.r40DlAll = function() {
-        if (st.runId) window.open(API + '/DownloadExcel?runId=' + st.runId, '_blank');
-    };
-
-    /* ── Workspace ── */
-    window.r40SaveWorkspace = function() {
-        spin('Saving workspace...');
-        var req = buildReq(); req.clientId = st.clientId; req.runId = st.runId;
-        post(API + '/SaveWorkspace', req).then(function(d) {
-            unspin();
-            if (!d.success) { setWs(d.error || 'Save failed.', 'error'); return; }
-            if (d.workspace) applyWsMeta(d.workspace);
-            setWs(d.message || 'Workspace saved.', d.signoffsCleared ? 'warning' : 'success');
-        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
-    };
-
-    window.r40SignOff = function() {
-        spin('Saving signoff...');
-        post(API + '/SignOffWorkspace', { clientId: st.clientId, runId: st.runId, comment: gv('r40SignoffComment') })
-        .then(function(d) {
-            unspin();
-            if (!d.success) { setWs(d.error || 'Signoff failed.', 'error'); return; }
-            st.currentUserHasSignedOff = true;
-            if (d.workspace) applyWsMeta(d.workspace);
-            setWs(d.message || 'Signoff saved.', 'success'); updateButtons();
-        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
-    };
-
-    window.r40RemoveSignoff = function() {
-        spin('Removing signoff...');
-        post(API + '/RemoveWorkspaceSignoff', { clientId: st.clientId, runId: st.runId, comment: '' })
-        .then(function(d) {
-            unspin();
-            if (!d.success) { setWs(d.error || 'Failed.', 'error'); return; }
-            st.currentUserHasSignedOff = false;
-            if (d.workspace) applyWsMeta(d.workspace);
-            setWs(d.message || 'Signoff removed.', 'warning'); updateButtons();
-        }).catch(function(e) { unspin(); setWs(e.message, 'error'); });
-    };
-
-    function applyWsMeta(ws) {
-        st.isWorkspaceSaved = !!ws.isWorkspaceSaved;
-        st.currentUserHasSignedOff = !!ws.currentUserHasSignedOff;
-        if (ws.currentUserEngagementRole) st.currentUserEngagementRole = ws.currentUserEngagementRole;
-        var b  = g('r40RunState');    if (b)  b.textContent  = ws.runId ? 'Run #' + ws.runId : 'No saved run loaded';
-        var rl = g('r40RunLabel');    if (rl) rl.textContent = ws.runId ? 'Rule 40 Run #' + ws.runId : 'No saved run yet';
-        var sl = g('r40StatusLabel'); if (sl) sl.textContent = ws.currentStatus || ws.status || '-';
-        var el = g('r40EditedLabel'); if (el) el.textContent = ws.lastEditedAt ? new Date(ws.lastEditedAt).toLocaleString() : '-';
-        var rl2 = g('r40RoleLabel'); if (rl2) rl2.textContent = ws.currentUserEngagementRole || ROLE || '-';
-        var sc = g('r40SignoffComment'); if (sc && ws.currentUserSignoffComment) sc.value = ws.currentUserSignoffComment;
-        updateButtons();
-    }
-
-    function updateButtons() {
-        var engRole = (st.currentUserEngagementRole || ROLE || '').toLowerCase();
-        var nSys    = (ROLE || '').toLowerCase();
-        var canEdit = !IS_RESULTS_ONLY && (nSys === 'dataanalyst' || engRole === 'dataanalyst');
-        var canSign = !!st.runId && !!st.isWorkspaceSaved &&
-            (engRole === 'dataanalyst' || (st.resultsVisible && (engRole === 'manager' || engRole === 'director')));
-        var signed  = st.currentUserHasSignedOff;
-        var sw = g('r40SaveBtn');   if (sw) sw.disabled = signed || !canEdit || !st.runId;
-        var so = g('r40SignoffBtn');if (so) { so.disabled = signed || !canSign; so.textContent = signed ? 'Signed Off' : 'Sign Off'; }
-        show('r40RemoveSignoffBtn', signed);
-    }
-
-    window.r40OnClientChange = function(val) {
-        st.clientId = parseInt(val) || 0;
-        if (!st.clientId) { setWs('Select an engagement to load the saved Rule 40 workspace.', 'info'); return; }
-        loadWorkspace();
-    };
-
-    function loadWorkspace() {
-        if (!st.clientId) return;
-        setWs('Loading saved workspace...', 'info');
-        (window.fetchJsonWithProgress || function(url, opts) { return fetch(url, opts).then(function(r) { return r.json(); }); })(API + '/GetWorkspaceState?clientId=' + st.clientId, { method: 'GET' })
-        .then(function(d) {
-            if (!d.success) { setWs(d.error || 'Failed to load workspace.', 'error'); return; }
-            applyWorkspace(d.workspace, d.resultsVisible);
-        }).catch(function(e) { setWs(e.message, 'error'); });
-    }
-
-    function applyWorkspace(ws, resultsVisible) {
-        if (!ws) {
-            st.runId = null; st.summary = null; st.isWorkspaceSaved = false;
-            st.currentUserHasSignedOff = false; st.resultsVisible = false; st.currentUserEngagementRole = '';
-            setWs('No saved Rule 40 workspace for this engagement yet.', 'info');
-            var b  = g('r40RunState');    if (b)  b.textContent  = 'No saved run loaded';
-            var rl = g('r40RunLabel');    if (rl) rl.textContent = 'No saved run yet';
-            var sl = g('r40StatusLabel'); if (sl) sl.textContent = '-';
-            var el = g('r40EditedLabel'); if (el) el.textContent = '-';
-            applySummary(null, false); updateButtons(); return;
-        }
-        st.runId = ws.runId || null;
-        st.isWorkspaceSaved = !!ws.isWorkspaceSaved;
-        st.currentUserHasSignedOff = !!ws.currentUserHasSignedOff;
-        st.resultsVisible = !!resultsVisible;
-        st.currentUserEngagementRole = ws.currentUserEngagementRole || '';
-
-        if (!IS_RESULTS_ONLY) {
-            var sv = g('r40Server'); if (sv && ws.server) sv.value = ws.server;
-            var dv = g('r40Driver'); if (dv && ws.driver) dv.value = ws.driver;
-            if (ws.database)   fillSel('r40Db',        [ws.database],    ws.database);
-            if (ws.profTable)  fillSel('r40ProfTable',  [ws.profTable],  ws.profTable);
-            if (ws.valpacTable)fillSel('r40ValTable',   [ws.valpacTable],ws.valpacTable);
-            if (ws.sfteTable)  fillSel('r40SfteTable',  [ws.sfteTable],  ws.sfteTable);
-            if (ws.profKey)    fillSel('r40ProfKey',    [ws.profKey],    ws.profKey);
-            if (ws.valpacKey)  fillSel('r40ValKey',     [ws.valpacKey],  ws.valpacKey);
-            if (ws.sfteKey)    fillSel('r40SfteKey',    [ws.sfteKey],    ws.sfteKey);
-        }
-
-        applyWsMeta(ws);
-        var sc = g('r40SignoffComment'); if (sc && ws.currentUserSignoffComment) sc.value = ws.currentUserSignoffComment;
-
-        if (!IS_RESULTS_ONLY) {
-            buildPairs('valpac', (ws.summary && ws.summary.reconcA && ws.summary.reconcA.pairs && ws.summary.reconcA.pairs.length) ? ws.summary.reconcA.pairs : DEF_VALPAC);
-            buildPairs('sfte',   (ws.summary && ws.summary.reconcB && ws.summary.reconcB.pairs && ws.summary.reconcB.pairs.length) ? ws.summary.reconcB.pairs : DEF_SFTE);
-        }
-
-        if (!resultsVisible) { setWs('Saved Rule 40 results are not available for your role.', 'info'); applySummary(null, false); updateButtons(); return; }
-        setWs(ws.summary ? 'Saved Rule 40 workspace loaded.' : 'Rule 40 workspace loaded. Run validation to generate results.', 'success');
-        if (ws.summary) applySummary(ws.summary, true);
-        else { applySummary(null, false); updateButtons(); }
-        var dlBtn = g('r40DlAllBtn'); if (dlBtn) dlBtn.disabled = !ws.runId;
-    }
-
-    /* ── Rendering ── */
-    function applySummary(summary, fromWs) {
-        st.summary = summary;
-        if (summary && !fromWs) st.runId = summary.savedRunId || st.runId;
-        setStatusBadge(summary ? summary.status : '');
-        renderAnalysis(summary);
-        renderReconc(summary ? summary.reconcA : null, 'r40AFlaggedPane', 'r40AClearPane', 'VALPAC', 'A', '#5B2D8E');
-        renderReconc(summary ? summary.reconcB : null, 'r40BFlaggedPane', 'r40BClearPane', 'SFTE',   'B', '#1E8449');
-        if (summary && st.runId) {
-            var dlE = g('r40DlExcel');  if (dlE) dlE.onclick = function() { window.open(API + '/DownloadExcel?runId=' + st.runId, '_blank'); };
-            var dlC = g('r40DlCsv');    if (dlC) dlC.onclick = function() { window.open(API + '/DownloadCsv?runId=' + st.runId, '_blank'); };
-            var dlX = g('r40DlExcCsv');if (dlX) dlX.onclick = function() { window.open(API + '/DownloadExceptionsCsv?runId=' + st.runId, '_blank'); };
-            var dlS = g('r40DlSql');    if (dlS) dlS.onclick = function() { window.open(API + '/DownloadSql?runId=' + st.runId, '_blank'); };
-        }
-        updateButtons();
-    }
-
-    function renderAnalysis(s) {
-        var pane = g('r40AnalysisPane'); if (!pane) return;
-        if (!s) { pane.innerHTML = '<div class="empty-state"><p>Run Rule 40 validation to see results here.</p></div>'; return; }
-        var a = s.reconcA || {}; var b = s.reconcB || {};
-        var sc = String(s.status || '').toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail';
-        pane.innerHTML =
-            '<div class="stats-grid" style="margin-bottom:20px">' +
-            statCard('A Scope', fmt(a.totalCount || 0), '') +
-            statCard('A Agree', fmt(a.agreeCount || 0), 'pass') +
-            statCard('A Exceptions', fmt((a.disagreeCount || 0) + (a.missingCount || 0)), (a.disagreeCount || 0) + (a.missingCount || 0) > 0 ? 'fail' : '') +
-            statCard('A Rate', Number(a.exceptionRate || 0).toFixed(2) + '%', '') +
-            statCard('B Total', fmt(b.totalCount || 0), '') +
-            statCard('B Agree', fmt(b.agreeCount || 0), 'pass') +
-            statCard('B Exceptions', fmt((b.disagreeCount || 0) + (b.missingCount || 0)), (b.disagreeCount || 0) + (b.missingCount || 0) > 0 ? 'fail' : '') +
-            statCard('Overall', '<span class="badge ' + sc + '">' + esc(s.status) + '</span>', '') +
-            '</div>' +
-            '<div class="card" style="padding:16px"><div class="form-grid">' +
-            '<div><div class="stat-label">Database</div><div>' + esc(s.database) + '</div></div>' +
-            '<div><div class="stat-label">PROF Table</div><div>' + esc(s.profTable) + '</div></div>' +
-            '<div><div class="stat-label">VALPAC Table</div><div>' + esc(s.valpacTable) + '</div></div>' +
-            '<div><div class="stat-label">SFTE Table</div><div>' + esc(s.sfteTable) + '</div></div>' +
-            '<div><div class="stat-label">Exception Rate (A)</div><div>' + Number(a.exceptionRate || 0).toFixed(2) + '%</div></div>' +
-            '<div><div class="stat-label">Timestamp</div><div>' + esc(s.timestamp) + '</div></div>' +
-            '</div></div>';
-    }
-
-    function statCard(label, value, mod) {
-        var cls = mod === 'pass' ? ' stat-card--pass' : mod === 'fail' ? ' stat-card--fail' : '';
-        return '<div class="stat-card' + cls + '"><div class="stat-card__label">' + label + '</div><div class="stat-card__value">' + value + '</div></div>';
-    }
-
-    function renderReconc(reconc, flaggedId, clearId, otherLabel, which, thColor) {
-        if (!reconc) {
-            setHtml(flaggedId, '<div class="empty-state"><p>Run validation first.</p></div>');
-            setHtml(clearId,   '<div class="empty-state"><p>Run validation first.</p></div>');
-            return;
-        }
-        var lbls    = (reconc.pairs || []).map(function(p) { return p.label || p.Label || ''; });
-        var excRows = reconc.exceptionRows || [];
-        var agrRows = reconc.rows || [];
-
-        function cardHtml(rows, type) {
-            return '<div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid ' + (type === 'flagged' ? '#C0392B' : '#1E8449') + '">' +
-                (type === 'flagged'
-                    ? '<strong>FLAGGED (' + which + ') — ' + otherLabel + '</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING'
-                    : '<strong>CLEAR (' + which + ') — ' + otherLabel + '</strong>: ' + fmt(reconc.agreeCount || 0) + ' agree' + (agrRows.length < (reconc.agreeCount || 0) ? ' (sample of ' + fmt(agrRows.length) + ' shown)' : '')) +
-                '</div>';
-        }
-
-        setHtml(flaggedId, cardHtml(excRows, 'flagged') + buildTable(excRows, lbls, otherLabel, thColor, 'No exceptions — all staff agree.'));
-        setHtml(clearId,   cardHtml(agrRows, 'clear')   + buildTable(agrRows, lbls, otherLabel, thColor, 'No clear rows in this run.'));
-    }
-
-    function buildTable(rows, lbls, otherLabel, thColor, emptyMsg) {
-        if (!rows || !rows.length) return '<div class="empty-state"><p>' + emptyMsg + '</p></div>';
-        var pHdrs = lbls.map(function(l) {
-            return '<th style="background:' + thColor + '">PROF&nbsp;' + esc(l) + '</th><th style="background:#1558B0">' + otherLabel + '&nbsp;' + esc(l) + '</th><th>Match</th>';
-        }).join('');
-        var body = rows.map(function(r) {
-            var cls = r.overallResult === 'AGREE' ? 'agree' : r.overallResult === 'DISAGREE' ? 'disagree' : 'missing';
-            var badge = r.overallResult === 'AGREE' ? '<span class="r40-agree">&#10003; AGREE</span>' : r.overallResult === 'DISAGREE' ? '<span class="r40-exc">&#x2717; DISAGREE</span>' : '<span class="r40-miss">? MISSING</span>';
-            var cells = lbls.map(function(l) {
-                var f = (r.fields || {})[l] || {};
-                var mi = (f.match || 'MISSING') === 'AGREE' ? '<span style="color:#1E8449">&#10003;</span>' : (f.match || '') === 'DISAGREE' ? '<span style="color:#C0392B">&#x2717;</span>' : '<span style="color:#E67E22">?</span>';
-                return '<td>' + esc(f.profValue || '—') + '</td><td class="oc">' + esc(f.otherValue || '—') + '</td><td>' + mi + '</td>';
-            }).join('');
-            return '<tr class="' + cls + '"><td style="font-size:.73rem;color:#777">' + r.rowNumber + '</td><td style="font-weight:600;font-family:monospace">' + esc(r.staffRef) + '</td>' + cells + '<td>' + badge + '</td><td style="font-size:.71rem;text-align:left;max-width:230px">' + esc(r.disagreeDetail || '') + '</td></tr>';
-        }).join('');
-        return '<div style="overflow-x:auto"><table class="r40-tbl"><thead><tr><th>#</th><th>Staff _037</th>' + pHdrs + '<th>Result</th><th>Detail</th></tr></thead><tbody>' + body + '</tbody></table></div>';
-    }
-
-    function setStatus(id, msg, type) { var e = g(id); if (e) { e.className = 'alert alert--' + (type || 'info'); e.textContent = msg; } }
-
-    /* ── Init ── */
-    buildPairs('valpac', DEF_VALPAC);
-    buildPairs('sfte',   DEF_SFTE);
-    applySummary(null, false);
-    updateButtons();
-    if (st.clientId) loadWorkspace();
-        const __ruleRApiBase = typeof apiBasePath !== 'undefined'
-        ? apiBasePath
-        : (typeof apiBase !== 'undefined'
-            ? apiBase
-            : (typeof API !== 'undefined'
-                ? API
-                : ((window.location.pathname.match(/^\/Rule\d+/i) || [null])[0])));
-    const __ruleRRequestBuilder = typeof getRequest === 'function' ? getRequest : (typeof buildRequest === 'function' ? buildRequest : (typeof buildReq === 'function' ? buildReq : null));
-    const __ruleRPost = typeof postJson === 'function' ? postJson : (typeof post === 'function' ? post : null);
-    if (__ruleRApiBase && __ruleRRequestBuilder && __ruleRPost && window.ruleRScriptUi) {
-        window.ruleRScriptUi.install({
-            apiBase: __ruleRApiBase,
-            requestBuilder: __ruleRRequestBuilder,
-            postJson: __ruleRPost,
-            showSpinner: typeof showSpinner === 'function' ? showSpinner : (typeof spin === 'function' ? spin : null),
-            hideSpinner: typeof hideSpinner === 'function' ? hideSpinner : (typeof unspin === 'function' ? unspin : null)
-        });
-    }
-})();
+}());
 </script>
+
+@Html.AntiForgeryToken()

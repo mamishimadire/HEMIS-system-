@@ -919,64 +919,63 @@ if (nrow(exceptions) == 0) cat('No exceptions found.\n') else print(exceptions)
 
     public static string GenerateRule40Script(Rule40ValidationRequest req)
     {
-        var prof  = req.ProfTable;
-        var other = req.ValpacTable;
-        var pk    = req.ProfKey;
-        var ok    = req.ValpacKey;
-        var pairs = req.ValpacPairs?.Select(p => $"list(prof='{p.ProfCol}', other='{p.OtherCol}', label='{p.Label}')") ?? [];
-        var pairsR = string.Join(",\n  ", pairs);
+        var vt = req.ValpacTable;
+        var at = req.AsciiTable;
+        var compareCols = new[]
+        {
+            ("_011","Date of Birth"), ("_012","Gender"), ("_013","Race"), ("_014","Nationality"),
+            ("_038","Empl. Commencement"), ("_039","Personnel Category"), ("_040","Rank"),
+            ("_041","Permanent/Temporary"), ("_042","Full/Part-time"),
+            ("_046","Qualification Type"), ("_047","Joint Appointment"), ("_048","On Payroll Code"),
+        };
+        var pairsR = string.Join(",\n  ",
+            compareCols.Select(p => $"list(col='{p.Item1}', label='{p.Item2}')"));
         return RHeader + $@"
-# ── Rule 40: PROF / VALPAC Staff Agreement ─────────────────────────────────────
-# Full outer join comparison of PROF vs VALPAC (or SFTE) on staff fields.
+# ── Rule 40: PROF VALPAC vs ASCII Staff Agreement ──────────────────────────────
+# Full outer join on _037 (Staff Number) comparing 12 demographic/HR fields.
 
-prof_table  <- '{prof}'
-other_table <- '{other}'
-prof_key    <- '{pk}'
-other_key   <- '{ok}'
+valpac_table <- '{vt}'
+ascii_table  <- '{at}'
 
 column_pairs <- list(
-  {(string.IsNullOrEmpty(pairsR) ? "list(prof='_037', other='_037', label='Staff No')" : pairsR)}
+  {pairsR}
 )
 
-prof  <- copy(ds[[prof_table]]);  safe_names(prof)
-other <- copy(ds[[other_table]]); safe_names(other)
+valpac <- copy(ds[[valpac_table]]); safe_names(valpac)
+ascii  <- copy(ds[[ascii_table]]);  safe_names(ascii)
 
-pk_safe <- gsub('^_', 'X', prof_key)
-ok_safe <- gsub('^_', 'X', other_key)
+force_char_trim(valpac, 'X037')
+force_char_trim(ascii,  'X037')
 
-force_char_trim(prof,  pk_safe)
-force_char_trim(other, ok_safe)
+valpac[, KEY := norm(col_val(.SD, 'X037'))]
+ascii[,  KEY := norm(col_val(.SD, 'X037'))]
 
-prof[,  KEY := norm(col_val(.SD, pk_safe))]
-other[, KEY := norm(col_val(.SD, ok_safe))]
+result <- merge(valpac, ascii, by = 'KEY', all = TRUE, suffixes = c('_v', '_a'))
 
-result <- merge(prof, other, by = 'KEY', all = TRUE, suffixes = c('_p', '_o'))
-
-result[, MISSING_PROF  := is.na(col_val(.SD, paste0(pk_safe, '_p')))]
-result[, MISSING_OTHER := is.na(col_val(.SD, paste0(ok_safe, '_o')))]
+result[, MISSING_VALPAC := is.na(col_val(.SD, 'X037_v'))]
+result[, MISSING_ASCII  := is.na(col_val(.SD, 'X037_a'))]
 
 disagree_cols <- character(0)
 for (pair in column_pairs) {{
-  pc <- gsub('^_', 'X', pair$prof)
-  oc <- gsub('^_', 'X', pair$other)
-  pc_r <- if (paste0(pc, '_p') %in% names(result)) paste0(pc, '_p') else pc
-  oc_r <- if (paste0(oc, '_o') %in% names(result)) paste0(oc, '_o') else oc
-  if (pc_r %in% names(result) && oc_r %in% names(result)) {{
+  cs <- gsub('^_', 'X', pair$col)
+  vc <- if (paste0(cs, '_v') %in% names(result)) paste0(cs, '_v') else cs
+  ac <- if (paste0(cs, '_a') %in% names(result)) paste0(cs, '_a') else cs
+  if (vc %in% names(result) && ac %in% names(result)) {{
     col_name <- paste0('DIFF_', pair$label)
-    result[, (col_name) := norm(col_val(.SD, pc_r)) != norm(col_val(.SD, oc_r))]
+    result[, (col_name) := norm(col_val(.SD, vc)) != norm(col_val(.SD, ac))]
     disagree_cols <- c(disagree_cols, col_name)
   }}
 }}
 
 result[, Status := fcase(
-  MISSING_PROF,  paste0('MISSING-', prof_table),
-  MISSING_OTHER, paste0('MISSING-', other_table),
+  MISSING_VALPAC, 'MISSING-VALPAC',
+  MISSING_ASCII,  'MISSING-ASCII',
   length(disagree_cols) > 0 && Reduce('|', lapply(disagree_cols, function(c) result[[c]])), 'DISAGREE',
   default = 'AGREE'
 )]
 
 exceptions <- result[Status != 'AGREE']
-print_summary(result, 'Rule 40: Staff Agreement')
+print_summary(result, 'Rule 40: PROF VALPAC vs ASCII Staff Agreement')
 cat(sprintf('Exceptions: %d\n', nrow(exceptions)))
 if (nrow(exceptions) > 0) print(exceptions[, c('KEY', 'Status', disagree_cols), with = FALSE])
 ";

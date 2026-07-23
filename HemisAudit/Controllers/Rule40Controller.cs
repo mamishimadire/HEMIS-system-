@@ -12,22 +12,19 @@ namespace HemisAudit.Controllers
     public class Rule40Controller : Controller
     {
         private readonly IRule40Service _rule40;
-        private readonly IExportService _export;
         private readonly IAuditLogService _audit;
         private readonly UserManager<ApplicationUser> _users;
         private readonly ISystemDatabaseService _systemDb;
 
         public Rule40Controller(
             IRule40Service rule40,
-            IExportService export,
             IAuditLogService audit,
             UserManager<ApplicationUser> users,
             ISystemDatabaseService systemDb)
         {
-            _rule40  = rule40;
-            _export  = export;
-            _audit   = audit;
-            _users   = users;
+            _rule40   = rule40;
+            _audit    = audit;
+            _users    = users;
             _systemDb = systemDb;
         }
 
@@ -37,11 +34,11 @@ namespace HemisAudit.Controllers
             var role = await GetCurrentSystemRoleAsync(user);
             await _systemDb.NormalizeCompletedRunStatusesAsync();
 
-            if (!string.Equals(role, "Admin",        StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(role, "Director",     StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(role, "Manager",      StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(role, "Trainee",      StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(role, "DataAnalyst",  StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(role, "Admin",       StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(role, "Director",    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(role, "Manager",     StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(role, "Trainee",     StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
             {
                 TempData["Error"] = "Only assigned engagement members can open audit modules.";
                 return RedirectToAction("Index", "Dashboard");
@@ -55,21 +52,14 @@ namespace HemisAudit.Controllers
                 return RedirectToAction("Index", "Dashboard");
             }
 
-            ViewBag.Clients = clients
-                .Select(c => new Client
-                {
-                    Id              = c.Id,
-                    Name            = c.EngagementName,
-                    FiscalYear      = c.MaconomyNumber,
-                    Status          = c.Status,
-                    CreatedAt       = c.CreatedAt,
-                    CreatedByUserId = "",
-                    IsActive        = true
-                })
-                .ToList();
-            ViewBag.ClientId           = clientId;
-            ViewBag.CurrentSystemRole  = role;
-            ViewBag.ModuleNavigation   = ModuleSequenceNavigationHelper.BuildForWorkspace(40, clientId);
+            ViewBag.Clients = clients.Select(c => new Client
+            {
+                Id = c.Id, Name = c.EngagementName, FiscalYear = c.MaconomyNumber,
+                Status = c.Status, CreatedAt = c.CreatedAt, CreatedByUserId = "", IsActive = true
+            }).ToList();
+            ViewBag.ClientId          = clientId;
+            ViewBag.CurrentSystemRole = role;
+            ViewBag.ModuleNavigation  = ModuleSequenceNavigationHelper.BuildForWorkspace(40, clientId);
             return View();
         }
 
@@ -90,30 +80,33 @@ namespace HemisAudit.Controllers
             }
 
             var workspace      = await _rule40.GetCurrentWorkspaceStateAsync(clientId, user?.Email);
-            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            var resultsVisible = CanViewResults(role, workspace);
             if (workspace != null) workspace.ResultsVisible = resultsVisible;
-
             if (workspace != null && !resultsVisible) workspace.Summary = null;
 
             return Json(new { success = true, hasWorkspace = workspace != null, resultsVisible, workspace });
         }
 
         [HttpPost]
-        public async Task<IActionResult> GetDatabases([FromBody] ConnectionViewModel model) =>
-            Json(await RequireDataAnalystAsync(async () => await _rule40.GetDatabasesAsync(model.Server, model.Driver)));
+        public async Task<IActionResult> GetDatabases([FromBody] ConnectionViewModel model)
+        {
+            var result = await RequireDataAnalystAsync(async () => await _rule40.GetDatabasesAsync(model.Server, model.Driver));
+            return Json(result);
+        }
 
         [HttpPost]
-        public async Task<IActionResult> GetTables([FromBody] ConnectionViewModel model) =>
-            Json(await RequireDataAnalystAsync(async () => await _rule40.GetTablesAsync(model.Server, model.Database, model.Driver)));
+        public async Task<IActionResult> GetTables([FromBody] ConnectionViewModel model)
+        {
+            var result = await RequireDataAnalystAsync(async () => await _rule40.GetTablesAsync(model.Server, model.Database, model.Driver));
+            return Json(result);
+        }
 
         [HttpPost]
-        public async Task<IActionResult> GetColumns([FromBody] Rule40GetColumnsRequest model) =>
-            Json(await RequireDataAnalystAsync(async () =>
-                await _rule40.GetColumnsAsync(model.Server, model.Database, model.Driver, model.TableName)));
-
-        [HttpPost]
-        public async Task<IActionResult> VerifyTables([FromBody] Rule40VerifyRequest request) =>
-            Json(await RequireDataAnalystAsync(async () => await _rule40.VerifyTablesAsync(request)));
+        public async Task<IActionResult> VerifyTables([FromBody] Rule40VerifyRequest request)
+        {
+            var result = await RequireDataAnalystAsync(async () => await _rule40.VerifyTablesAsync(request));
+            return Json(result);
+        }
 
         [HttpPost]
         public async Task<IActionResult> RunValidation([FromBody] Rule40ValidationRequest request)
@@ -130,51 +123,13 @@ namespace HemisAudit.Controllers
             var engagementRole = await _systemDb.GetEngagementRoleAsync(request.ClientId, user, role);
             if (!string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(engagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-                return Json(new Rule40ValidationSummary { Success = false, Error = "Only the assigned data analyst can run Rule 40." });
+                return Json(new Rule40ValidationSummary { Success = false, Error = "Only the assigned data analyst can run Rule 40 validation." });
 
-            async Task<Rule40ValidationSummary> ExecuteAsync(IRule40Service svc, IAuditLogService auditSvc)
-            {
-                var result = await svc.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
-                if (result.Success)
-                {
-                    await auditSvc.LogAsync(
-                        "run_validation",
-                        $"Rule 40 on client {request.ClientId}: {result.Status} ({result.DisagreeCount + result.MissingCount} exceptions), run {result.SavedRunId}",
-                        user?.Id, user?.Email);
-                }
-                return result;
-            }
+            var result = await _rule40.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
 
-            if (ValidationOperationHttpHelper.IsAsyncRequested(Request))
-            {
-                return ValidationOperationHttpHelper.Queue(
-                    this,
-                    HttpContext.RequestServices.GetRequiredService<IValidationOperationService>(),
-                    ValidationOperationHttpHelper.ResolveOwnerKey(User),
-                    "Rule 40 validation",
-                    async (sp, ct) => await ExecuteAsync(
-                        sp.GetRequiredService<IRule40Service>(),
-                        sp.GetRequiredService<IAuditLogService>()));
-            }
-
-            return Json(await ExecuteAsync(_rule40, _audit));
-        }
-
-        [HttpPost]
-        public async Task<IActionResult> BeginWorkspaceEdit([FromBody] Rule40ValidationRequest request)
-        {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-
-            if (!await CanEditWorkspaceAsync(request.ClientId, user, role))
-                return Json(new Rule40WorkspaceSaveResult { Success = false, Error = "Only the assigned data analyst can edit a saved workspace." });
-
-            if (!request.RunId.HasValue || request.RunId.Value <= 0)
-                return Json(new Rule40WorkspaceSaveResult { Success = false, Error = "Select a saved run before editing the workspace." });
-
-            var result = await _rule40.BeginWorkspaceEditAsync(request.RunId.Value, user!.Email!, user.FullName);
             if (result.Success)
-                await _audit.LogAsync("workspace_edit_started", $"DataAnalyst started editing Rule 40 run {request.RunId.Value}.", user?.Id, user?.Email);
+                await _audit.LogAsync("run_validation", $"Rule 40 on client {request.ClientId}: {result.Status} ({result.DisagreeCount + result.MissingInAsciiCount + result.MissingInValpacCount} exceptions).", user?.Id, user?.Email);
+
             return Json(result);
         }
 
@@ -184,248 +139,153 @@ namespace HemisAudit.Controllers
             var user = await _users.GetUserAsync(User);
             var role = await GetCurrentSystemRoleAsync(user);
 
-            if (!await CanEditWorkspaceAsync(request.ClientId, user, role))
-                return Json(new Rule40WorkspaceSaveResult { Success = false, Error = "Only the assigned data analyst can save a workspace." });
+            if (request.ClientId <= 0)
+                return Json(new { success = false, error = "Select an engagement before saving." });
 
-            var result = await _rule40.SaveWorkspaceAsync(request, user!.Email!, user.FullName);
-            if (result.Success)
+            if (!await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
+                return Json(new { success = false, error = "You cannot access this engagement." });
+
+            var result = await _rule40.SaveWorkspaceStateAsync(request.ClientId, request, user?.Email);
+
+            if (result)
+            {
                 await _audit.LogAsync("save_validation_workspace", $"DataAnalyst saved Rule 40 workspace for client {request.ClientId}.", user?.Id, user?.Email);
-            return Json(result);
+                var workspace      = await _rule40.GetCurrentWorkspaceStateAsync(request.ClientId, user?.Email);
+                var resultsVisible = CanViewResults(role, workspace);
+                if (workspace != null) workspace.ResultsVisible = resultsVisible;
+                if (workspace != null && !resultsVisible) workspace.Summary = null;
+                return Json(new { success = true, message = "Workspace saved.", workspace, resultsVisible });
+            }
+
+            return Json(new { success = false, message = "Failed to save workspace." });
         }
 
         [HttpPost]
-        public async Task<IActionResult> SignOffWorkspace([FromBody] Rule40WorkspaceSignoffInputModel model)
+        public async Task<IActionResult> AddSignoff([FromBody] Rule40SignoffInput model)
         {
             var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-
-            if (model.ClientId <= 0)
-                return Json(new { success = false, error = "Select an engagement before signing off." });
-
-            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
-                return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can sign off." });
-
-            if (!model.RunId.HasValue || model.RunId.Value <= 0)
-                return Json(new { success = false, error = "Run validation first." });
-
-            var review = await _rule40.GetSavedRunAsync(model.RunId.Value, user?.Email);
-            if (review == null || review.ClientId != model.ClientId)
-                return Json(new { success = false, error = "The saved run could not be found for this engagement." });
-
-            var clientDetail = await _systemDb.GetClientDetailAsync(model.ClientId, user, role);
-            if (clientDetail?.IsArchived == true)
-                return Json(new { success = false, error = "Archived engagements are read-only." });
-
-            if (!ValidationRunAccessPolicy.CanCompleteReviewSignoff(role, review.CurrentUserEngagementRole, review.HasDataAnalystSignoff))
-                return Json(new { success = false, error = "The assigned data analyst must sign off before this review can be completed." });
-
+            if (user == null) return Json(new { success = false, error = "Not authenticated." });
             try
             {
-                await _rule40.AddOrUpdateSignoffAsync(model.RunId.Value, user!.Email!, model.Comment);
-                await _audit.LogAsync("signoff_validation_run", $"Signed off Rule 40 run {model.RunId.Value}", user.Id, user.Email);
+                await _rule40.AddOrUpdateSignoffAsync(model.RunId!.Value, user.Email!, model.Comment);
+                await _audit.LogAsync("add_signoff", $"Rule 40 signoff added for run {model.RunId}.", user.Id, user.Email);
+                return Json(new { success = true });
             }
             catch (Exception ex) { return Json(new { success = false, error = ex.Message }); }
-
-            var workspace      = await _rule40.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email);
-            var resultsVisible = CanViewWorkspaceResults(role, workspace);
-            if (workspace != null) workspace.ResultsVisible = resultsVisible;
-            return Json(new { success = true, message = "Signoff saved.", resultsVisible, workspace });
         }
 
         [HttpPost]
-        public async Task<IActionResult> RemoveWorkspaceSignoff([FromBody] Rule40WorkspaceSignoffInputModel model)
+        public async Task<IActionResult> RemoveSignoff([FromBody] Rule40SignoffInput model)
         {
             var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-
-            if (model.ClientId <= 0 || !model.RunId.HasValue || model.RunId.Value <= 0)
-                return Json(new { success = false, error = "Select a saved run before removing signoff." });
-
-            if (!await ValidationRunAccessPolicy.CanAssignedUserRemoveOwnSignoffAsync(_systemDb, model.ClientId, user, role))
-                return Json(new { success = false, error = "Only the assigned data analyst, manager, or director can remove signoff." });
-
-            var review = await _rule40.GetSavedRunAsync(model.RunId.Value, user?.Email);
-            if (review == null || review.ClientId != model.ClientId)
-                return Json(new { success = false, error = "The saved run could not be found." });
-
-            var clientDetail = await _systemDb.GetClientDetailAsync(model.ClientId, user, role);
-            if (clientDetail?.IsArchived == true)
-                return Json(new { success = false, error = "Archived engagements are read-only." });
-
-            if (!review.CurrentUserHasSignedOff)
-                return Json(new { success = false, error = "There is no signoff for your role to remove." });
-
-            try { await _rule40.RemoveSignoffAsync(model.RunId.Value, user!.Email!); }
+            if (user == null) return Json(new { success = false, error = "Not authenticated." });
+            try
+            {
+                await _rule40.RemoveSignoffAsync(model.RunId!.Value, user.Email!);
+                await _audit.LogAsync("remove_signoff", $"Rule 40 signoff removed for run {model.RunId}.", user.Id, user.Email);
+                return Json(new { success = true });
+            }
             catch (Exception ex) { return Json(new { success = false, error = ex.Message }); }
-
-            var workspace      = await _rule40.GetCurrentWorkspaceStateAsync(model.ClientId, user?.Email);
-            var resultsVisible = CanViewWorkspaceResults(role, workspace);
-            if (workspace != null) workspace.ResultsVisible = resultsVisible;
-            await _audit.LogAsync("remove_validation_signoff", $"Removed signoff for Rule 40 run {model.RunId.Value}", user.Id, user.Email);
-            return Json(new { success = true, message = "Signoff removed.", resultsVisible, workspace });
         }
 
         [HttpPost]
         public async Task<IActionResult> GenerateSql([FromBody] Rule40ValidationRequest request)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-
-            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
-                return Json(new Rule40SqlResult { Success = false, Error = "You cannot access this engagement." });
-
-            return Json(RequireDataAnalystResult(() => new Rule40SqlResult { Success = true, Sql = _rule40.GenerateSql(request) }));
-        }
-        [HttpPost]
-        public async Task<IActionResult> GenerateRScript([FromBody] Rule40ValidationRequest request)
-        {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-
-            if (request.ClientId > 0 && !await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
-                return Json(new Rule40SqlResult { Success = false, Error = "You cannot access this engagement." });
-
-            return Json(RequireDataAnalystResult(() => new Rule40SqlResult
+            var result = await RequireDataAnalystAsync(async () =>
             {
-                Success = true,
-                Sql = Rule40RScriptGenerator.Generate(request) + RScriptScaffold.BuildAutoExportFooter("Rule40")
-            }));
+                var sql = _rule40.GenerateSql(request);
+                return new { success = true, sql } as object;
+            });
+            return Json(result);
         }
 
-        [HttpGet]
-        public async Task<IActionResult> DownloadExcel([FromQuery] int runId)
+        [HttpPost]
+        public async Task<IActionResult> DownloadExcel([FromBody] Rule40SignoffInput model)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule40.GetSavedRunAsync(runId, user?.Email);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-            var bytes = BuildExcelExport(review.Summary!);
-            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"Rule40_PROF_Agreement_Run_{runId}.xlsx");
+            var summary = await _rule40.GetFullSummaryByRunIdAsync(model.RunId!.Value);
+            if (summary == null) return NotFound();
+            var bytes = BuildCsvBytes(summary);
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Rule40_PROF_Agreement.xlsx");
         }
 
-        [HttpGet]
-        public async Task<IActionResult> DownloadCsv([FromQuery] int runId)
+        [HttpPost]
+        public async Task<IActionResult> DownloadCsv([FromBody] Rule40SignoffInput model)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule40.GetSavedRunAsync(runId, user?.Email);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-            var bytes = BuildCsvExport(review.Summary!, false);
-            return File(bytes, "text/csv", $"Rule40_PROF_Agreement_Run_{runId}.csv");
+            var summary = await _rule40.GetFullSummaryByRunIdAsync(model.RunId!.Value);
+            if (summary == null) return NotFound();
+            var bytes = BuildCsvBytes(summary);
+            return File(bytes, "text/csv", "Rule40_PROF_Agreement.csv");
         }
 
-        [HttpGet]
-        public async Task<IActionResult> DownloadExceptionsCsv([FromQuery] int runId)
+        [HttpPost]
+        public async Task<IActionResult> DownloadSql([FromBody] Rule40ValidationRequest request)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule40.GetSavedRunAsync(runId, user?.Email);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-            var bytes = BuildCsvExport(review.Summary!, true);
-            return File(bytes, "text/csv", $"Rule40_Exceptions_Run_{runId}.csv");
+            var bytes = System.Text.Encoding.UTF8.GetBytes(_rule40.GenerateSql(request));
+            return File(bytes, "text/plain", "Rule40_PROF_Agreement.sql");
         }
 
-        [HttpGet]
-        public async Task<IActionResult> DownloadSql([FromQuery] int runId)
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static readonly string[] CsvCols =
+            ["_011", "_012", "_013", "_014", "_038", "_039", "_040", "_041", "_042", "_046", "_047", "_048"];
+
+        private static readonly Dictionary<string, string> CsvLabels = new()
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule40.GetSavedRunAsync(runId, user?.Email);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-            var req = BuildRequestFromSummary(review.Summary!);
-            var bytes = _export.ExportSql(_rule40.GenerateSql(req));
-            return File(bytes, "application/sql", $"Rule40_PROF_Agreement_Run_{runId}.sql");
-        }
+            ["_011"]="Date of Birth", ["_012"]="Gender", ["_013"]="Race", ["_014"]="Nationality",
+            ["_038"]="Empl. Commencement", ["_039"]="Personnel Category", ["_040"]="Rank",
+            ["_041"]="Permanent/Temporary", ["_042"]="Full/Part-time",
+            ["_046"]="Qualification Type", ["_047"]="Joint Appointment", ["_048"]="On Payroll Code"
+        };
 
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Private helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-
-        private static byte[] BuildExcelExport(Rule40ValidationSummary summary)
+        private static byte[] BuildCsvBytes(Rule40ValidationSummary summary)
         {
             using var ms = new System.IO.MemoryStream();
             using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
 
-            sw.WriteLine("HEMIS RULE 40 Ã¢â‚¬â€œ PROF ASCII Staff Agreement");
-            sw.WriteLine($"Database: {summary.Database}  |  Timestamp: {summary.Timestamp}");
+            sw.WriteLine("HEMIS RULE 40 - PROF VALPAC vs ASCII Staff Agreement");
+            sw.WriteLine($"\"VALPAC Table\",\"{summary.ValpacTable}\",\"ASCII Table\",\"{summary.AsciiTable}\"");
+            sw.WriteLine($"\"Database\",\"{summary.Database}\",\"Timestamp\",\"{summary.Timestamp}\"");
+            sw.WriteLine($"\"Total\",{summary.TotalCount},\"Agree\",{summary.AgreeCount},\"Disagree\",{summary.DisagreeCount},\"Missing in ASCII\",{summary.MissingInAsciiCount},\"Missing in VALPAC\",{summary.MissingInValpacCount},\"Exception Rate\",\"{summary.ExceptionRate:0.00}%\",\"Status\",\"{summary.Status}\"");
             sw.WriteLine();
 
-            WriteReconcCsv(sw, summary.ReconcA, "Reconciliation A: PROF vs VALPAC");
-            sw.WriteLine();
-            WriteReconcCsv(sw, summary.ReconcB, "Reconciliation B: PROF vs SFTE");
-
-            sw.Flush();
-            return ms.ToArray();
-        }
-
-        private static byte[] BuildCsvExport(Rule40ValidationSummary summary, bool exceptionsOnly)
-        {
-            using var ms = new System.IO.MemoryStream();
-            using var sw = new System.IO.StreamWriter(ms, System.Text.Encoding.UTF8);
-
-            sw.WriteLine($"\"HEMIS RULE 40 Ã¢â‚¬â€œ {(exceptionsOnly ? "Exceptions" : "All Results")}\"");
-            sw.WriteLine($"\"Database\",\"{summary.Database}\"");
-            sw.WriteLine($"\"Timestamp\",\"{summary.Timestamp}\"");
-            sw.WriteLine();
-
-            WriteReconcCsv(sw, summary.ReconcA, "Reconciliation A: PROF vs VALPAC", exceptionsOnly);
-            sw.WriteLine();
-            WriteReconcCsv(sw, summary.ReconcB, "Reconciliation B: PROF vs SFTE", exceptionsOnly);
-
-            sw.Flush();
-            return ms.ToArray();
-        }
-
-        private static void WriteReconcCsv(System.IO.StreamWriter sw, Rule40ReconciliationSummary reconc, string title, bool exceptionsOnly = false)
-        {
-            sw.WriteLine($"\"{title}\"");
-            sw.WriteLine($"\"PROF Table\",\"{reconc.ProfTable}\"  \"Other Table\",\"{reconc.OtherTable}\"");
-            sw.WriteLine($"\"Total\",{reconc.TotalCount}  \"Agree\",{reconc.AgreeCount}  \"Disagree\",{reconc.DisagreeCount}  \"Missing\",{reconc.MissingCount}  \"Exception Rate\",{reconc.ExceptionRate:0.00}%");
-
-            var labels = reconc.Pairs.Select(p => p.Label).ToList();
-            var header = "\"Row_No\",\"Staff_Ref\"," +
-                         string.Join(",", labels.Select(l => $"\"PROF_{l}\",\"OTHER_{l}\",\"MATCH_{l}\"")) +
-                         ",\"Overall_Result\",\"Disagree_Detail\"";
+            var header = "\"Staff Number (_037)\",\"Overall Result\",\"Disagree Detail\"," +
+                         string.Join(",", CsvCols.SelectMany(c =>
+                             new[] { $"\"VALPAC_{c} ({CsvLabels[c]})\"", $"\"ASCII_{c} ({CsvLabels[c]})\"", $"\"MATCH_{c}\"" }));
             sw.WriteLine(header);
 
-            var rows = exceptionsOnly ? reconc.ExceptionRows : reconc.ExceptionRows.Concat(reconc.Rows);
-            foreach (var row in rows)
+            foreach (var row in summary.ReviewRows.Concat(summary.AgreeSample))
             {
-                var line = new System.Text.StringBuilder();
-                line.Append($"{row.RowNumber},\"{row.StaffRef}\",");
-                foreach (var lbl in labels)
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"\"{row.StaffNumber}\",\"{row.OverallResult}\",\"{row.DisagreeDetail.Replace("\"", "\"\"")}\"");
+                foreach (var col in CsvCols)
                 {
-                    if (row.Fields.TryGetValue(lbl, out var fv))
-                        line.Append($"\"{fv.ProfValue}\",\"{fv.OtherValue}\",\"{fv.Match}\",");
+                    if (row.Fields.TryGetValue(col, out var fv))
+                        sb.Append($",\"{fv.ValpacValue}\",\"{fv.AsciiValue}\",\"{fv.Match}\"");
                     else
-                        line.Append("\"Ã¢â‚¬â€\",\"Ã¢â‚¬â€\",\"Ã¢â‚¬â€\",");
+                        sb.Append(",\"—\",\"—\",\"—\"");
                 }
-                line.Append($"\"{row.OverallResult}\",\"{row.DisagreeDetail.Replace("\"", "\"\"")}\"");
-                sw.WriteLine(line.ToString());
+                sw.WriteLine(sb);
             }
+
+            sw.Flush();
+            return ms.ToArray();
         }
 
-        private static Rule40ValidationRequest BuildRequestFromSummary(Rule40ValidationSummary s) =>
-            new()
-            {
-                Database    = s.Database,
-                ProfTable   = s.ProfTable,
-                ValpacTable = s.ValpacTable,
-                SfteTable   = s.SfteTable,
-                ProfKey     = s.ProfKey,
-                ValpacKey   = s.ValpacKey,
-                SfteKey     = s.SfteKey,
-                ValpacPairs = s.ReconcA.Pairs,
-                SftePairs   = s.ReconcB.Pairs
-            };
-
-        private static bool CanViewWorkspaceResults(string role, Rule40WorkspaceStateViewModel? workspace)
+        private static bool CanViewResults(string role, Rule40WorkspaceState? workspace)
         {
             if (workspace == null) return false;
-            return ValidationRunAccessPolicy.CanViewSignedResults(role, workspace.CurrentUserEngagementRole, workspace.HasDataAnalystSignoff);
+            if (string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(role, "Admin",        StringComparison.OrdinalIgnoreCase)) return true;
+            return workspace.IsWorkspaceSaved && workspace.HasDataAnalystSignoff;
+        }
+
+        private async Task<object> RequireDataAnalystAsync<T>(Func<Task<T>> operation) where T : class
+        {
+            var user = await _users.GetUserAsync(User);
+            var role = await GetCurrentSystemRoleAsync(user);
+            if (!string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
+                return new { success = false, error = "Only data analysts can perform this operation." };
+            return await operation();
         }
 
         private async Task<string> GetCurrentSystemRoleAsync(ApplicationUser? user)
@@ -435,33 +295,5 @@ namespace HemisAudit.Controllers
             var roles = user != null ? await _users.GetRolesAsync(user) : new List<string>();
             return roles.FirstOrDefault() ?? "";
         }
-
-        private async Task<bool> CanEditWorkspaceAsync(int clientId, ApplicationUser? user, string role)
-        {
-            if (user == null || !string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) || clientId <= 0) return false;
-            if (!await _systemDb.CanAccessClientResultsAsync(clientId, user, role)) return false;
-            var engagementRole = await _systemDb.GetEngagementRoleAsync(clientId, user, role);
-            return ValidationRunAccessPolicy.IsAssignedDataAnalyst(engagementRole);
-        }
-
-        private async Task<object> RequireDataAnalystAsync<T>(Func<Task<T>> action)
-        {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            if (!string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-                return new { success = false, error = "Only the assigned data analyst can configure or run Rule 40." };
-            return await action();
-        }
-
-        private object RequireDataAnalystResult(Func<Rule40SqlResult> factory)
-        {
-            var user = _users.GetUserAsync(User).GetAwaiter().GetResult();
-            var role = GetCurrentSystemRoleAsync(user).GetAwaiter().GetResult();
-            if (!string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-                return new { success = false, error = "Only the assigned data analyst can generate the SQL script." };
-            return factory();
-        }
-
-        private static string Ts() => DateTime.Now.ToString("yyyyMMdd_HHmmss");
     }
 }
