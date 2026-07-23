@@ -48,7 +48,7 @@
             <h1 class="rule-header__title">HEMIS RULE 40.1: Staff VALPAC vs 2025H16SFTE Presence Check</h1>
             <p class="rule-header__sub">
                 Checks whether each staff member in <code>VALPAC PROF</code> appears in <code>2025H16SFTE</code>.
-                Join key: <code>_037</code> (Staff Number). Results: <strong>AGREE</strong>, <strong>MISSING-H16SFTE</strong>, <strong>MISSING-VALPAC</strong>.
+                Configurable join key. Results: <strong>AGREE</strong>, <strong>MISSING-H16SFTE</strong>, <strong>MISSING-VALPAC</strong>.
             </p>
         </div>
         <div class="rule-header__badge" id="r4001StatusBadge" style="display:none"></div>
@@ -98,14 +98,39 @@
                 <div class="form-grid">
                     <div class="field-group">
                         <label>VALPAC Table (Staff PROF)</label>
-                        <select id="r4001ValpacTable"></select>
+                        <select id="r4001ValpacTable" onchange="r4001OnValpacTableChange()"></select>
                     </div>
                     <div class="field-group">
                         <label>SFTE Table (2025H16SFTE)</label>
-                        <select id="r4001SfteTable"></select>
+                        <select id="r4001SfteTable" onchange="r4001OnSfteTableChange()"></select>
                     </div>
                 </div>
                 <div id="r4001TableOut" class="status-output"></div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <button class="accordion-toggle" type="button" onclick="toggleAccordion('r4001-colmap')">
+                <span class="acc-icon">CM</span><span>Column Mapping (Join Key)</span><span class="acc-chevron">v</span>
+            </button>
+            <div class="accordion-body" id="body-r4001-colmap" style="display:none">
+                <div class="alert alert--info" style="margin-bottom:12px">
+                    Select the join key column from each table (the staff number column). Defaults to <code>_037</code>. Connect and load tables to see available columns.
+                </div>
+                <div class="form-grid">
+                    <div class="field-group">
+                        <label>VALPAC Join Key Column</label>
+                        <select id="r4001ValpacKey" onchange="r4001OnValpacKeyChange()">
+                            <option value="_037">_037</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label>SFTE Join Key Column</label>
+                        <select id="r4001SfteKey" onchange="r4001OnSfteKeyChange()">
+                            <option value="_037">_037</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -222,6 +247,8 @@ window.r4001Tab = function(tab) {
     var st = {
         clientId: @(selectedClientId > 0 ? selectedClientId : 0),
         runId: null, summary: null,
+        valpacCols: [], sfteCols: [],
+        valpacKey: '_037', sfteKey: '_037',
         isWorkspaceSaved: false, currentUserHasSignedOff: false, resultsVisible: false,
         currentUserEngagementRole: ''
     };
@@ -277,6 +304,39 @@ window.r4001Tab = function(tab) {
         }).catch(function(e) { unspin(); setOut('r4001ConnOut', e.message, 'error'); });
     };
 
+    /* ── Key column helpers ── */
+    function r4001FillKeySel(id, cols, currentVal) {
+        var sel = g(id); if (!sel) return;
+        var prev = currentVal || '_037';
+        sel.innerHTML = '<option value="">-- select key --</option>' +
+            (cols || []).map(function(c) {
+                return '<option value="' + esc(c) + '"' + (c === prev ? ' selected' : '') + '>' + esc(c) + '</option>';
+            }).join('');
+    }
+    window.r4001OnValpacKeyChange = function() { st.valpacKey = gv('r4001ValpacKey') || '_037'; };
+    window.r4001OnSfteKeyChange   = function() { st.sfteKey   = gv('r4001SfteKey')   || '_037'; };
+
+    function r4001LoadOneCols(tableName, side) {
+        if (!tableName) return;
+        post(API + '/GetTableColumns', {
+            server: gv('r4001Server').trim(), database: gv('r4001Db'), driver: gv('r4001Driver'),
+            tableName: tableName
+        }).then(function(d) {
+            if (!d.success || !d.columns) return;
+            if (side === 'valpac') {
+                st.valpacCols = d.columns;
+                r4001FillKeySel('r4001ValpacKey', d.columns, st.valpacKey);
+            } else {
+                st.sfteCols = d.columns;
+                r4001FillKeySel('r4001SfteKey', d.columns, st.sfteKey);
+            }
+            show('body-r4001-colmap', true);
+        }).catch(function() {});
+    }
+
+    window.r4001OnValpacTableChange = function() { r4001LoadOneCols(gv('r4001ValpacTable'), 'valpac'); };
+    window.r4001OnSfteTableChange   = function() { r4001LoadOneCols(gv('r4001SfteTable'),   'sfte');  };
+
     window.r4001LoadTables = function() {
         var db = gv('r4001Db'); if (!db) return;
         spin('Loading tables...');
@@ -289,6 +349,8 @@ window.r4001Tab = function(tab) {
             fillSel('r4001SfteTable',   tables, d.autoSfteTable);
             show('body-r4001-tables', true);
             setOut('r4001TableOut', 'Loaded ' + tables.length + ' tables — VALPAC and SFTE auto-detected.', 'success');
+            r4001LoadOneCols(d.autoValpacTable || gv('r4001ValpacTable'), 'valpac');
+            r4001LoadOneCols(d.autoSfteTable   || gv('r4001SfteTable'),   'sfte');
         }).catch(function(e) { unspin(); setOut('r4001TableOut', e.message, 'error'); });
     };
 
@@ -310,7 +372,9 @@ window.r4001Tab = function(tab) {
         return {
             clientId: st.clientId, runId: st.runId,
             server: gv('r4001Server').trim(), database: gv('r4001Db'), driver: gv('r4001Driver') || 'ODBC Driver 17 for SQL Server',
-            valpacTable: gv('r4001ValpacTable'), sfteTable: gv('r4001SfteTable')
+            valpacTable: gv('r4001ValpacTable'), sfteTable: gv('r4001SfteTable'),
+            valpacKeyCol: gv('r4001ValpacKey') || st.valpacKey || '_037',
+            sfteKeyCol:   gv('r4001SfteKey')   || st.sfteKey   || '_037'
         };
     }
 
@@ -447,6 +511,11 @@ window.r4001Tab = function(tab) {
             if (ws.valpacTable) fillSel('r4001ValpacTable',[ws.valpacTable], ws.valpacTable);
             if (ws.sfteTable)   fillSel('r4001SfteTable',  [ws.sfteTable],   ws.sfteTable);
         }
+        var savedValpacKey = (ws.summary && ws.summary.valpacKeyCol) || ws.valpacKeyCol || '_037';
+        var savedSfteKey   = (ws.summary && ws.summary.sfteKeyCol)   || ws.sfteKeyCol   || '_037';
+        st.valpacKey = savedValpacKey; st.sfteKey = savedSfteKey;
+        r4001FillKeySel('r4001ValpacKey', st.valpacCols.length ? st.valpacCols : [savedValpacKey], savedValpacKey);
+        r4001FillKeySel('r4001SfteKey',   st.sfteCols.length   ? st.sfteCols   : [savedSfteKey],   savedSfteKey);
 
         applyWsMeta(ws);
         var sc = g('r4001SignoffComment'); if (sc && ws.currentUserSignoffComment) sc.value = ws.currentUserSignoffComment;

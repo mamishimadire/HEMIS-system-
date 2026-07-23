@@ -153,11 +153,14 @@ namespace HemisAudit.Services
 
         private async Task<Rule4001ValidationSummary> AnalyseAsync(Rule4001ValidationRequest req)
         {
+            var valpacKey = string.IsNullOrWhiteSpace(req.ValpacKeyCol) ? "_037" : req.ValpacKeyCol;
+            var sfteKey   = string.IsNullOrWhiteSpace(req.SfteKeyCol)   ? "_037" : req.SfteKeyCol;
+
             await using var conn = new SqlConnection(BuildConnectionString(req.Server, req.Database, req.Driver));
             await conn.OpenAsync();
 
-            var valpacKeys = await LoadKeysAsync(conn, req.ValpacTable, "_037");
-            var sfteKeys   = await LoadKeysAsync(conn, req.SfteTable,   "_037");
+            var valpacKeys = await LoadKeysAsync(conn, req.ValpacTable, valpacKey);
+            var sfteKeys   = await LoadKeysAsync(conn, req.SfteTable,   sfteKey);
 
             var allKeys = valpacKeys.Keys
                 .Union(sfteKeys.Keys, StringComparer.OrdinalIgnoreCase)
@@ -197,6 +200,8 @@ namespace HemisAudit.Services
                 Database             = req.Database,
                 ValpacTable          = req.ValpacTable,
                 SfteTable            = req.SfteTable,
+                ValpacKeyCol         = valpacKey,
+                SfteKeyCol           = sfteKey,
                 ClientId             = req.ClientId,
                 TotalCount           = rowNo,
                 AgreeCount           = agreeRows.Count,
@@ -239,7 +244,7 @@ INSERT INTO dbo.ValidationRuns
 OUTPUT INSERTED.RunID
 VALUES
 (@ClientID,@UserID,4001,'PROF VALPAC vs H16SFTE Staff Presence',@Status,@Total,@Pass,@Fail,@Rate,GETDATE(),
- @Server,@Database,@ValpacTable,@SfteTable,'_037','_037',
+ @Server,@Database,@ValpacTable,@SfteTable,@ValpacKey,@SfteKey,
  NULL,@JSON,@RunBy,NULL,NULL,@PrevHash,NULL,1);";
             cmd.Parameters.AddWithValue("@ClientID",    req.ClientId);
             cmd.Parameters.AddWithValue("@UserID",      userId);
@@ -252,6 +257,8 @@ VALUES
             cmd.Parameters.AddWithValue("@Database",    req.Database);
             cmd.Parameters.AddWithValue("@ValpacTable", req.ValpacTable);
             cmd.Parameters.AddWithValue("@SfteTable",   req.SfteTable);
+            cmd.Parameters.AddWithValue("@ValpacKey",   string.IsNullOrWhiteSpace(req.ValpacKeyCol) ? "_037" : req.ValpacKeyCol);
+            cmd.Parameters.AddWithValue("@SfteKey",     string.IsNullOrWhiteSpace(req.SfteKeyCol)   ? "_037" : req.SfteKeyCol);
             cmd.Parameters.AddWithValue("@JSON",        json);
             cmd.Parameters.AddWithValue("@RunBy",       (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@PrevHash",    (object?)prevHash ?? DBNull.Value);
@@ -434,38 +441,57 @@ ELSE
         {
             var vt = Sanitise(request.ValpacTable);
             var st = Sanitise(request.SfteTable);
+            var vk = Sanitise(string.IsNullOrWhiteSpace(request.ValpacKeyCol) ? "_037" : request.ValpacKeyCol);
+            var sk = Sanitise(string.IsNullOrWhiteSpace(request.SfteKeyCol)   ? "_037" : request.SfteKeyCol);
 
             return $@"-- ============================================================
 -- HEMIS RULE 40.1 – PROF VALPAC vs H16SFTE Staff Presence
 -- Generated : {DateTime.Now:yyyy-MM-dd HH:mm:ss}
 -- Database  : {request.Database}
--- VALPAC    : [{vt}]
--- H16SFTE   : [{st}]
--- Key       : _037 (Staff Number)
+-- VALPAC    : [{vt}]  Key: [{vk}]
+-- H16SFTE   : [{st}]  Key: [{sk}]
 -- ============================================================
 
 SELECT
-    COALESCE(v.[_037], s.[_037]) AS Staff_Number,
+    COALESCE(v.[{vk}], s.[{sk}]) AS Staff_Number,
     CASE
-        WHEN v.[_037] IS NULL THEN 'MISSING-VALPAC'
-        WHEN s.[_037] IS NULL THEN 'MISSING-H16SFTE'
+        WHEN v.[{vk}] IS NULL THEN 'MISSING-VALPAC'
+        WHEN s.[{sk}] IS NULL THEN 'MISSING-H16SFTE'
         ELSE 'AGREE'
     END AS Overall_Result
 FROM [{vt}] v
 FULL OUTER JOIN [{st}] s
-    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(s.[_037] AS NVARCHAR(200)))))
+    ON UPPER(LTRIM(RTRIM(CAST(v.[{vk}] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(s.[{sk}] AS NVARCHAR(200)))))
 ORDER BY Staff_Number;
 
 -- ── Summary ─────────────────────────────────────────────────────
 SELECT
     COUNT(*)                                              AS Total,
-    SUM(CASE WHEN v.[_037] IS NOT NULL AND s.[_037] IS NOT NULL THEN 1 ELSE 0 END) AS Agree,
-    SUM(CASE WHEN s.[_037] IS NULL THEN 1 ELSE 0 END)    AS Missing_In_H16SFTE,
-    SUM(CASE WHEN v.[_037] IS NULL THEN 1 ELSE 0 END)    AS Missing_In_VALPAC
+    SUM(CASE WHEN v.[{vk}] IS NOT NULL AND s.[{sk}] IS NOT NULL THEN 1 ELSE 0 END) AS Agree,
+    SUM(CASE WHEN s.[{sk}] IS NULL THEN 1 ELSE 0 END)    AS Missing_In_H16SFTE,
+    SUM(CASE WHEN v.[{vk}] IS NULL THEN 1 ELSE 0 END)    AS Missing_In_VALPAC
 FROM [{vt}] v
 FULL OUTER JOIN [{st}] s
-    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(s.[_037] AS NVARCHAR(200)))));
+    ON UPPER(LTRIM(RTRIM(CAST(v.[{vk}] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(s.[{sk}] AS NVARCHAR(200)))));
 -- ============================================================".Trim();
+        }
+
+        public async Task<List<string>> GetTableColumnsAsync(string server, string database, string driver, string tableName)
+        {
+            ValidateObjectName(tableName);
+            try
+            {
+                await using var conn = new SqlConnection(BuildConnectionString(server, database, driver));
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tbl ORDER BY ORDINAL_POSITION;";
+                cmd.Parameters.AddWithValue("@tbl", tableName);
+                await using var reader = await cmd.ExecuteReaderAsync();
+                var cols = new List<string>();
+                while (await reader.ReadAsync()) cols.Add(reader.GetString(0));
+                return cols;
+            }
+            catch { return new List<string>(); }
         }
 
         // ── Internal DB helpers ───────────────────────────────────────────────

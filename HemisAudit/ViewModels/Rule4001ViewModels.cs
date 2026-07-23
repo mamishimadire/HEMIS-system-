@@ -9,13 +9,15 @@ namespace HemisAudit.ViewModels
 
     public class Rule4001ValidationRequest
     {
-        public int    ClientId    { get; set; }
-        public int?   RunId       { get; set; }
-        public string Server      { get; set; } = "";
-        public string Database    { get; set; } = "";
-        public string Driver      { get; set; } = "ODBC Driver 17 for SQL Server";
-        public string ValpacTable { get; set; } = "";
-        public string SfteTable   { get; set; } = "";
+        public int    ClientId      { get; set; }
+        public int?   RunId         { get; set; }
+        public string Server        { get; set; } = "";
+        public string Database      { get; set; } = "";
+        public string Driver        { get; set; } = "ODBC Driver 17 for SQL Server";
+        public string ValpacTable   { get; set; } = "";
+        public string SfteTable     { get; set; } = "";
+        public string ValpacKeyCol  { get; set; } = "_037";
+        public string SfteKeyCol    { get; set; } = "_037";
     }
 
     public class Rule4001ValidationSummary
@@ -30,6 +32,8 @@ namespace HemisAudit.ViewModels
         public string  Database               { get; set; } = "";
         public string  ValpacTable            { get; set; } = "";
         public string  SfteTable              { get; set; } = "";
+        public string  ValpacKeyCol           { get; set; } = "_037";
+        public string  SfteKeyCol             { get; set; } = "_037";
         public int     TotalCount             { get; set; }
         public int     AgreeCount             { get; set; }
         public int     MissingInSfteCount     { get; set; }
@@ -74,6 +78,8 @@ namespace HemisAudit.ViewModels
         public string    Driver                    { get; set; } = "ODBC Driver 17 for SQL Server";
         public string    ValpacTable               { get; set; } = "";
         public string    SfteTable                 { get; set; } = "";
+        public string    ValpacKeyCol              { get; set; } = "_037";
+        public string    SfteKeyCol                { get; set; } = "_037";
         public string    CurrentStatus             { get; set; } = "";
         public bool      HasDataAnalystSignoff     { get; set; }
         public bool      CurrentUserHasSignedOff   { get; set; }

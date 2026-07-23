@@ -103,6 +103,17 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
+        public async Task<IActionResult> GetTableColumns([FromBody] Rule40GetColumnsRequest request)
+        {
+            var result = await RequireDataAnalystAsync(async () =>
+            {
+                var columns = await _rule4001.GetTableColumnsAsync(request.Server, request.Database, request.Driver, request.TableName);
+                return new { success = true, columns } as object;
+            });
+            return Json(result);
+        }
+
+        [HttpPost]
         public async Task<IActionResult> VerifyTables([FromBody] Rule4001VerifyRequest request)
         {
             var result = await RequireDataAnalystAsync(async () => await _rule4001.VerifyTablesAsync(request));

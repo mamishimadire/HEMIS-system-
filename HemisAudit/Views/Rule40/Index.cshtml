@@ -53,7 +53,7 @@
             <h1 class="rule-header__title">HEMIS RULE 40: PROF VALPAC vs 2025H16PROF Staff Agreement</h1>
             <p class="rule-header__sub">
                 Full outer reconciliation — <code>VALPAC PROF</code> vs <code>2025H16PROF</code>.
-                Join key: <code>_037</code> (Staff Number). Field-by-field comparison on 12 demographic &amp; HR columns.
+                Configurable join key and field-by-field comparison columns.
             </p>
         </div>
         <div class="rule-header__badge" id="r40StatusBadge" style="display:none"></div>
@@ -98,7 +98,7 @@
             </button>
             <div class="accordion-body" id="body-r40-tables" style="display:none">
                 <div class="info-box info-box--red" style="margin-bottom:12px">
-                    Tables auto-detected on connect. Both use <code>_037</code> as the Staff Number join key.
+                    Tables auto-detected on connect. Set join key columns for both tables and configure comparison fields below.
                 </div>
                 <div class="form-grid">
                     <div class="field-group">
@@ -108,6 +108,14 @@
                     <div class="field-group">
                         <label>ASCII Table (2025H16PROF)</label>
                         <select id="r40AsciiTable" onchange="r40OnAsciiTableChange()"></select>
+                    </div>
+                    <div class="field-group">
+                        <label>VALPAC Join Key Column</label>
+                        <select id="r40ValpacKey" onchange="r40OnValpacKeyChange()"></select>
+                    </div>
+                    <div class="field-group">
+                        <label>ASCII Join Key Column</label>
+                        <select id="r40AsciiKey" onchange="r40OnAsciiKeyChange()"></select>
                     </div>
                 </div>
                 <div id="r40TableOut" class="status-output"></div>
@@ -120,7 +128,7 @@
             </button>
             <div class="accordion-body" id="body-r40-colmap" style="display:none">
                 <div class="alert alert--info" style="margin-bottom:12px">
-                    Map VALPAC columns to ASCII columns for field-by-field comparison. Defaults match the 12 standard HEMIS staff fields.
+                    Map VALPAC columns to ASCII columns for field-by-field comparison. The join key is set in Table Configuration above.
                 </div>
                 <div id="r40ColPairs"></div>
                 <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:.82rem" onclick="r40AddPair()">&#65291; Add pair</button>
@@ -250,6 +258,7 @@ window.r40Tab = function(tab) {
         clientId: @(selectedClientId > 0 ? selectedClientId : 0),
         runId: null, summary: null, pairs: [],
         valpacCols: [], asciiCols: [],
+        valpacKey: '_037', asciiKey: '_037',
         isWorkspaceSaved: false, currentUserHasSignedOff: false, resultsVisible: false,
         currentUserEngagementRole: ''
     };
@@ -291,6 +300,18 @@ window.r40Tab = function(tab) {
         b.className = 'rule-header__badge ' + (String(status).toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail');
     }
 
+    /* ── Key column helpers ── */
+    function fillKeySel(id, cols, currentVal) {
+        var sel = g(id); if (!sel) return;
+        var prev = currentVal || '_037';
+        sel.innerHTML = '<option value="">-- select key --</option>' +
+            (cols || []).map(function(c) {
+                return '<option value="' + esc(c) + '"' + (c === prev ? ' selected' : '') + '>' + esc(c) + '</option>';
+            }).join('');
+    }
+    window.r40OnValpacKeyChange = function() { st.valpacKey = gv('r40ValpacKey') || '_037'; };
+    window.r40OnAsciiKeyChange  = function() { st.asciiKey  = gv('r40AsciiKey')  || '_037'; };
+
     /* ── Column loading ── */
     function loadOneCols(tableName, side) {
         if (!tableName) return;
@@ -299,8 +320,13 @@ window.r40Tab = function(tab) {
             tableName: tableName
         }).then(function(d) {
             if (!d.success || !d.columns) return;
-            if (side === 'valpac') st.valpacCols = d.columns;
-            else                   st.asciiCols  = d.columns;
+            if (side === 'valpac') {
+                st.valpacCols = d.columns;
+                fillKeySel('r40ValpacKey', d.columns, st.valpacKey);
+            } else {
+                st.asciiCols = d.columns;
+                fillKeySel('r40AsciiKey', d.columns, st.asciiKey);
+            }
             renderPairs();
         }).catch(function() {});
     }
@@ -406,6 +432,8 @@ window.r40Tab = function(tab) {
             clientId: st.clientId, runId: st.runId,
             server: gv('r40Server').trim(), database: gv('r40Db'), driver: gv('r40Driver') || 'ODBC Driver 17 for SQL Server',
             valpacTable: gv('r40ValpacTable'), asciiTable: gv('r40AsciiTable'),
+            valpacKeyCol: gv('r40ValpacKey') || st.valpacKey || '_037',
+            asciiKeyCol:  gv('r40AsciiKey')  || st.asciiKey  || '_037',
             pairs: activePairs
         };
     }
@@ -543,6 +571,12 @@ window.r40Tab = function(tab) {
             if (ws.valpacTable) fillSel('r40ValpacTable',[ws.valpacTable], ws.valpacTable);
             if (ws.asciiTable)  fillSel('r40AsciiTable', [ws.asciiTable],  ws.asciiTable);
         }
+        // restore key cols from saved summary
+        var savedValpacKey = (ws.summary && ws.summary.valpacKeyCol) || (ws.valpacKeyCol) || '_037';
+        var savedAsciiKey  = (ws.summary && ws.summary.asciiKeyCol)  || (ws.asciiKeyCol)  || '_037';
+        st.valpacKey = savedValpacKey; st.asciiKey = savedAsciiKey;
+        fillKeySel('r40ValpacKey', st.valpacCols.length ? st.valpacCols : [savedValpacKey], savedValpacKey);
+        fillKeySel('r40AsciiKey',  st.asciiCols.length  ? st.asciiCols  : [savedAsciiKey],  savedAsciiKey);
 
         applyWsMeta(ws);
         var sc = g('r40SignoffComment'); if (sc && ws.currentUserSignoffComment) sc.value = ws.currentUserSignoffComment;

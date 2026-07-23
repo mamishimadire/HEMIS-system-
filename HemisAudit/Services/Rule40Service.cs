@@ -191,14 +191,16 @@ namespace HemisAudit.Services
 
         private async Task<Rule40ValidationSummary> AnalyseAsync(Rule40ValidationRequest req)
         {
-            var pairs   = (req.Pairs?.Count > 0 ? req.Pairs : null) ?? DefaultPairs.ToList();
-            var allCols = pairs.SelectMany(p => new[] { p.ValpacCol, p.AsciiCol }).Append("_037").Distinct().ToList();
+            var valpacKey = string.IsNullOrWhiteSpace(req.ValpacKeyCol) ? "_037" : req.ValpacKeyCol;
+            var asciiKey  = string.IsNullOrWhiteSpace(req.AsciiKeyCol)  ? "_037" : req.AsciiKeyCol;
+            var pairs     = (req.Pairs?.Count > 0 ? req.Pairs : null) ?? DefaultPairs.ToList();
+            var allCols   = pairs.SelectMany(p => new[] { p.ValpacCol, p.AsciiCol }).Append(valpacKey).Append(asciiKey).Distinct().ToList();
 
             await using var conn = new SqlConnection(BuildConnectionString(req.Server, req.Database, req.Driver));
             await conn.OpenAsync();
 
-            var valpacMap = await LoadTableAsync(conn, req.ValpacTable, "_037", allCols);
-            var asciiMap  = await LoadTableAsync(conn, req.AsciiTable,  "_037", allCols);
+            var valpacMap = await LoadTableAsync(conn, req.ValpacTable, valpacKey, allCols);
+            var asciiMap  = await LoadTableAsync(conn, req.AsciiTable,  asciiKey,  allCols);
 
             var allKeys = valpacMap.Keys
                 .Union(asciiMap.Keys, StringComparer.OrdinalIgnoreCase)
@@ -214,8 +216,8 @@ namespace HemisAudit.Services
                 rowNo++;
                 var vRow    = valpacMap.GetValueOrDefault(normKey);
                 var aRow    = asciiMap.GetValueOrDefault(normKey);
-                var staffNo = vRow?.GetValueOrDefault("_037")?.Trim()
-                           ?? aRow?.GetValueOrDefault("_037")?.Trim()
+                var staffNo = vRow?.GetValueOrDefault(valpacKey)?.Trim()
+                           ?? aRow?.GetValueOrDefault(asciiKey)?.Trim()
                            ?? normKey;
 
                 var row   = new Rule40ReconcRow { RowNumber = rowNo, StaffNumber = staffNo };
@@ -262,6 +264,8 @@ namespace HemisAudit.Services
                 Database             = req.Database,
                 ValpacTable          = req.ValpacTable,
                 AsciiTable           = req.AsciiTable,
+                ValpacKeyCol         = valpacKey,
+                AsciiKeyCol          = asciiKey,
                 ClientId             = req.ClientId,
                 TotalCount           = rowNo,
                 AgreeCount           = agreeRows.Count,
@@ -306,7 +310,7 @@ INSERT INTO dbo.ValidationRuns
 OUTPUT INSERTED.RunID
 VALUES
 (@ClientID,@UserID,40,'PROF ASCII Staff Agreement',@Status,@Total,@Pass,@Fail,@Rate,GETDATE(),
- @Server,@Database,@ValpacTable,@AsciiTable,'_037','_037',
+ @Server,@Database,@ValpacTable,@AsciiTable,@ValpacKey,@AsciiKey,
  NULL,@JSON,@RunBy,NULL,NULL,@PrevHash,NULL,1);";
             cmd.Parameters.AddWithValue("@ClientID",    req.ClientId);
             cmd.Parameters.AddWithValue("@UserID",      userId);
@@ -319,6 +323,8 @@ VALUES
             cmd.Parameters.AddWithValue("@Database",    req.Database);
             cmd.Parameters.AddWithValue("@ValpacTable", req.ValpacTable);
             cmd.Parameters.AddWithValue("@AsciiTable",  req.AsciiTable);
+            cmd.Parameters.AddWithValue("@ValpacKey",   string.IsNullOrWhiteSpace(req.ValpacKeyCol) ? "_037" : req.ValpacKeyCol);
+            cmd.Parameters.AddWithValue("@AsciiKey",    string.IsNullOrWhiteSpace(req.AsciiKeyCol)  ? "_037" : req.AsciiKeyCol);
             cmd.Parameters.AddWithValue("@JSON",        json);
             cmd.Parameters.AddWithValue("@RunBy",       (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@PrevHash",    (object?)prevHash ?? DBNull.Value);
@@ -499,8 +505,10 @@ ELSE
 
         public string GenerateSql(Rule40ValidationRequest request)
         {
-            var vt    = Sanitise(request.ValpacTable);
-            var at    = Sanitise(request.AsciiTable);
+            var vt  = Sanitise(request.ValpacTable);
+            var at  = Sanitise(request.AsciiTable);
+            var vk  = Sanitise(string.IsNullOrWhiteSpace(request.ValpacKeyCol) ? "_037" : request.ValpacKeyCol);
+            var ak  = Sanitise(string.IsNullOrWhiteSpace(request.AsciiKeyCol)  ? "_037" : request.AsciiKeyCol);
             var pairs = (request.Pairs?.Count > 0 ? request.Pairs : null) ?? DefaultPairs.ToList();
 
             var colLines = string.Join(",\n", pairs.Select(p =>
@@ -520,36 +528,35 @@ ELSE
 -- HEMIS RULE 40 – PROF VALPAC vs ASCII Staff Agreement
 -- Generated : {DateTime.Now:yyyy-MM-dd HH:mm:ss}
 -- Database  : {request.Database}
--- VALPAC    : [{vt}]
--- ASCII     : [{at}]
--- Key       : _037 (Staff Number)
+-- VALPAC    : [{vt}]  Key: [{vk}]
+-- ASCII     : [{at}]  Key: [{ak}]
 -- Compared  : {string.Join(", ", pairs.Select(p => p.Label))}
 -- ============================================================
 
 SELECT
-    COALESCE(v.[_037], a.[_037]) AS Staff_Number,
+    COALESCE(v.[{vk}], a.[{ak}]) AS Staff_Number,
 {colLines},
     CASE
-        WHEN v.[_037] IS NULL THEN 'MISSING-VALPAC'
-        WHEN a.[_037] IS NULL THEN 'MISSING-ASCII'
+        WHEN v.[{vk}] IS NULL THEN 'MISSING-VALPAC'
+        WHEN a.[{ak}] IS NULL THEN 'MISSING-ASCII'
         WHEN {agreeWhen} THEN 'AGREE'
         ELSE 'DISAGREE'
     END AS Overall_Result
 FROM [{vt}] v
 FULL OUTER JOIN [{at}] a
-    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(a.[_037] AS NVARCHAR(200)))))
+    ON UPPER(LTRIM(RTRIM(CAST(v.[{vk}] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(a.[{ak}] AS NVARCHAR(200)))))
 ORDER BY Staff_Number;
 
 -- ── Summary ─────────────────────────────────────────────────────
 SELECT
     COUNT(*)                                                                                          AS Total,
-    SUM(CASE WHEN v.[_037] IS NOT NULL AND a.[_037] IS NOT NULL AND ({agreeWhen}) THEN 1 ELSE 0 END) AS Agree,
-    SUM(CASE WHEN v.[_037] IS NOT NULL AND a.[_037] IS NOT NULL AND NOT ({agreeWhen}) THEN 1 ELSE 0 END) AS Disagree,
-    SUM(CASE WHEN a.[_037] IS NULL THEN 1 ELSE 0 END) AS Missing_In_ASCII,
-    SUM(CASE WHEN v.[_037] IS NULL THEN 1 ELSE 0 END) AS Missing_In_VALPAC
+    SUM(CASE WHEN v.[{vk}] IS NOT NULL AND a.[{ak}] IS NOT NULL AND ({agreeWhen}) THEN 1 ELSE 0 END) AS Agree,
+    SUM(CASE WHEN v.[{vk}] IS NOT NULL AND a.[{ak}] IS NOT NULL AND NOT ({agreeWhen}) THEN 1 ELSE 0 END) AS Disagree,
+    SUM(CASE WHEN a.[{ak}] IS NULL THEN 1 ELSE 0 END) AS Missing_In_ASCII,
+    SUM(CASE WHEN v.[{vk}] IS NULL THEN 1 ELSE 0 END) AS Missing_In_VALPAC
 FROM [{vt}] v
 FULL OUTER JOIN [{at}] a
-    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(a.[_037] AS NVARCHAR(200)))));
+    ON UPPER(LTRIM(RTRIM(CAST(v.[{vk}] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(a.[{ak}] AS NVARCHAR(200)))));
 -- ============================================================".Trim();
         }
 
